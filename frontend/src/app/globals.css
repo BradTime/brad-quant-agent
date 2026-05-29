@@ -1,8 +1,20 @@
 @import 'tailwindcss';
 
 @theme {
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-hanken);
+  --font-mono: var(--font-plex-mono);
+  --font-display: var(--font-fraunces);
+
+  /* 品牌强调色 + 终端侧栏（独立于明暗主题的固定深色质感） */
+  --color-brand: hsl(38 82% 62%);
+  --color-brand-soft: hsl(38 82% 62% / 0.12);
+  --color-up: hsl(354 70% 54%);
+  --color-down: hsl(150 52% 42%);
+  --color-sidebar: hsl(24 11% 7%);
+  --color-sidebar-elevated: hsl(26 9% 13%);
+  --color-sidebar-foreground: hsl(40 18% 89%);
+  --color-sidebar-muted: hsl(36 7% 56%);
+  --color-sidebar-border: hsl(34 9% 18%);
 
   /* 颜色定义 - 使用 HSL 格式 */
   --color-background: hsl(0 0% 100%);
@@ -89,8 +101,55 @@
   }
 
   body {
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
-    font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-hanken), 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+    font-feature-settings: 'tnum' 1;
   }
+}
+
+/* ===== App shell aesthetics ===== */
+@keyframes appFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.app-fade-up {
+  animation: appFadeUp 0.5s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+/* 细腻噪点（终端胶片质感），用于侧栏 */
+.app-grain::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.045;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* 等宽数字（金额/行情） */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-plex-mono), ui-monospace, monospace;
+}
+
+/* 细滚动条 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(0 0% 50% / 0.35) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: hsl(0 0% 50% / 0.32);
+  border-radius: 9999px;
 }

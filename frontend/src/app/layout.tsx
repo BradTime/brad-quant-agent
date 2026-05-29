@@ -1,23 +1,35 @@
 import type { Metadata } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
+import { Fraunces, Hanken_Grotesk, IBM_Plex_Mono } from 'next/font/google';
 import './globals.css';
 import { ReactQueryProvider } from '@/lib/react-query/provider';
 import { ThemeProvider } from '@/components/theme-provider';
 import { ErrorBoundary } from '@/components/error-boundary';
 
-const geistSans = Geist({
-  variable: '--font-geist-sans',
+const fraunces = Fraunces({
   subsets: ['latin'],
+  variable: '--font-fraunces',
+  weight: ['400', '500', '600', '700'],
+  style: ['normal', 'italic'],
+  display: 'swap',
 });
 
-const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
+const hanken = Hanken_Grotesk({
   subsets: ['latin'],
+  variable: '--font-hanken',
+  weight: ['300', '400', '500', '600', '700'],
+  display: 'swap',
+});
+
+const plexMono = IBM_Plex_Mono({
+  subsets: ['latin'],
+  variable: '--font-plex-mono',
+  weight: ['400', '500', '600'],
+  display: 'swap',
 });
 
 export const metadata: Metadata = {
   title: '量化投资 Agent 平台',
-  description: '基于人工智能的量化投资决策支持系统',
+  description: '基于人工智能的 A 股量化投研终端',
 };
 
 export default function RootLayout({
@@ -28,7 +40,7 @@ export default function RootLayout({
   return (
     <html lang="zh-CN" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${fraunces.variable} ${hanken.variable} ${plexMono.variable} antialiased`}
       >
         <ErrorBoundary>
           <ReactQueryProvider>

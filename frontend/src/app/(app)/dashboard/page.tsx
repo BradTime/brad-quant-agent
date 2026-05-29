@@ -190,8 +190,8 @@ export default function DashboardPage() {
                         <TableRow key={stock.code}>
                           <TableCell className="font-mono">{stock.code}</TableCell>
                           <TableCell className="font-medium">{stock.name}</TableCell>
-                          <TableCell className="text-right font-semibold">
-                            {(stock.price * 100).toFixed(2)}
+                          <TableCell className="text-right font-semibold tnum">
+                            {stock.price.toFixed(2)}
                           </TableCell>
                           <TableCell
                             className={`text-right ${
