@@ -84,3 +84,16 @@ ws.onopen = () => ws.send(JSON.stringify({ type: 'subscribe', payload: { topics:
 
 前端已提供 `src/lib/ws/marketSocket.ts`（自动重连/心跳）与 `src/hooks/useMarketSocket.ts`，Phase 1 看盘页直接复用。
 
+## AI 看盘问答（DeepSeek 工具层，`POST /api/v1/ai/chat`）
+
+DeepSeek 通过 function calling 调用工具（`get_market_overview` / `get_quotes` / `get_kline` / `search_instruments`）取**真实落库/缓存数据**作答，流式 SSE 输出。内置合规守卫：不杜撰、缺数据明说、不输出确定性买卖指令、附免责声明。
+
+- 前置：`.env` 配置 `DEEPSEEK_API_KEY`；接口需认证（Bearer access token）。
+- 响应：`text/event-stream`，每帧 `data: {"delta": "..."}`，结束 `data: [DONE]`。
+
+```bash
+curl -N -X POST localhost:3001/api/v1/ai/chat \
+  -H "Authorization: Bearer <access-token>" -H 'Content-Type: application/json' \
+  -d '{"messages":[{"role":"user","content":"上证指数现在多少？600000 今天表现如何？"}]}'
+```
+

@@ -107,6 +107,23 @@ def get_quotes(
     }
 
 
+def get_quotes_by_codes(codes: list[str]) -> list[dict]:
+    _ensure_stocks()
+    quotes_map = quotes_map_snapshot()
+    out: list[dict] = []
+    for code in codes:
+        canonical = code if "." in code else symbols.to_canonical(symbols.to_six(code))
+        quote = quotes_map.get(canonical)
+        if quote is not None:
+            out.append(quote)
+    return out
+
+
+def get_quote(code: str) -> dict | None:
+    found = get_quotes_by_codes([code])
+    return found[0] if found else None
+
+
 def _index_to_overview(q: QuoteDTO) -> dict:
     return {
         "index": q.code,

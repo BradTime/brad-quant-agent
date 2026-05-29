@@ -1,0 +1,94 @@
+"""Function-calling orchestration with streaming.
+
+Runs up to ``MAX_TOOL_ROUNDS`` rounds: stream the model's output, accumulate any
+tool-call deltas, execute the tools, feed results back, and continue until the
+model produces a final text answer. User-facing text is yielded as it streams.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from collections.abc import Iterator
+
+from app.ai.deepseek import get_client
+from app.ai.prompts import SYSTEM_PROMPT
+from app.ai.tools import TOOLS, execute_tool
+from app.core.config import settings
+
+logger = logging.getLogger(__name__)
+
+MAX_TOOL_ROUNDS = 5
+
+
+def run_chat_stream(user_messages: list[dict]) -> Iterator[str]:
+    client = get_client()
+    messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}, *user_messages]
+
+    for _ in range(MAX_TOOL_ROUNDS):
+        stream = client.chat.completions.create(
+            model=settings.deepseek_model,
+            messages=messages,
+            tools=TOOLS,
+            tool_choice="auto",
+            stream=True,
+        )
+
+        content_parts: list[str] = []
+        tool_calls: dict[int, dict] = {}
+
+        for chunk in stream:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            if getattr(delta, "content", None):
+                content_parts.append(delta.content)
+                yield delta.content
+            for tcd in getattr(delta, "tool_calls", None) or []:
+                slot = tool_calls.setdefault(tcd.index, {"id": None, "name": "", "args": ""})
+                if tcd.id:
+                    slot["id"] = tcd.id
+                fn = getattr(tcd, "function", None)
+                if fn is not None:
+                    if fn.name:
+                        slot["name"] += fn.name
+                    if fn.arguments:
+                        slot["args"] += fn.arguments
+
+        if not tool_calls:
+            return
+
+        messages.append(
+            {
+                "role": "assistant",
+                "content": "".join(content_parts) or None,
+                "tool_calls": [
+                    {
+                        "id": slot["id"],
+                        "type": "function",
+                        "function": {"name": slot["name"], "arguments": slot["args"] or "{}"},
+                    }
+                    for slot in tool_calls.values()
+                ],
+            }
+        )
+
+        for slot in tool_calls.values():
+            try:
+                args = json.loads(slot["args"] or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            try:
+                result = execute_tool(slot["name"], args)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("工具 %s 执行失败: %s", slot["name"], exc)
+                result = {"error": f"工具执行失败: {exc}"}
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": slot["id"],
+                    "content": json.dumps(result, ensure_ascii=False, default=str),
+                }
+            )
+
+    yield "\n（已达到最大工具调用轮数。）"
