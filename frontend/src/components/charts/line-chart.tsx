@@ -82,14 +82,14 @@ export function LineChart({ data, height = 300, title, showLegend = true }: Line
           ? [
               {
                 name: '基准收益',
-                type: 'line',
+                type: 'line' as const,
                 data: data.map((item) => item.benchmark ?? 0),
                 smooth: true,
                 itemStyle: {
                   color: '#94a3b8',
                 },
                 lineStyle: {
-                  type: 'dashed',
+                  type: 'dashed' as const,
                 },
               },
             ]

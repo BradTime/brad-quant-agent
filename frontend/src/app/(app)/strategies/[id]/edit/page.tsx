@@ -33,8 +33,8 @@ type StrategyFormData = z.infer<typeof strategySchema>;
 
 export default function EditStrategyPage() {
   const router = useRouter();
-  const params = useParams();
-  const strategyId = params.id as string;
+  const params = useParams<{ id: string }>();
+  const strategyId = params?.id ?? '';
   const queryClient = useQueryClient();
 
   const { data: strategy, isLoading } = useQuery({

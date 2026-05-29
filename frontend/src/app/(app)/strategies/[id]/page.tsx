@@ -26,8 +26,8 @@ const STRATEGY_STATUS_MAP: Record<string, { label: string; className: string }> 
 
 export default function StrategyDetailPage() {
   const router = useRouter();
-  const params = useParams();
-  const strategyId = params.id as string;
+  const params = useParams<{ id: string }>();
+  const strategyId = params?.id ?? '';
   const queryClient = useQueryClient();
 
   const { data: strategy, isLoading } = useQuery({

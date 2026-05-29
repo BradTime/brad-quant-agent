@@ -18,7 +18,8 @@ export const strategiesApi = {
     const response = await apiClient.get<ApiResponse<{ items: Strategy[]; total: number }>>('/strategies', {
       params,
     });
-    return response;
+    // 响应拦截器已将 body 解包为 ApiResponse 信封；axios 静态类型仍标注为 AxiosResponse，故在此桥接。
+    return response as unknown as ApiResponse<{ items: Strategy[]; total: number }>;
   },
 
   /**

@@ -18,16 +18,16 @@ const STATUS_MAP: Record<string, { label: string; className: string }> = {
 };
 
 export default function BacktestResultPage() {
-  const params = useParams();
-  const backtestId = params.id as string;
+  const params = useParams<{ id: string }>();
+  const backtestId = params?.id ?? '';
 
   const { data: result, isLoading } = useQuery({
     queryKey: ['backtest', backtestId],
     queryFn: () => backtestApi.getResult(backtestId),
     enabled: !!backtestId,
-    refetchInterval: (data) => {
+    refetchInterval: (query) => {
       // 如果回测还在运行中，每5秒刷新一次
-      return data?.status === 'running' ? 5000 : false;
+      return query.state.data?.status === 'running' ? 5000 : false;
     },
   });
 
