@@ -19,6 +19,10 @@ CAP_MINUTE = "minute"
 CAP_ADJUST = "adjust"
 CAP_REALTIME = "realtime"
 CAP_INDEX = "index"
+CAP_CAPITAL_FLOW = "capital_flow"
+CAP_FINANCIALS = "financials"
+CAP_DRAGON_TIGER = "dragon_tiger"
+CAP_NEWS = "news"
 
 
 class InstrumentDTO(BaseModel):
@@ -66,6 +70,47 @@ class AdjustFactorDTO(BaseModel):
     back_adjust_factor: float | None = None
 
 
+class CapitalFlowDTO(BaseModel):
+    code: str
+    trade_date: date
+    main_net: float | None = None
+    main_net_ratio: float | None = None
+    super_large_net: float | None = None
+    large_net: float | None = None
+    medium_net: float | None = None
+    small_net: float | None = None
+
+
+class FinancialSummaryDTO(BaseModel):
+    code: str
+    report_date: date
+    eps: float | None = None
+    bps: float | None = None
+    roe: float | None = None
+    revenue: float | None = None
+    net_profit: float | None = None
+    gross_margin: float | None = None
+
+
+class DragonTigerDTO(BaseModel):
+    code: str
+    trade_date: date
+    name: str = ""
+    reason: str = ""
+    net_buy: float | None = None
+    buy_amount: float | None = None
+    sell_amount: float | None = None
+
+
+class NewsItemDTO(BaseModel):
+    title: str
+    code: str | None = None
+    url: str | None = None
+    source_name: str | None = None
+    published_at: datetime | None = None
+    summary: str | None = None
+
+
 class DataProvider(ABC):
     """Base class. Subclasses set ``name`` + ``capabilities`` and override the
     methods they support; unsupported methods raise ``NotImplementedError``."""
@@ -95,4 +140,16 @@ class DataProvider(ABC):
     def get_adjust_factors(
         self, code: str, start: str, end: str
     ) -> list[AdjustFactorDTO]:
+        raise NotImplementedError
+
+    def get_capital_flow(self, code: str) -> list[CapitalFlowDTO]:
+        raise NotImplementedError
+
+    def get_financials(self, code: str) -> list[FinancialSummaryDTO]:
+        raise NotImplementedError
+
+    def get_dragon_tiger(self, start: str, end: str) -> list[DragonTigerDTO]:
+        raise NotImplementedError
+
+    def get_news(self, code: str, limit: int = 30) -> list[NewsItemDTO]:
         raise NotImplementedError

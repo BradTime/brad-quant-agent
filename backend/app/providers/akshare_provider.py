@@ -9,10 +9,19 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from app.core.dtutil import parse_datetime
+from app.core.dtutil import parse_date, parse_datetime
 from app.core.numeric import to_float
 from app.providers import symbols
-from app.providers.base import BarDTO, DataProvider, InstrumentDTO, QuoteDTO
+from app.providers.base import (
+    BarDTO,
+    CapitalFlowDTO,
+    DataProvider,
+    DragonTigerDTO,
+    FinancialSummaryDTO,
+    InstrumentDTO,
+    NewsItemDTO,
+    QuoteDTO,
+)
 
 
 def _pick(row, *keys):
@@ -22,9 +31,25 @@ def _pick(row, *keys):
     return None
 
 
+def _opt_str(value) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
 class AkShareProvider(DataProvider):
     name = "akshare"
-    capabilities = {"instruments", "daily", "realtime", "index"}
+    capabilities = {
+        "instruments",
+        "daily",
+        "realtime",
+        "index",
+        "capital_flow",
+        "financials",
+        "dragon_tiger",
+        "news",
+    }
 
     def get_instruments(self) -> list[InstrumentDTO]:
         import akshare as ak
@@ -143,6 +168,116 @@ class AkShareProvider(DataProvider):
                     volume=to_float(_pick(row, "成交量")),
                     amount=to_float(_pick(row, "成交额")),
                     ts=now,
+                )
+            )
+        return out
+
+    def get_capital_flow(self, code: str) -> list[CapitalFlowDTO]:
+        import akshare as ak
+
+        six = symbols.to_six(code)
+        market = symbols.split_canonical(code)[1].lower()
+        try:
+            df = ak.stock_individual_fund_flow(stock=six, market=market)
+        except Exception:
+            return []
+        out: list[CapitalFlowDTO] = []
+        for _, row in df.iterrows():
+            d = parse_date(_pick(row, "日期", "date"))
+            if d is None:
+                continue
+            out.append(
+                CapitalFlowDTO(
+                    code=code,
+                    trade_date=d,
+                    main_net=to_float(_pick(row, "主力净流入-净额")),
+                    main_net_ratio=to_float(_pick(row, "主力净流入-净占比")),
+                    super_large_net=to_float(_pick(row, "超大单净流入-净额")),
+                    large_net=to_float(_pick(row, "大单净流入-净额")),
+                    medium_net=to_float(_pick(row, "中单净流入-净额")),
+                    small_net=to_float(_pick(row, "小单净流入-净额")),
+                )
+            )
+        return out
+
+    def get_financials(self, code: str) -> list[FinancialSummaryDTO]:
+        import akshare as ak
+
+        six = symbols.to_six(code)
+        try:
+            df = ak.stock_financial_abstract_ths(symbol=six, indicator="按报告期")
+        except Exception:
+            return []
+        out: list[FinancialSummaryDTO] = []
+        for _, row in df.iterrows():
+            d = parse_date(_pick(row, "报告期", "报告日", "date"))
+            if d is None:
+                continue
+            out.append(
+                FinancialSummaryDTO(
+                    code=code,
+                    report_date=d,
+                    eps=to_float(_pick(row, "基本每股收益", "每股收益")),
+                    bps=to_float(_pick(row, "每股净资产")),
+                    roe=to_float(_pick(row, "净资产收益率")),
+                    revenue=to_float(_pick(row, "营业总收入", "营业收入")),
+                    net_profit=to_float(_pick(row, "净利润")),
+                    gross_margin=to_float(_pick(row, "销售毛利率", "毛利率")),
+                )
+            )
+        return out
+
+    def get_dragon_tiger(self, start: str, end: str) -> list[DragonTigerDTO]:
+        import akshare as ak
+
+        try:
+            df = ak.stock_lhb_detail_em(
+                start_date=start.replace("-", ""), end_date=end.replace("-", "")
+            )
+        except Exception:
+            return []
+        out: list[DragonTigerDTO] = []
+        for _, row in df.iterrows():
+            six = str(_pick(row, "代码", "证券代码") or "").zfill(6)
+            if not six.isdigit():
+                continue
+            d = parse_date(_pick(row, "上榜日", "上榜日期", "交易日"))
+            if d is None:
+                continue
+            out.append(
+                DragonTigerDTO(
+                    code=symbols.to_canonical(six),
+                    trade_date=d,
+                    name=str(_pick(row, "名称", "证券名称") or ""),
+                    reason=str(_pick(row, "上榜原因", "解读") or "")[:160],
+                    net_buy=to_float(_pick(row, "龙虎榜净买额", "净买额")),
+                    buy_amount=to_float(_pick(row, "龙虎榜买入额", "买入额")),
+                    sell_amount=to_float(_pick(row, "龙虎榜卖出额", "卖出额")),
+                )
+            )
+        return out
+
+    def get_news(self, code: str, limit: int = 30) -> list[NewsItemDTO]:
+        import akshare as ak
+
+        six = symbols.to_six(code)
+        try:
+            df = ak.stock_news_em(symbol=six)
+        except Exception:
+            return []
+        out: list[NewsItemDTO] = []
+        for _, row in df.head(limit).iterrows():
+            title = str(_pick(row, "新闻标题", "标题") or "").strip()
+            if not title:
+                continue
+            out.append(
+                NewsItemDTO(
+                    code=code,
+                    title=title[:512],
+                    url=_opt_str(_pick(row, "新闻链接", "链接")),
+                    source_name=_opt_str(_pick(row, "文章来源", "来源")),
+                    published_at=parse_datetime(_pick(row, "发布时间", "时间")),
+                    summary=_opt_str(_pick(row, "新闻内容", "内容")),
                 )
             )
         return out

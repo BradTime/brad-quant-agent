@@ -14,6 +14,7 @@ from sqlalchemy import or_, select
 
 from app.core.config import settings
 from app.db.session import SessionLocal
+from app.models.extra import CapitalFlow, DragonTiger, FinancialSummary, NewsItem
 from app.models.market import DailyBar, Instrument, MinuteBar
 from app.providers import symbols
 from app.providers.base import QuoteDTO
@@ -211,6 +212,103 @@ def search_instruments(search: str | None = None, limit: int = 50) -> list[dict]
                 "exchange": r.exchange,
                 "securityType": r.security_type,
                 "status": r.status,
+            }
+            for r in rows
+        ]
+
+
+def _canonical(code: str) -> str:
+    return code if '.' in code else symbols.to_canonical(symbols.to_six(code))
+
+
+def get_capital_flow(code: str, limit: int = 30) -> list[dict]:
+    canonical = _canonical(code)
+    with SessionLocal() as session:
+        stmt = (
+            select(CapitalFlow)
+            .where(CapitalFlow.code == canonical)
+            .order_by(CapitalFlow.trade_date.desc())
+            .limit(limit)
+        )
+        rows = list(session.execute(stmt).scalars().all())[::-1]
+        return [
+            {
+                "date": r.trade_date.isoformat(),
+                "mainNet": _f(r.main_net),
+                "mainNetRatio": _f(r.main_net_ratio),
+                "superLargeNet": _f(r.super_large_net),
+                "largeNet": _f(r.large_net),
+                "mediumNet": _f(r.medium_net),
+                "smallNet": _f(r.small_net),
+            }
+            for r in rows
+        ]
+
+
+def get_financials(code: str, limit: int = 12) -> list[dict]:
+    canonical = _canonical(code)
+    with SessionLocal() as session:
+        stmt = (
+            select(FinancialSummary)
+            .where(FinancialSummary.code == canonical)
+            .order_by(FinancialSummary.report_date.desc())
+            .limit(limit)
+        )
+        rows = list(session.execute(stmt).scalars().all())
+        return [
+            {
+                "reportDate": r.report_date.isoformat(),
+                "eps": _f(r.eps),
+                "bps": _f(r.bps),
+                "roe": _f(r.roe),
+                "revenue": _f(r.revenue),
+                "netProfit": _f(r.net_profit),
+                "grossMargin": _f(r.gross_margin),
+            }
+            for r in rows
+        ]
+
+
+def get_dragon_tiger(code: str, limit: int = 20) -> list[dict]:
+    canonical = _canonical(code)
+    with SessionLocal() as session:
+        stmt = (
+            select(DragonTiger)
+            .where(DragonTiger.code == canonical)
+            .order_by(DragonTiger.trade_date.desc())
+            .limit(limit)
+        )
+        rows = session.execute(stmt).scalars().all()
+        return [
+            {
+                "date": r.trade_date.isoformat(),
+                "name": r.name,
+                "reason": r.reason,
+                "netBuy": _f(r.net_buy),
+                "buy": _f(r.buy_amount),
+                "sell": _f(r.sell_amount),
+            }
+            for r in rows
+        ]
+
+
+def get_news(code: str, limit: int = 20) -> list[dict]:
+    canonical = _canonical(code)
+    with SessionLocal() as session:
+        stmt = (
+            select(NewsItem)
+            .where(NewsItem.code == canonical)
+            .order_by(NewsItem.published_at.desc().nullslast())
+            .limit(limit)
+        )
+        rows = session.execute(stmt).scalars().all()
+        return [
+            {
+                "title": r.title,
+                "url": r.url,
+                "source": r.source_name,
+                "publishedAt": r.published_at.isoformat() if r.published_at else None,
+                "summary": (r.summary[:200] if r.summary else None),
             }
             for r in rows
         ]

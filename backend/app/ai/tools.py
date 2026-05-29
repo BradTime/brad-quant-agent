@@ -72,6 +72,66 @@ TOOLS: list[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_capital_flow",
+            "description": "获取某只股票近 N 个交易日的资金流向（主力/超大单/大单/中单/小单净额）。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "description": "股票代码，如 600000.SH"},
+                    "limit": {"type": "integer", "description": "返回最近多少日，默认 30"},
+                },
+                "required": ["code"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_financials",
+            "description": "获取某只股票的财务摘要（EPS/BPS/ROE/营收/净利润/毛利率，按报告期）。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string"},
+                    "limit": {"type": "integer", "description": "返回最近多少期，默认 12"},
+                },
+                "required": ["code"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_dragon_tiger",
+            "description": "获取某只股票的龙虎榜上榜记录（日期/原因/净买额）。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string"},
+                    "limit": {"type": "integer"},
+                },
+                "required": ["code"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_news",
+            "description": "获取某只股票的最新新闻/公告（标题/来源/时间/摘要）。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string"},
+                    "limit": {"type": "integer"},
+                },
+                "required": ["code"],
+            },
+        },
+    },
 ]
 
 
@@ -94,6 +154,30 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> dict:
             "instruments": market.search_instruments(
                 str(arguments.get("query", "")),
                 int(arguments.get("limit", 20) or 20),
+            )
+        }
+    if name == "get_capital_flow":
+        return {
+            "capitalFlow": market.get_capital_flow(
+                str(arguments.get("code", "")), int(arguments.get("limit", 30) or 30)
+            )
+        }
+    if name == "get_financials":
+        return {
+            "financials": market.get_financials(
+                str(arguments.get("code", "")), int(arguments.get("limit", 12) or 12)
+            )
+        }
+    if name == "get_dragon_tiger":
+        return {
+            "dragonTiger": market.get_dragon_tiger(
+                str(arguments.get("code", "")), int(arguments.get("limit", 20) or 20)
+            )
+        }
+    if name == "get_news":
+        return {
+            "news": market.get_news(
+                str(arguments.get("code", "")), int(arguments.get("limit", 20) or 20)
             )
         }
     return {"error": f"未知工具: {name}"}

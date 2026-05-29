@@ -47,6 +47,24 @@ def main(argv: list[str] | None = None) -> int:
     p_q.add_argument("--codes", required=True, help="逗号分隔，如 600000.SH,000001.SZ")
     p_q.add_argument("--provider", default=None)
 
+    p_cf = sub.add_parser("ingest-capital-flow", help="拉取并落库个股资金流")
+    p_cf.add_argument("--code", required=True)
+    p_cf.add_argument("--provider", default=None)
+
+    p_fin = sub.add_parser("ingest-financials", help="拉取并落库财务摘要")
+    p_fin.add_argument("--code", required=True)
+    p_fin.add_argument("--provider", default=None)
+
+    p_lhb = sub.add_parser("ingest-dragon-tiger", help="拉取并落库龙虎榜")
+    p_lhb.add_argument("--start", required=True)
+    p_lhb.add_argument("--end", required=True)
+    p_lhb.add_argument("--provider", default=None)
+
+    p_news = sub.add_parser("ingest-news", help="拉取并落库个股新闻/公告")
+    p_news.add_argument("--code", required=True)
+    p_news.add_argument("--limit", type=int, default=30)
+    p_news.add_argument("--provider", default=None)
+
     args = parser.parse_args(argv)
 
     if args.cmd == "init-db":
@@ -76,6 +94,18 @@ def main(argv: list[str] | None = None) -> int:
         for q in quotes:
             print(f"{q.code} {q.name} 价:{q.price} 涨跌幅:{q.change_percent}%")
         print(f"（共 {len(quotes)} 条）")
+    elif args.cmd == "ingest-capital-flow":
+        n = ingest.ingest_capital_flow(args.code, args.provider)
+        print(f"✅ {args.code} 资金流落库 {n} 条")
+    elif args.cmd == "ingest-financials":
+        n = ingest.ingest_financials(args.code, args.provider)
+        print(f"✅ {args.code} 财务摘要落库 {n} 条")
+    elif args.cmd == "ingest-dragon-tiger":
+        n = ingest.ingest_dragon_tiger(args.start, args.end, args.provider)
+        print(f"✅ 龙虎榜落库 {n} 条")
+    elif args.cmd == "ingest-news":
+        n = ingest.ingest_news(args.code, args.limit, args.provider)
+        print(f"✅ {args.code} 新闻落库 {n} 条")
     return 0
 
 
