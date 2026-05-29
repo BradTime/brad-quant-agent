@@ -30,9 +30,19 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 1440
 
+    # 行情调度器
+    enable_scheduler: bool = True
+    quote_refresh_seconds: int = 10
+    index_refresh_seconds: int = 30
+    index_codes: str = "000001.SH,399001.SZ,399006.SZ"
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def index_code_list(self) -> list[str]:
+        return [c.strip() for c in self.index_codes.split(",") if c.strip()]
 
 
 @lru_cache

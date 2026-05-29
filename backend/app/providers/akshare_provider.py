@@ -24,7 +24,7 @@ def _pick(row, *keys):
 
 class AkShareProvider(DataProvider):
     name = "akshare"
-    capabilities = {"instruments", "daily", "realtime"}
+    capabilities = {"instruments", "daily", "realtime", "index"}
 
     def get_instruments(self) -> list[InstrumentDTO]:
         import akshare as ak
@@ -108,3 +108,41 @@ class AkShareProvider(DataProvider):
                 )
             )
         return bars
+
+    def get_index_quotes(self, codes: list[str]) -> list[QuoteDTO]:
+        import akshare as ak
+
+        df = None
+        for kwargs in ({"symbol": "沪深重要指数"}, {}):
+            try:
+                df = ak.stock_zh_index_spot_em(**kwargs)
+                break
+            except Exception:
+                continue
+        if df is None:
+            return []
+        code_map = {symbols.to_six(c): c for c in codes}
+        now = datetime.now()
+        out: list[QuoteDTO] = []
+        for _, row in df.iterrows():
+            six = str(_pick(row, "代码", "code") or "").zfill(6)
+            canonical = code_map.get(six)
+            if canonical is None:
+                continue
+            out.append(
+                QuoteDTO(
+                    code=canonical,
+                    name=str(_pick(row, "名称", "name") or ""),
+                    price=to_float(_pick(row, "最新价")),
+                    change=to_float(_pick(row, "涨跌额")),
+                    change_percent=to_float(_pick(row, "涨跌幅")),
+                    open=to_float(_pick(row, "今开", "开盘")),
+                    high=to_float(_pick(row, "最高")),
+                    low=to_float(_pick(row, "最低")),
+                    prev_close=to_float(_pick(row, "昨收")),
+                    volume=to_float(_pick(row, "成交量")),
+                    amount=to_float(_pick(row, "成交额")),
+                    ts=now,
+                )
+            )
+        return out

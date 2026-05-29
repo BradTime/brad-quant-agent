@@ -23,7 +23,8 @@ _DEFAULT_ROUTE: dict[str, list[str]] = {
     "daily": ["baostock", "akshare", "efinance"],
     "minute": ["baostock"],
     "adjust": ["baostock"],
-    "realtime": ["efinance", "akshare"],
+    "realtime": ["akshare", "efinance"],
+    "index": ["akshare"],
 }
 
 _instances: dict[str, DataProvider] = {}
@@ -35,11 +36,15 @@ def get_provider(name: str) -> DataProvider:
     return _instances.setdefault(name, _REGISTRY[name]())
 
 
-def get_provider_for(capability: str) -> DataProvider:
+def get_providers_for(capability: str) -> list[DataProvider]:
     route = _DEFAULT_ROUTE.get(capability)
     if not route:
         raise KeyError(f"未知能力: {capability}")
-    return get_provider(route[0])
+    return [get_provider(name) for name in route]
+
+
+def get_provider_for(capability: str) -> DataProvider:
+    return get_providers_for(capability)[0]
 
 
 def available_providers() -> list[str]:

@@ -18,6 +18,7 @@ CAP_DAILY = "daily"
 CAP_MINUTE = "minute"
 CAP_ADJUST = "adjust"
 CAP_REALTIME = "realtime"
+CAP_INDEX = "index"
 
 
 class InstrumentDTO(BaseModel):
@@ -86,6 +87,9 @@ class DataProvider(ABC):
         raise NotImplementedError
 
     def get_realtime_quotes(self, codes: list[str] | None = None) -> list[QuoteDTO]:
+        raise NotImplementedError
+
+    def get_index_quotes(self, codes: list[str]) -> list[QuoteDTO]:
         raise NotImplementedError
 
     def get_adjust_factors(
