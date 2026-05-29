@@ -1,0 +1,28 @@
+# 本地开发编排（Phase 0 起步）。
+# 现仅提供 Postgres；frontend / backend 服务待各自 Dockerfile 就绪后取消注释。
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: quant-agent-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: quant_agent
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  # backend:
+  #   build: ./backend
+  #   env_file: ./backend/.env
+  #   ports: ["3001:3001"]
+  #   depends_on: [postgres]
+
+  # frontend:
+  #   build: ./frontend
+  #   ports: ["3000:3000"]
+  #   depends_on: [backend]
+
+volumes:
+  pgdata:

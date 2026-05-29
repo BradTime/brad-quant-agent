@@ -1,0 +1,33 @@
+# Web framework
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+python-dotenv
+
+# HTTP / data utils
+httpx
+pandas
+
+# Database
+SQLAlchemy
+psycopg2-binary
+alembic
+
+# A 股数据源（DataProvider 实现）
+akshare
+baostock
+efinance
+
+# AI（DeepSeek 为 OpenAI 兼容协议）
+openai
+
+# Auth
+python-jose[cryptography]
+passlib[bcrypt]
+
+# 行情拉取调度器
+APScheduler
+
+# 后置（按需启用）：
+# redis
