@@ -1,5 +1,6 @@
-# 本地开发编排（Phase 0 起步）。
-# 现仅提供 Postgres；frontend / backend 服务待各自 Dockerfile 就绪后取消注释。
+# 本地一键编排：Postgres + 后端(FastAPI) + 前端(Next.js)
+# 用法：docker compose up --build
+# 说明：后端镜像构建需联网装 pip 依赖；前端镜像构建需联网拉 Google 字体。
 services:
   postgres:
     image: postgres:16-alpine
@@ -12,17 +13,35 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
-  # backend:
-  #   build: ./backend
-  #   env_file: ./backend/.env
-  #   ports: ["3001:3001"]
-  #   depends_on: [postgres]
+  backend:
+    build: ./backend
+    container_name: quant-agent-backend
+    # backend/.env 提供 DEEPSEEK_API_KEY、JWT_SECRET 等；下面的 environment 覆盖容器内连接地址。
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/quant_agent
+      CORS_ORIGINS: http://localhost:3000
+    command: sh -c "python -m app.cli init-db && uvicorn app.main:app --host 0.0.0.0 --port 3001"
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
-  # frontend:
-  #   build: ./frontend
-  #   ports: ["3000:3000"]
-  #   depends_on: [backend]
+  frontend:
+    build: ./frontend
+    container_name: quant-agent-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
 
 volumes:
   pgdata:
