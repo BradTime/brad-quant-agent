@@ -107,17 +107,28 @@ def get_quotes(
     }
 
 
+def _index_to_overview(q: QuoteDTO) -> dict:
+    return {
+        "index": q.code,
+        "name": q.name,
+        "value": q.price or 0,
+        "change": q.change or 0,
+        "changePercent": q.change_percent or 0,
+    }
+
+
 def get_market_overview() -> list[dict]:
-    return [
-        {
-            "index": q.code,
-            "name": q.name,
-            "value": q.price or 0,
-            "change": q.change or 0,
-            "changePercent": q.change_percent or 0,
-        }
-        for q in _ensure_indices()
-    ]
+    return [_index_to_overview(q) for q in _ensure_indices()]
+
+
+def indices_snapshot() -> list[dict]:
+    """Cache-only（不触发实时拉取），可安全用于 WS 异步推送循环。"""
+    return [_index_to_overview(q) for q in quote_cache.cache.get_indices()]
+
+
+def quotes_map_snapshot() -> dict[str, dict]:
+    """Cache-only：{canonical_code: stock_quote_dict}。"""
+    return {q.code: _quote_to_stock(q) for q in quote_cache.cache.get_stocks()}
 
 
 def get_indexes_as_stockquotes() -> list[dict]:

@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     enable_scheduler: bool = True
     quote_refresh_seconds: int = 10
     index_refresh_seconds: int = 30
+    ws_push_seconds: int = 3
     index_codes: str = "000001.SH,399001.SZ,399006.SZ"
 
     @property

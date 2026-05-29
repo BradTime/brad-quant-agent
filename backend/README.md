@@ -65,3 +65,22 @@ python -m app.cli quotes --codes 600000.SH,000001.SZ
 
 数据说明：日/分钟K线落库为**不复权**原始价，复权由 `adjust_factors` 表按需计算，以保证回测的时点正确性（PIT）。
 
+## WebSocket 行情推送（`/ws/v1`）
+
+调度器把数据源刷新进内存缓存；一个异步推送循环每 `WS_PUSH_SECONDS`（默认 3s）把订阅主题的最新缓存推给客户端（只读缓存、不发起网络请求，故不阻塞）。
+
+- 连接：`ws://localhost:3001/ws/v1`（可选 `?token=<access JWT>`，提供且无效则关闭）
+- 客户端 → 服务端：`{"type":"subscribe","payload":{"topics":[...]}}` / `unsubscribe` / `{"type":"ping"}`
+- 服务端 → 客户端：`{"type":"update","topic","payload","timestamp"}` / `pong` / `subscribed` / `welcome` / `error`
+- 主题：`market.indices`（指数概览）、`market.quote.<code>`（如 `market.quote.600000.SH`）
+
+浏览器控制台快速验证：
+
+```js
+const ws = new WebSocket('ws://localhost:3001/ws/v1');
+ws.onmessage = (e) => console.log(JSON.parse(e.data));
+ws.onopen = () => ws.send(JSON.stringify({ type: 'subscribe', payload: { topics: ['market.indices', 'market.quote.600000.SH'] } }));
+```
+
+前端已提供 `src/lib/ws/marketSocket.ts`（自动重连/心跳）与 `src/hooks/useMarketSocket.ts`，Phase 1 看盘页直接复用。
+
