@@ -8,6 +8,8 @@ lookups read from Postgres (ingest first via the CLI).
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from datetime import datetime
 from decimal import Decimal
 
@@ -49,11 +51,57 @@ def _quote_to_stock(q: QuoteDTO) -> dict:
     }
 
 
+# 免费实时源（akshare/efinance）是无超时的阻塞网络调用，限流时会无限挂起，
+# 拖死调度任务与 HTTP 请求。这里用守护线程 + join 超时做硬降级：超时即返回 None
+# （上层据此保持缓存为冷 / 选股返回空，并按 SPEC 标注「实时不可用」）。
+# _rt_inflight 记录各类抓取的开始时间：同一类抓取在其超时窗口内不重复发起，
+# 把被丢弃的卡死线程数限制在 ~1，源恢复后窗口过期会自动重试（自愈）。
+_rt_inflight: dict[str, float] = {}
+_rt_lock = threading.Lock()
+
+
+def _fetch_with_timeout(kind: str, fn, timeout: float, label: str):
+    if timeout <= 0:
+        return fn()
+    now = time.monotonic()
+    with _rt_lock:
+        started = _rt_inflight.get(kind)
+        if started is not None and (now - started) < timeout:
+            logger.debug("实时源 %s 上次抓取仍在超时窗口内，跳过本次（降级为空）", label)
+            return None
+        _rt_inflight[kind] = now
+
+    box: dict = {}
+
+    def runner() -> None:
+        try:
+            box["value"] = fn()
+        except Exception as exc:  # noqa: BLE001
+            box["error"] = exc
+        finally:
+            with _rt_lock:
+                if _rt_inflight.get(kind) == now:
+                    _rt_inflight.pop(kind, None)
+
+    t = threading.Thread(target=runner, name=f"rt-{kind}", daemon=True)
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        logger.warning("实时源 %s 抓取超时 %.0fs，降级为空", label, timeout)
+        return None
+    if "error" in box:
+        raise box["error"]
+    return box.get("value")
+
+
 def _fetch_quotes() -> list[QuoteDTO]:
     """Try realtime providers in order; first non-empty result wins."""
+    timeout = settings.realtime_fetch_timeout_seconds
     for provider in get_providers_for("realtime"):
         try:
-            quotes = provider.get_realtime_quotes()
+            quotes = _fetch_with_timeout(
+                "quotes", provider.get_realtime_quotes, timeout, provider.name
+            )
             if quotes:
                 return quotes
         except Exception as exc:  # noqa: BLE001
@@ -62,9 +110,15 @@ def _fetch_quotes() -> list[QuoteDTO]:
 
 
 def _fetch_indices() -> list[QuoteDTO]:
+    timeout = settings.realtime_fetch_timeout_seconds
     for provider in get_providers_for("index"):
         try:
-            quotes = provider.get_index_quotes(settings.index_code_list)
+            quotes = _fetch_with_timeout(
+                "indices",
+                lambda p=provider: p.get_index_quotes(settings.index_code_list),
+                timeout,
+                provider.name,
+            )
             if quotes:
                 return quotes
         except Exception as exc:  # noqa: BLE001

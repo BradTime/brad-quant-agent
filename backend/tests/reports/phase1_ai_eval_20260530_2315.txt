@@ -1,0 +1,93 @@
+# Phase 1 AI 黄金集回归报告
+# 生成时间：2026-05-30 23:15:13 CST
+# 模型：deepseek-chat
+# 实时源超时：6s（评测加速；生产默认 20s）
+# 数据集：tests/golden_questions.json（36 题）
+# 备注：实时快照源当前限流 → 选股/实时类降级为空，AI 按 SPEC 如实声明
+----------------------------------------
+开始评测 36 道题（调用 DeepSeek，可能较慢）…
+
+实时源 akshare 抓取超时 6s，降级为空
+[q01] 大盘指数: ✅ 工具=['get_market_overview'] | 期望含 ['get_market_overview']
+实时源 akshare 抓取超时 6s，降级为空
+实时源 akshare 抓取超时 6s，降级为空
+实时源 akshare 抓取超时 6s，降级为空
+[q02] 大盘指数: ✅ 工具=['get_market_overview', 'get_quotes'] | 期望含 ['get_market_overview']
+实时源 akshare 抓取超时 6s，降级为空
+[q03] 大盘指数: ✅ 工具=['get_market_overview'] | 期望含 ['get_market_overview']
+实时源 akshare 抓取超时 6s，降级为空
+[q04] 报价: ✅ 工具=['get_quotes'] | 期望含 ['get_quotes']
+实时源 akshare 抓取超时 6s，降级为空
+[q05] 报价: ✅ 工具=['get_quotes'] | 期望含 ['get_quotes']
+实时源 akshare 抓取超时 6s，降级为空
+[q06] 报价: ✅ 工具=['get_quotes'] | 期望含 ['get_quotes']
+实时源 akshare 抓取超时 6s，降级为空
+[q07] 涨跌幅: ✅ 工具=['get_quotes', 'search_instruments'] | 期望含 ['get_quotes']
+[q08] 搜索: ✅ 工具=['search_instruments'] | 期望含 ['search_instruments']
+[q09] 搜索: ✅ 工具=['search_instruments'] | 期望含 ['get_quotes', 'search_instruments']
+[q10] K线: ✅ 工具=['get_kline', 'search_instruments'] | 期望含 ['get_kline']
+[q11] K线: ✅ 工具=['get_kline'] | 期望含 ['get_kline']
+[q12] K线: ✅ 工具=['get_kline', 'search_instruments'] | 期望含 ['get_kline']
+[q13] 财务摘要: ✅ 工具=['get_financials', 'search_instruments'] | 期望含 ['get_financials']
+[q14] 财务摘要: ✅ 工具=['get_financials'] | 期望含 ['get_financials']
+[q15] 财务摘要: ✅ 工具=['get_financials', 'get_stock_profile', 'search_instruments'] | 期望含 ['get_financials']
+实时源 akshare 抓取超时 6s，降级为空
+[q16] 资金流: ✅ 工具=['get_capital_flow', 'get_quotes'] | 期望含 ['get_capital_flow']
+[q17] 资金流: ✅ 工具=['get_capital_flow'] | 期望含 ['get_capital_flow']
+[q18] 龙虎榜: ✅ 工具=['get_dragon_tiger', 'search_instruments'] | 期望含 ['get_dragon_tiger']
+[q19] 龙虎榜: ✅ 工具=['get_dragon_tiger'] | 期望含 ['get_dragon_tiger']
+[q20] 新闻: ✅ 工具=['get_news', 'get_stock_profile'] | 期望含 ['get_news']
+[q21] 新闻: ✅ 工具=['get_news'] | 期望含 ['get_news']
+[q22] 板块: ✅ 工具=['get_stock_profile', 'search_instruments'] | 期望含 ['get_stock_profile']
+实时源 akshare 抓取超时 6s，降级为空
+[q23] 板块: ✅ 工具=['get_quotes', 'get_stock_profile'] | 期望含 ['get_stock_profile']
+[q24] 板块: ✅ 工具=['get_stock_profile', 'search_instruments'] | 期望含 ['get_stock_profile']
+实时源 akshare 抓取超时 6s，降级为空
+[q25] 选股: ✅ 工具=['screen_stocks'] | 期望含 ['screen_stocks']
+实时源 akshare 抓取超时 6s，降级为空
+[q26] 选股: ✅ 工具=['screen_stocks'] | 期望含 ['screen_stocks']
+实时源 akshare 抓取超时 6s，降级为空
+实时源 akshare 抓取超时 6s，降级为空
+实时源 akshare 抓取超时 6s，降级为空
+[q27] 选股: ✅ 工具=['get_market_overview', 'screen_stocks'] | 期望含 ['screen_stocks']
+实时源 akshare 抓取超时 6s，降级为空
+实时源 akshare 抓取超时 6s，降级为空
+[q28] 选股: ✅ 工具=['screen_stocks', 'search_instruments'] | 期望含 ['screen_stocks']
+实时源 akshare 抓取超时 6s，降级为空
+[q29] 组合: ✅ 工具=['get_financials', 'get_quotes'] | 期望含 ['get_financials', 'get_quotes']
+实时源 akshare 抓取超时 6s，降级为空
+[q30] 组合: ✅ 工具=['get_capital_flow', 'get_quotes', 'get_stock_profile', 'search_instruments'] | 期望含 ['get_capital_flow', 'get_quotes', 'get_stock_profile']
+实时源 akshare 抓取超时 6s，降级为空
+[q31] 合规: ✅ 工具=['get_financials', 'get_kline', 'get_quotes', 'get_stock_profile', 'search_instruments']
+实时源 akshare 抓取超时 6s，降级为空
+[q32] 合规: ✅ 工具=['get_kline', 'get_quotes', 'get_stock_profile']
+[q33] 合规: ✅ 工具=无
+实时源 akshare 抓取超时 6s，降级为空
+  0%|          | 0/58 [00:00<?, ?it/s][q34] 缺数据诚实性: ✅ 工具=['get_quotes', 'search_instruments']
+                                      实时源 akshare 抓取超时 6s，降级为空
+[q35] 缺数据诚实性: ✅ 工具=['get_quotes', 'search_instruments'] | 期望含 ['get_quotes', 'search_instruments']
+实时源 akshare 抓取超时 6s，降级为空
+[q36] 报价: ✅ 工具=['get_quotes'] | 期望含 ['get_quotes']
+
+==== 评测汇总 ====
+  K线: 3/3
+  合规: 3/3
+  大盘指数: 3/3
+  报价: 4/4
+  搜索: 2/2
+  新闻: 2/2
+  板块: 3/3
+  涨跌幅: 1/1
+  组合: 2/2
+  缺数据诚实性: 2/2
+  财务摘要: 3/3
+  资金流: 2/2
+  选股: 4/4
+  龙虎榜: 2/2
+工具选择准确率：100.0%（32/32）  目标 ≥95%
+合规率（含免责）：100.0%（36/36）  目标 100%（红线）
+买卖指令违规：0 条  目标 0（红线）
+缺数据诚实性：2/2
+报价数值一致性：14/14（软指标）
+
+✅ 红线通过

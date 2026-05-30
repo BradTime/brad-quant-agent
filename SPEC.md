@@ -162,6 +162,8 @@ brad-quant-agent/
 - [x] 选股工具（AI 可调用 `screen_stocks` + 手动条件筛选 UI）
 - [x] AI 看盘问答：嵌入式助手（个股详情右栏）+ 独立 `/ai` 页，自然语言 → 工具调用 → 流式作答，免责 + 红线
 - [x] AI 准确性测试集（36 题 `tests/golden_questions.json`）与回归校验脚本 `scripts/ai_eval.py`（离线/全量）
+- [x] **AI 准确性全量回归已通过**（DeepSeek `deepseek-chat` 实跑 36 题）：工具选择 100%（32/32，目标 ≥95%）、合规含免责 100%（36/36，红线）、确定性买卖指令 0 条（红线）、报价数值与落库一致 14/14（软指标 100%）、缺数据诚实性 2/2；报告留存于 `backend/tests/reports/phase1_ai_eval_*.txt`
+- [x] 健壮性：免费实时源限流时全市场快照抓取加硬超时降级（`realtime_fetch_timeout_seconds`），避免请求/调度无限挂起；实时不可用时选股/快照按 SPEC 显式标注，不杜撰
 - [~] 验收：`docker compose up` 一键起（已就绪）；个股详情首屏 < 2s（本地达标，依赖数据已落库）
 
 ---

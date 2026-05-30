@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     index_refresh_seconds: int = 30
     ws_push_seconds: int = 3
     index_codes: str = "000001.SH,399001.SZ,399006.SZ"
+    # 免费实时源限流/卡顿时的硬超时（秒）：超时即降级为空，避免请求/任务无限挂起。
+    realtime_fetch_timeout_seconds: int = 20
 
     @property
     def cors_origin_list(self) -> list[str]:
