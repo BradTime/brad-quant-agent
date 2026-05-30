@@ -1,6 +1,6 @@
 """AI 看盘问答端点（SSE 流式，需认证）。
 
-请求体：``{"messages":[{"role":"user","content":"..."}]}``
+请求体：``{"messages":[{"role":"user","content":"..."}], "contextHint": "..."}``
 响应：``text/event-stream``，每帧 ``data: {"delta": "..."}``，结束 ``data: [DONE]``。
 """
 
@@ -19,9 +19,20 @@ from app.schemas.ai import ChatRequest
 router = APIRouter()
 
 
+def _to_llm_messages(body: ChatRequest) -> list[dict]:
+    """Build LLM messages: optional context (server field) + user/assistant only."""
+    out: list[dict] = []
+    hint = (body.contextHint or "").strip()
+    if hint:
+        out.append({"role": "system", "content": hint})
+    for m in body.messages:
+        out.append({"role": m.role, "content": m.content})
+    return out
+
+
 @router.post("/chat")
 def chat(body: ChatRequest, user: User = Depends(get_current_user)) -> StreamingResponse:
-    messages = [{"role": m.role, "content": m.content} for m in body.messages]
+    messages = _to_llm_messages(body)
 
     def event_stream():
         try:

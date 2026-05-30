@@ -11,6 +11,7 @@ import json
 import logging
 from collections.abc import Iterator
 
+from app.ai.compliance import enforce_compliance, stream_compliance_tail
 from app.ai.deepseek import get_client
 from app.ai.prompts import SYSTEM_PROMPT
 from app.ai.tools import TOOLS, execute_tool
@@ -19,20 +20,66 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_ROUNDS = 5
+MAX_ROUNDS_NOTE = "\n（已达到最大工具调用轮数。）"
+
+
+def _build_messages(user_messages: list[dict]) -> list[dict]:
+    return [{"role": "system", "content": SYSTEM_PROMPT}, *user_messages]
+
+
+def _append_tool_results(
+    messages: list[dict],
+    assistant_content: str | None,
+    calls,
+) -> tuple[list[str], list[dict]]:
+    tools_called: list[str] = []
+    tool_results: list[dict] = []
+
+    messages.append(
+        {
+            "role": "assistant",
+            "content": assistant_content or None,
+            "tool_calls": [
+                {
+                    "id": c.id,
+                    "type": "function",
+                    "function": {"name": c.function.name, "arguments": c.function.arguments},
+                }
+                for c in calls
+            ],
+        }
+    )
+    for c in calls:
+        name = c.function.name
+        tools_called.append(name)
+        try:
+            args = json.loads(c.function.arguments or "{}")
+        except json.JSONDecodeError:
+            args = {}
+        try:
+            result = execute_tool(name, args)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("工具 %s 执行失败: %s", name, exc)
+            result = {"error": f"工具执行失败: {exc}"}
+        tool_results.append({"name": name, "args": args, "result": result})
+        messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": c.id,
+                "content": json.dumps(result, ensure_ascii=False, default=str),
+            }
+        )
+    return tools_called, tool_results
 
 
 def run_chat_collect(user_messages: list[dict]) -> dict:
-    """Non-streaming variant for evaluation/regression: returns the final answer
-    plus the tools the model invoked and their results.
-
-    Shape: ``{"answer": str, "toolsCalled": [str], "toolResults": [{name, result}]}``
-    """
+    """Non-streaming variant for evaluation/regression."""
     answer_parts: list[str] = []
     tools_called: list[str] = []
     tool_results: list[dict] = []
 
     client = get_client()
-    messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}, *user_messages]
+    messages = _build_messages(user_messages)
 
     for _ in range(MAX_TOOL_ROUNDS):
         completion = client.chat.completions.create(
@@ -42,8 +89,7 @@ def run_chat_collect(user_messages: list[dict]) -> dict:
             tool_choice="auto",
             stream=False,
         )
-        choice = completion.choices[0]
-        msg = choice.message
+        msg = completion.choices[0].message
         if msg.content:
             answer_parts.append(msg.content)
 
@@ -51,42 +97,12 @@ def run_chat_collect(user_messages: list[dict]) -> dict:
         if not calls:
             break
 
-        messages.append(
-            {
-                "role": "assistant",
-                "content": msg.content or None,
-                "tool_calls": [
-                    {
-                        "id": c.id,
-                        "type": "function",
-                        "function": {"name": c.function.name, "arguments": c.function.arguments},
-                    }
-                    for c in calls
-                ],
-            }
-        )
-        for c in calls:
-            name = c.function.name
-            tools_called.append(name)
-            try:
-                args = json.loads(c.function.arguments or "{}")
-            except json.JSONDecodeError:
-                args = {}
-            try:
-                result = execute_tool(name, args)
-            except Exception as exc:  # noqa: BLE001
-                result = {"error": f"工具执行失败: {exc}"}
-            tool_results.append({"name": name, "args": args, "result": result})
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": c.id,
-                    "content": json.dumps(result, ensure_ascii=False, default=str),
-                }
-            )
+        called, results = _append_tool_results(messages, msg.content, calls)
+        tools_called.extend(called)
+        tool_results.extend(results)
 
     return {
-        "answer": "".join(answer_parts),
+        "answer": enforce_compliance("".join(answer_parts)),
         "toolsCalled": tools_called,
         "toolResults": tool_results,
     }
@@ -94,7 +110,18 @@ def run_chat_collect(user_messages: list[dict]) -> dict:
 
 def run_chat_stream(user_messages: list[dict]) -> Iterator[str]:
     client = get_client()
-    messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}, *user_messages]
+    messages = _build_messages(user_messages)
+    streamed: list[str] = []
+
+    def emit(piece: str) -> str:
+        streamed.append(piece)
+        return piece
+
+    def finish() -> Iterator[str]:
+        tail = stream_compliance_tail("".join(streamed))
+        if tail:
+            streamed.append(tail)
+            yield tail
 
     for _ in range(MAX_TOOL_ROUNDS):
         stream = client.chat.completions.create(
@@ -114,7 +141,7 @@ def run_chat_stream(user_messages: list[dict]) -> Iterator[str]:
             delta = chunk.choices[0].delta
             if getattr(delta, "content", None):
                 content_parts.append(delta.content)
-                yield delta.content
+                yield emit(delta.content)
             for tcd in getattr(delta, "tool_calls", None) or []:
                 slot = tool_calls.setdefault(tcd.index, {"id": None, "name": "", "args": ""})
                 if tcd.id:
@@ -127,6 +154,7 @@ def run_chat_stream(user_messages: list[dict]) -> Iterator[str]:
                         slot["args"] += fn.arguments
 
         if not tool_calls:
+            yield from finish()
             return
 
         messages.append(
@@ -143,7 +171,6 @@ def run_chat_stream(user_messages: list[dict]) -> Iterator[str]:
                 ],
             }
         )
-
         for slot in tool_calls.values():
             try:
                 args = json.loads(slot["args"] or "{}")
@@ -162,4 +189,5 @@ def run_chat_stream(user_messages: list[dict]) -> Iterator[str]:
                 }
             )
 
-    yield "\n（已达到最大工具调用轮数。）"
+    yield emit(MAX_ROUNDS_NOTE)
+    yield from finish()

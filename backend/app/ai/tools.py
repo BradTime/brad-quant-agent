@@ -161,7 +161,10 @@ TOOLS: list[dict] = [
                     "priceMax": {"type": "number", "description": "最高现价(元)"},
                     "changePercentMin": {"type": "number", "description": "最低涨跌幅(%)"},
                     "changePercentMax": {"type": "number", "description": "最高涨跌幅(%)"},
+                    "volumeMin": {"type": "number", "description": "最低成交量"},
+                    "volumeMax": {"type": "number", "description": "最高成交量"},
                     "amountMin": {"type": "number", "description": "最低成交额(元)"},
+                    "amountMax": {"type": "number", "description": "最高成交额(元)"},
                     "keyword": {"type": "string", "description": "名称或代码包含的关键词"},
                     "limit": {"type": "integer", "description": "返回条数上限，默认 30"},
                     "sortBy": {
@@ -195,7 +198,12 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> dict:
         return {"indices": market.get_market_overview()}
     if name == "get_quotes":
         codes = arguments.get("codes") or []
-        return {"quotes": market.get_quotes_by_codes(list(codes))}
+        quotes: list[dict] = []
+        for raw in codes:
+            q = market.get_quote(str(raw))
+            if q is not None:
+                quotes.append(q)
+        return {"quotes": quotes}
     if name == "get_kline":
         return {
             "kline": market.get_kline(

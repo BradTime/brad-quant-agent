@@ -49,9 +49,10 @@ export function ChatPanel({
     setMessages([...nextDisplay, { role: 'assistant', content: '' }]);
     setStreaming(true);
 
-    const payload: ChatMessage[] = [];
-    if (contextHint) payload.push({ role: 'system', content: contextHint });
-    nextDisplay.forEach((m) => payload.push({ role: m.role, content: m.content }));
+    const payload: ChatMessage[] = nextDisplay.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -60,6 +61,7 @@ export function ChatPanel({
     try {
       await streamChat(payload, {
         signal: controller.signal,
+        contextHint,
         onDelta: (piece) => {
           acc += piece;
           setMessages((prev) => {

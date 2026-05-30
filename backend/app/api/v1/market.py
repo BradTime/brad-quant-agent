@@ -2,20 +2,27 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends
 
-from app.core.response import success
+from app.api.deps import get_current_user
+from app.core.response import error, success
+from app.models.user import User
 from app.schemas.market import ScreenRequest
 from app.services import market
+from app.services import rate_limit as rate_limit_service
 
 router = APIRouter()
+
+_MAX_PAGE_SIZE = 200
+_MAX_KLINE_COUNT = 500
 
 
 @router.get("/quotes")
 def quotes(
     page: int = 1, pageSize: int = 20, sortBy: str = "price", sortOrder: str = "desc"
 ) -> dict:
-    return success(market.get_quotes(page, pageSize, sortBy, sortOrder))
+    page_size = max(1, min(pageSize, _MAX_PAGE_SIZE))
+    return success(market.get_quotes(page, page_size, sortBy, sortOrder))
 
 
 @router.get("/quotes/popular")
@@ -28,7 +35,7 @@ def popular(limit: int = 20) -> dict:
 def quote(code: str) -> dict:
     q = market.get_quote(code)
     if q is None:
-        raise HTTPException(status_code=404, detail="未找到该标的的实时行情")
+        return error("未找到该标的的实时行情", code=404, http_status=404)
     return success(q)
 
 
@@ -39,7 +46,8 @@ def indexes() -> dict:
 
 @router.get("/kline")
 def kline(symbol: str, period: str = "day", count: int = 100) -> dict:
-    return success(market.get_kline(symbol, period, count))
+    n = max(1, min(count, _MAX_KLINE_COUNT))
+    return success(market.get_kline(symbol, period, n))
 
 
 @router.get("/instruments")
@@ -87,5 +95,15 @@ def screen(body: ScreenRequest) -> dict:
 
 
 @router.post("/refresh/{code}")
-def refresh(code: str) -> dict:
-    return success(market.refresh_stock(code))
+def refresh(code: str, user: User = Depends(get_current_user)) -> dict:
+    uid = str(user.id)
+    wait = rate_limit_service.seconds_until_refresh_allowed(uid, code)
+    if wait is not None:
+        return error(
+            f"刷新过于频繁，请 {int(wait) + 1} 秒后再试",
+            code=429,
+            http_status=429,
+        )
+    result = market.refresh_stock(code)
+    rate_limit_service.mark_refresh(uid, code)
+    return success(result)

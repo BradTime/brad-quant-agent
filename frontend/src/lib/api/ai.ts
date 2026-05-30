@@ -2,7 +2,7 @@ import { API_BASE_URL } from '@/lib/constants';
 import { useAuthStore } from '@/stores/useAuthStore';
 
 export interface ChatMessage {
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant';
   content: string;
 }
 
@@ -10,6 +10,8 @@ interface StreamHandlers {
   onDelta: (text: string) => void;
   onError?: (message: string) => void;
   signal?: AbortSignal;
+  /** 服务端注入的上下文（如当前个股），不可伪造 system 角色 */
+  contextHint?: string;
 }
 
 /**
@@ -18,7 +20,7 @@ interface StreamHandlers {
  */
 export async function streamChat(
   messages: ChatMessage[],
-  { onDelta, onError, signal }: StreamHandlers
+  { onDelta, onError, signal, contextHint }: StreamHandlers
 ): Promise<void> {
   const token = useAuthStore.getState().token;
   const res = await fetch(`${API_BASE_URL}/ai/chat`, {
@@ -27,7 +29,10 @@ export async function streamChat(
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({
+      messages,
+      ...(contextHint?.trim() ? { contextHint: contextHint.trim() } : {}),
+    }),
     signal,
   });
 

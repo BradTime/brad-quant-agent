@@ -12,14 +12,15 @@ type UpdateHandler = (update: WsUpdate) => void;
 type StatusHandler = (status: WsStatus) => void;
 
 const HEARTBEAT_MS = 30_000;
-const MAX_RECONNECT = 5;
+const PONG_TIMEOUT_MS = 10_000;
+const MAX_BACKOFF_MS = 30_000;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
 }
 
 /**
- * 单例 WebSocket 客户端：自动重连（指数退避，最多 5 次）、心跳（30s ping）、
+ * 单例 WebSocket 客户端：持续自动重连（指数退避）、心跳 ping + pong 超时检测、
  * 断线后自动重新订阅。订阅主题：`market.indices`、`market.quote.<code>`。
  */
 class MarketSocket {
@@ -29,6 +30,7 @@ class MarketSocket {
   private status: WsStatus = 'idle';
   private reconnectAttempts = 0;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private pongTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly topics = new Set<string>();
   private readonly updateHandlers = new Set<UpdateHandler>();
@@ -125,7 +127,14 @@ class MarketSocket {
         return;
       }
       const msg = asRecord(parsed);
-      if (msg && msg.type === 'update' && typeof msg.topic === 'string') {
+      if (!msg) return;
+
+      if (msg.type === 'pong') {
+        this.clearPongTimer();
+        return;
+      }
+
+      if (msg.type === 'update' && typeof msg.topic === 'string') {
         const update: WsUpdate = {
           topic: msg.topic,
           payload: msg.payload,
@@ -166,7 +175,24 @@ class MarketSocket {
 
   private startHeartbeat(): void {
     this.stopHeartbeat();
-    this.heartbeatTimer = setInterval(() => this.send({ type: 'ping' }), HEARTBEAT_MS);
+    this.heartbeatTimer = setInterval(() => {
+      this.send({ type: 'ping' });
+      this.armPongTimer();
+    }, HEARTBEAT_MS);
+  }
+
+  private armPongTimer(): void {
+    this.clearPongTimer();
+    this.pongTimer = setTimeout(() => {
+      this.ws?.close();
+    }, PONG_TIMEOUT_MS);
+  }
+
+  private clearPongTimer(): void {
+    if (this.pongTimer) {
+      clearTimeout(this.pongTimer);
+      this.pongTimer = null;
+    }
   }
 
   private stopHeartbeat(): void {
@@ -174,11 +200,12 @@ class MarketSocket {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
+    this.clearPongTimer();
   }
 
   private scheduleReconnect(): void {
-    if (!this.shouldRun || this.reconnectAttempts >= MAX_RECONNECT) return;
-    const delay = Math.min(1000 * 2 ** this.reconnectAttempts, 16_000);
+    if (!this.shouldRun) return;
+    const delay = Math.min(1000 * 2 ** this.reconnectAttempts, MAX_BACKOFF_MS);
     this.reconnectAttempts += 1;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = setTimeout(() => this.open(), delay);

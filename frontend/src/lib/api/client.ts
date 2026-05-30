@@ -2,10 +2,6 @@ import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'ax
 import type { ApiResponse } from '@/types';
 import { API_BASE_URL, API_TIMEOUT, ERROR_CODES } from '@/lib/constants';
 import { useAuthStore } from '@/stores/useAuthStore';
-
-/**
- * 创建 Axios 实例
- */
 const createClient = (): AxiosInstance => {
   const client = axios.create({
     baseURL: API_BASE_URL,
@@ -46,12 +42,21 @@ const createClient = (): AxiosInstance => {
         const refreshToken = useAuthStore.getState().refreshToken;
         if (refreshToken) {
           try {
-            // TODO: 实现 token 刷新逻辑
-            // const response = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
-            // const { token } = response.data.data;
-            // useAuthStore.getState().setAuth(useAuthStore.getState().user!, token, refreshToken);
-            // originalRequest.headers.Authorization = `Bearer ${token}`;
-            // return client(originalRequest);
+            const response = await axios.post<ApiResponse<{ token: string; refreshToken: string }>>(
+              `${API_BASE_URL}/auth/refresh`,
+              { refreshToken }
+            );
+            const payload = response.data.data;
+            if (!payload?.token) {
+              throw new Error('refresh failed');
+            }
+            const user = useAuthStore.getState().user;
+            if (!user) {
+              throw new Error('missing user');
+            }
+            useAuthStore.getState().setAuth(user, payload.token, payload.refreshToken);
+            originalRequest.headers.Authorization = `Bearer ${payload.token}`;
+            return client(originalRequest);
           } catch (refreshError) {
             // 刷新失败，清除认证信息并跳转到登录页
             useAuthStore.getState().clearAuth();
