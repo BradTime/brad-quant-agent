@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     # 免费实时源限流/卡顿时的硬超时（秒）：超时即降级为空，避免请求/任务无限挂起。
     realtime_fetch_timeout_seconds: int = 20
 
+    # 盘前早报（Phase 2）：每日定时生成全局早报
+    enable_brief_scheduler: bool = True
+    brief_cron_hour: int = 8
+    brief_cron_minute: int = 30
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

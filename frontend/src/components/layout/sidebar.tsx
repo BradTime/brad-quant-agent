@@ -2,7 +2,15 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Activity, FlaskConical, LayoutDashboard, Layers, Sparkles, X } from 'lucide-react';
+import {
+  Activity,
+  FlaskConical,
+  LayoutDashboard,
+  Layers,
+  Newspaper,
+  Sparkles,
+  X,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface NavItem {
@@ -15,6 +23,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { href: '/dashboard', label: '仪表盘', en: 'Overview', icon: LayoutDashboard },
   { href: '/market', label: '看盘', en: 'Markets', icon: Activity },
+  { href: '/brief', label: '盘前早报', en: 'Brief', icon: Newspaper },
   { href: '/strategies', label: '策略', en: 'Strategies', icon: Layers },
   { href: '/backtest', label: '回测', en: 'Backtest', icon: FlaskConical },
   { href: '/ai', label: 'AI 问答', en: 'Copilot', icon: Sparkles },

@@ -1,5 +1,6 @@
 """ORM models and schemas (include point-in-time fields for backtest correctness)."""
 
+from app.models.brief import MorningBrief
 from app.models.extra import CapitalFlow, DragonTiger, FinancialSummary, NewsItem
 from app.models.market import AdjustFactor, DailyBar, Instrument, MinuteBar
 from app.models.user import User
@@ -16,4 +17,5 @@ __all__ = [
     "DragonTiger",
     "NewsItem",
     "WatchlistItem",
+    "MorningBrief",
 ]

@@ -39,8 +39,8 @@
 | 阶段 | 内容 |
 |---|---|
 | **Phase 0（地基）** | 仓库结构 frontend/backend 分离；FastAPI 骨架；数据源三件套 + `DataProvider` 抽象 + Postgres 落库（含 PIT 字段）；行情拉取调度器；DeepSeek 工具层；WebSocket 基座；前端全局导航壳；认证迁移到 FastAPI |
-| **Phase 1（MVP）** | 看盘"进阶版" + AI 看盘问答（含选股工具） |
-| **Phase 2** | AI 盘前早报 / 对话问答 |
+| **Phase 1（MVP）** | 看盘"进阶版" + AI 看盘问答（含选股工具）✅ |
+| **Phase 2** | AI 盘前早报 / 对话问答 ✅ |
 | **Phase 3** | 模拟交易（T+1 撮合 / 持仓 / 订单 + WS 回报 + AI 复盘） |
 | **Phase 4** | 量化研究 + 真回测引擎（backtrader/qlib，策略 API 向 RQAlpha/JoinQuant 对齐） |
 | **产品化扩展期** | 完整 RBAC + 商业化；其他市场（期货 / 港股 / 美股 / 加密）；i18n；（接付费源后）真实时 / Level-2 |
@@ -165,6 +165,16 @@ brad-quant-agent/
 - [x] **AI 准确性全量回归已通过**（DeepSeek `deepseek-chat` 实跑 36 题）：工具选择 100%（32/32，目标 ≥95%）、合规含免责 100%（36/36，红线）、确定性买卖指令 0 条（红线）、报价数值与落库一致 14/14（软指标 100%）、缺数据诚实性 2/2；报告留存于 `backend/tests/reports/phase1_ai_eval_*.txt`
 - [x] 健壮性：免费实时源限流时全市场快照抓取加硬超时降级（`realtime_fetch_timeout_seconds`），避免请求/调度无限挂起；实时不可用时选股/快照按 SPEC 显式标注，不杜撰
 - [~] 验收：`docker compose up` 一键起（已就绪）；个股详情首屏 < 2s（本地达标，依赖数据已落库）
+
+### Phase 2 — AI 盘前早报
+- [x] 数据装配 `build_data_pack`：从已落库/缓存离线汇总（指数、自选股涨跌榜、自选股资金流、近期龙虎榜、近 48h 新闻），并显式标注覆盖缺口（隔夜外盘 / 宏观政策 / 机构研报）——只喂真实数据，绝不触发会阻塞的实时拉取
+- [x] 单轮合成 `run_completion_stream`（无工具）+ 盘前早报提示词：1 分钟结论 / 5 分钟重点 / 三档建议（进攻·均衡·稳健）/ 条件式交易计划或观察名单 / 来源与复盘；强制免责、条件式、缺口如实声明、不杜撰
+- [x] 落库 `morning_briefs`（含依据数据快照 `data_pack_json`，便于复盘 / PIT）；`user_id` 空=系统全局，非空=用户个性化（基于自选股）
+- [x] 接口：`GET /brief/latest|global/latest`、`GET /brief`（历史）、`GET /brief/{id}`、`POST /brief/generate`（SSE 流式，结束落库）
+- [x] 调度器每日定时（默认 08:30 Asia/Shanghai，`enable_brief_scheduler` / `brief_cron_*`）生成全局早报
+- [x] 前端 `/brief`：最新早报 Markdown 渲染 + 「生成今日早报」流式 + 历史列表 + 来源/免责标注；侧栏导航
+- [x] 冒烟验证：真实 DeepSeek 生成全局早报，正文具体数字（净买额/资金流向/公告）均可溯源至数据包新闻标题（无杜撰），缺口板块如实标注，免责齐全
+- [ ] 对话中枢 / 自主深度研究（多轮规划编排）——留作 Phase 2 增量（当前 `/ai` 已具备多轮工具问答）
 
 ---
 

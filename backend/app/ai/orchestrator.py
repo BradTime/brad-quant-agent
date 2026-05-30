@@ -72,6 +72,32 @@ def _append_tool_results(
     return tools_called, tool_results
 
 
+def run_completion_stream(system_prompt: str, user_content: str) -> Iterator[str]:
+    """Single-shot generation (no tools) for pre-assembled-context tasks like the
+    morning brief. Streams text and appends the compliance disclaimer if missing."""
+    client = get_client()
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ]
+    streamed: list[str] = []
+    stream = client.chat.completions.create(
+        model=settings.deepseek_model,
+        messages=messages,
+        stream=True,
+    )
+    for chunk in stream:
+        if not chunk.choices:
+            continue
+        piece = getattr(chunk.choices[0].delta, "content", None)
+        if piece:
+            streamed.append(piece)
+            yield piece
+    tail = stream_compliance_tail("".join(streamed))
+    if tail:
+        yield tail
+
+
 def run_chat_collect(user_messages: list[dict]) -> dict:
     """Non-streaming variant for evaluation/regression."""
     answer_parts: list[str] = []

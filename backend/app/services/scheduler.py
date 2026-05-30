@@ -47,6 +47,21 @@ def start_scheduler():
         coalesce=True,
         misfire_grace_time=30,
     )
+
+    if settings.enable_brief_scheduler:
+        from app.services import brief
+
+        scheduler.add_job(
+            brief.generate_daily_global,
+            "cron",
+            hour=settings.brief_cron_hour,
+            minute=settings.brief_cron_minute,
+            id="daily_brief",
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=3600,
+        )
+
     scheduler.start()
     _scheduler = scheduler
     logger.info("行情调度器已启动（行情 %ss / 指数 %ss）", quote_secs, index_secs)
