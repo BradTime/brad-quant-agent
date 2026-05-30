@@ -5,12 +5,21 @@ from __future__ import annotations
 import math
 from decimal import Decimal, InvalidOperation
 
-_NULL_STRINGS = {"", "-", "--", "none", "null", "nan", "无"}
+_NULL_STRINGS = {"", "-", "--", "none", "null", "nan", "无", "false"}
+
+# 中文数量级后缀（按长度降序，避免"万亿"被"亿"截断）。
+_CN_UNITS: list[tuple[str, float]] = [
+    ("万亿", 1e12),
+    ("亿", 1e8),
+    ("万", 1e4),
+    ("千", 1e3),
+]
 
 
 def to_float(value: object) -> float | None:
     try:
-        if value is None:
+        if value is None or isinstance(value, bool):
+            # 注意：bool 也要排除，否则 float(False)==0.0 会把"缺失"误当成 0。
             return None
         if isinstance(value, str) and value.strip().lower() in _NULL_STRINGS:
             return None
@@ -20,6 +29,31 @@ def to_float(value: object) -> float | None:
         return f
     except (TypeError, ValueError):
         return None
+
+
+def parse_cn_number(value: object) -> float | None:
+    """解析带中文单位/百分号的财经数值字符串。
+
+    例：``"1.47亿"`` -> ``147000000.0``，``"54.27%"`` -> ``54.27``，
+    缺失标记 ``False`` / ``"--"`` -> ``None``。百分号仅剥离、不做 /100。
+    """
+    if isinstance(value, bool) or value is None:
+        return None
+    if not isinstance(value, str):
+        return to_float(value)
+    s = value.strip().replace(",", "")
+    if s.lower() in _NULL_STRINGS:
+        return None
+    if s.endswith("%"):
+        s = s[:-1].strip()
+    mult = 1.0
+    for suffix, m in _CN_UNITS:
+        if s.endswith(suffix):
+            mult = m
+            s = s[: -len(suffix)].strip()
+            break
+    f = to_float(s)
+    return None if f is None else f * mult
 
 
 def to_decimal(value: object, places: int = 4) -> Decimal | None:

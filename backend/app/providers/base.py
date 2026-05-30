@@ -23,6 +23,7 @@ CAP_CAPITAL_FLOW = "capital_flow"
 CAP_FINANCIALS = "financials"
 CAP_DRAGON_TIGER = "dragon_tiger"
 CAP_NEWS = "news"
+CAP_PROFILE = "profile"
 
 
 class InstrumentDTO(BaseModel):
@@ -152,4 +153,8 @@ class DataProvider(ABC):
         raise NotImplementedError
 
     def get_news(self, code: str, limit: int = 30) -> list[NewsItemDTO]:
+        raise NotImplementedError
+
+    def get_stock_profile(self, code: str) -> dict:
+        """个股概览：行业/板块、上市日期、总股本/流通股、市值等（异构，返回 dict）。"""
         raise NotImplementedError

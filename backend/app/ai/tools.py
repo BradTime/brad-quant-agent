@@ -132,7 +132,62 @@ TOOLS: list[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_stock_profile",
+            "description": "获取某只股票的概览（所属行业/板块、上市日期、总股本/流通股、总市值/流通市值）。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "description": "股票代码，如 600000.SH"},
+                },
+                "required": ["code"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "screen_stocks",
+            "description": (
+                "条件选股：基于全市场实时快照，按价格/涨跌幅/成交量/成交额区间与关键词筛选。"
+                "免费快照粒度有限，仅用于盘面筛选。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "priceMin": {"type": "number", "description": "最低现价(元)"},
+                    "priceMax": {"type": "number", "description": "最高现价(元)"},
+                    "changePercentMin": {"type": "number", "description": "最低涨跌幅(%)"},
+                    "changePercentMax": {"type": "number", "description": "最高涨跌幅(%)"},
+                    "amountMin": {"type": "number", "description": "最低成交额(元)"},
+                    "keyword": {"type": "string", "description": "名称或代码包含的关键词"},
+                    "limit": {"type": "integer", "description": "返回条数上限，默认 30"},
+                    "sortBy": {
+                        "type": "string",
+                        "enum": ["price", "changePercent", "volume", "amount"],
+                        "description": "排序字段，默认 changePercent",
+                    },
+                    "sortOrder": {"type": "string", "enum": ["asc", "desc"]},
+                },
+                "required": [],
+            },
+        },
+    },
 ]
+
+_SCREEN_KEYS = {
+    "priceMin",
+    "priceMax",
+    "changePercentMin",
+    "changePercentMax",
+    "volumeMin",
+    "volumeMax",
+    "amountMin",
+    "amountMax",
+    "keyword",
+}
 
 
 def execute_tool(name: str, arguments: dict[str, Any]) -> dict:
@@ -180,4 +235,14 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> dict:
                 str(arguments.get("code", "")), int(arguments.get("limit", 20) or 20)
             )
         }
+    if name == "get_stock_profile":
+        return {"profile": market.get_stock_profile(str(arguments.get("code", "")))}
+    if name == "screen_stocks":
+        filters = {k: v for k, v in arguments.items() if k in _SCREEN_KEYS and v is not None}
+        return market.screen_stocks(
+            filters,
+            int(arguments.get("limit", 30) or 30),
+            str(arguments.get("sortBy", "changePercent")),
+            str(arguments.get("sortOrder", "desc")),
+        )
     return {"error": f"未知工具: {name}"}

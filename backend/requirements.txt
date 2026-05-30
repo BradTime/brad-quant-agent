@@ -29,5 +29,8 @@ passlib[bcrypt]
 # 行情拉取调度器
 APScheduler
 
+# 测试
+pytest
+
 # 后置（按需启用）：
 # redis

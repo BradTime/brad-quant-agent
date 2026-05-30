@@ -21,6 +21,77 @@ logger = logging.getLogger(__name__)
 MAX_TOOL_ROUNDS = 5
 
 
+def run_chat_collect(user_messages: list[dict]) -> dict:
+    """Non-streaming variant for evaluation/regression: returns the final answer
+    plus the tools the model invoked and their results.
+
+    Shape: ``{"answer": str, "toolsCalled": [str], "toolResults": [{name, result}]}``
+    """
+    answer_parts: list[str] = []
+    tools_called: list[str] = []
+    tool_results: list[dict] = []
+
+    client = get_client()
+    messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}, *user_messages]
+
+    for _ in range(MAX_TOOL_ROUNDS):
+        completion = client.chat.completions.create(
+            model=settings.deepseek_model,
+            messages=messages,
+            tools=TOOLS,
+            tool_choice="auto",
+            stream=False,
+        )
+        choice = completion.choices[0]
+        msg = choice.message
+        if msg.content:
+            answer_parts.append(msg.content)
+
+        calls = getattr(msg, "tool_calls", None) or []
+        if not calls:
+            break
+
+        messages.append(
+            {
+                "role": "assistant",
+                "content": msg.content or None,
+                "tool_calls": [
+                    {
+                        "id": c.id,
+                        "type": "function",
+                        "function": {"name": c.function.name, "arguments": c.function.arguments},
+                    }
+                    for c in calls
+                ],
+            }
+        )
+        for c in calls:
+            name = c.function.name
+            tools_called.append(name)
+            try:
+                args = json.loads(c.function.arguments or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            try:
+                result = execute_tool(name, args)
+            except Exception as exc:  # noqa: BLE001
+                result = {"error": f"工具执行失败: {exc}"}
+            tool_results.append({"name": name, "args": args, "result": result})
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": c.id,
+                    "content": json.dumps(result, ensure_ascii=False, default=str),
+                }
+            )
+
+    return {
+        "answer": "".join(answer_parts),
+        "toolsCalled": tools_called,
+        "toolResults": tool_results,
+    }
+
+
 def run_chat_stream(user_messages: list[dict]) -> Iterator[str]:
     client = get_client()
     messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}, *user_messages]

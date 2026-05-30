@@ -8,6 +8,7 @@ lookups read from Postgres (ingest first via the CLI).
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import or_, select
@@ -120,9 +121,78 @@ def get_quotes_by_codes(codes: list[str]) -> list[dict]:
     return out
 
 
+def _last_close_quote(code: str) -> dict | None:
+    """Fallback when realtime is unavailable: synthesize a quote from the last two
+    daily bars in Postgres (marked ``stale``). Keeps the detail page usable when
+    the free realtime snapshot source is rate-limited/down."""
+    canonical = code if "." in code else symbols.to_canonical(symbols.to_six(code))
+    with SessionLocal() as session:
+        rows = list(
+            session.execute(
+                select(DailyBar)
+                .where(DailyBar.code == canonical)
+                .order_by(DailyBar.trade_date.desc())
+                .limit(2)
+            )
+            .scalars()
+            .all()
+        )
+        name_row = session.execute(
+            select(Instrument.name).where(Instrument.code == canonical)
+        ).scalar_one_or_none()
+    if not rows:
+        return None
+    last = rows[0]
+    prev_close = _f(rows[1].close) if len(rows) > 1 else _f(last.open)
+    close = _f(last.close)
+    change = (close - prev_close) if (close is not None and prev_close) else 0
+    change_pct = (change / prev_close * 100) if prev_close else 0
+    return {
+        "code": canonical,
+        "name": name_row or "",
+        "price": close or 0,
+        "change": round(change, 4) if change else 0,
+        "changePercent": round(change_pct, 4) if change_pct else 0,
+        "volume": last.volume or 0,
+        "amount": _f(last.amount) or 0,
+        "high": _f(last.high),
+        "low": _f(last.low),
+        "open": _f(last.open),
+        "yesterdayClose": prev_close,
+        "timestamp": int(
+            datetime.combine(last.trade_date, datetime.min.time()).timestamp() * 1000
+        ),
+        "stale": True,
+    }
+
+
 def get_quote(code: str) -> dict | None:
     found = get_quotes_by_codes([code])
-    return found[0] if found else None
+    if found:
+        return found[0]
+    return _last_close_quote(code)
+
+
+def get_cached_or_last_quote(code: str) -> dict | None:
+    """Cache-only realtime, else DB last-close. Never triggers a live network fetch —
+    safe for lists/watchlist where blocking on a rate-limited source is unacceptable."""
+    canonical = code if "." in code else symbols.to_canonical(symbols.to_six(code))
+    cached = quotes_map_snapshot().get(canonical)
+    if cached is not None:
+        return cached
+    return _last_close_quote(canonical)
+
+
+def get_instrument_name(code: str) -> str:
+    """Fast name lookup from the instruments table (no network)."""
+    canonical = code if "." in code else symbols.to_canonical(symbols.to_six(code))
+    with SessionLocal() as session:
+        return (
+            session.execute(
+                select(Instrument.name).where(Instrument.code == canonical)
+            ).scalar_one_or_none()
+            or ""
+        )
 
 
 def _index_to_overview(q: QuoteDTO) -> dict:
@@ -312,6 +382,107 @@ def get_news(code: str, limit: int = 20) -> list[dict]:
             }
             for r in rows
         ]
+
+
+def get_stock_profile(code: str) -> dict:
+    """个股概览（行业/板块、上市日期、市值等）。实时取，免费源拿不到时返回 {}。"""
+    canonical = _canonical(code)
+    for provider in get_providers_for("profile"):
+        try:
+            profile = provider.get_stock_profile(canonical)
+            if profile:
+                profile.setdefault("source", provider.name)
+                return profile
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("个股概览源 %s 失败: %s", provider.name, exc)
+    return {}
+
+
+_SCREEN_FIELDS = {
+    "price": "price",
+    "changePercent": "change_percent",
+    "volume": "volume",
+    "amount": "amount",
+}
+
+
+def screen_stocks(
+    filters: dict | None = None,
+    limit: int = 50,
+    sort_by: str = "changePercent",
+    sort_order: str = "desc",
+) -> dict:
+    """条件选股：基于全市场实时快照过滤（价格/涨跌幅/成交量/成交额区间 + 关键词）。
+
+    免费快照粒度有限，仅做盘面筛选；返回命中列表与命中数。
+    """
+    filters = filters or {}
+    quotes = _ensure_stocks()
+
+    def _ok(q: QuoteDTO) -> bool:
+        checks = [
+            (filters.get("priceMin"), q.price, "ge"),
+            (filters.get("priceMax"), q.price, "le"),
+            (filters.get("changePercentMin"), q.change_percent, "ge"),
+            (filters.get("changePercentMax"), q.change_percent, "le"),
+            (filters.get("volumeMin"), q.volume, "ge"),
+            (filters.get("volumeMax"), q.volume, "le"),
+            (filters.get("amountMin"), q.amount, "ge"),
+            (filters.get("amountMax"), q.amount, "le"),
+        ]
+        for bound, value, op in checks:
+            if bound is None:
+                continue
+            if value is None:
+                return False
+            if op == "ge" and value < bound:
+                return False
+            if op == "le" and value > bound:
+                return False
+        keyword = (filters.get("keyword") or "").strip()
+        if keyword and keyword not in q.name and keyword not in q.code:
+            return False
+        return True
+
+    matched = [q for q in quotes if _ok(q)]
+    key = _SCREEN_FIELDS.get(sort_by, "change_percent")
+    matched.sort(key=lambda q: (getattr(q, key) or 0), reverse=(sort_order != "asc"))
+    total = len(matched)
+    items = matched[: max(1, min(limit, 200))]
+    return {"stocks": [_quote_to_stock(q) for q in items], "total": total}
+
+
+def refresh_stock(code: str, daily_days: int = 400) -> dict:
+    """按需为单只股票落库：日K + 资金流 + 财务摘要 + 新闻（用于个股详情页冷启动）。"""
+    from datetime import date, timedelta
+
+    from app.services import ingest
+
+    canonical = _canonical(code)
+    end = date.today()
+    start = end - timedelta(days=daily_days)
+    result: dict[str, int | str] = {"code": canonical}
+    steps = {
+        "daily": lambda: ingest.ingest_daily(
+            canonical, start.isoformat(), end.isoformat()
+        ),
+        "capitalFlow": lambda: ingest.ingest_capital_flow(canonical),
+        "financials": lambda: ingest.ingest_financials(canonical),
+        "news": lambda: ingest.ingest_news(canonical, 30),
+    }
+    for name, fn in steps.items():
+        try:
+            result[name] = fn()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("按需落库 %s.%s 失败: %s", canonical, name, exc)
+            result[name] = 0
+    return result
+
+
+def quote_freshness_ms() -> int:
+    """缓存快照的更新时间（ms）；0 表示尚无数据。"""
+    ts = quote_cache.cache.status().get("stocks_ts") or 0.0
+    return int(ts * 1000)
 
 
 # ---- scheduler jobs (guarded; failures are logged, never crash the loop) ----

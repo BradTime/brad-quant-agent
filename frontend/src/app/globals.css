@@ -8,6 +8,7 @@
   /* 品牌强调色 + 终端侧栏（独立于明暗主题的固定深色质感） */
   --color-brand: hsl(38 82% 62%);
   --color-brand-soft: hsl(38 82% 62% / 0.12);
+  --color-brand-foreground: hsl(24 35% 12%);
   --color-up: hsl(354 70% 54%);
   --color-down: hsl(150 52% 42%);
   --color-sidebar: hsl(24 11% 7%);

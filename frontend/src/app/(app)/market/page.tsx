@@ -1,40 +1,167 @@
-import { CandlestickChart, Coins, ListChecks, Newspaper, TrendingUp } from 'lucide-react';
+'use client';
 
-const FEATURES = [
-  { icon: CandlestickChart, title: '个股 K 线', desc: '日/分钟多周期，MA/MACD/KDJ/RSI/BOLL 指标叠加' },
-  { icon: ListChecks, title: '自选股', desc: '分组管理，实时报价随 WebSocket 推送' },
-  { icon: Coins, title: '资金流向', desc: '主力 / 北向资金，板块与个股维度' },
-  { icon: Newspaper, title: '新闻 · 龙虎榜', desc: '个股公告与异动榜单，喂给 AI 问答' },
-];
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { RequireAuth } from '@/components/auth/require-auth';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { SearchBox } from '@/components/market/search-box';
+import { WatchlistPanel } from '@/components/market/watchlist-panel';
+import { QuotesTable } from '@/components/market/quotes-table';
+import { ScreenerPanel } from '@/components/market/screener-panel';
+import { SourceNote } from '@/components/market/source-note';
+import { dashboardApi } from '@/lib/api/dashboard';
+import { marketApi } from '@/lib/api/market';
+import { cn } from '@/lib/utils';
+
+type Tab = 'all' | 'screener';
 
 export default function MarketPage() {
-  return (
-    <div className="container mx-auto p-6">
-      <div className="relative overflow-hidden rounded-2xl border border-border bg-card p-8">
-        <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-brand/10 blur-3xl" />
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-brand/40 bg-brand-soft px-3 py-1 text-xs font-medium text-brand">
-          <TrendingUp className="h-3.5 w-3.5" /> Phase 1 · 建设中
-        </span>
-        <h2 className="mt-4 font-display text-3xl tracking-tight">看盘工作台</h2>
-        <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-          实时行情底座（数据源 + 缓存 + WebSocket 推送）已就绪。个股详情、K 线与自选股看盘界面即将在此呈现。
-        </p>
-      </div>
+  const [tab, setTab] = useState<Tab>('all');
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
+  const [sortBy, setSortBy] = useState<'price' | 'changePercent' | 'volume'>('changePercent');
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-2">
-        {FEATURES.map(({ icon: Icon, title, desc }) => (
-          <div
-            key={title}
-            className="group rounded-xl border border-border bg-card p-5 transition-colors hover:border-brand/40"
-          >
-            <span className="grid h-10 w-10 place-items-center rounded-lg bg-brand-soft text-brand">
-              <Icon className="h-5 w-5" strokeWidth={1.75} />
-            </span>
-            <h3 className="mt-3 font-medium">{title}</h3>
-            <p className="mt-1 text-sm text-muted-foreground">{desc}</p>
+  const { data: indices = [] } = useQuery({
+    queryKey: ['dashboard', 'market-overview'],
+    queryFn: () => dashboardApi.getMarketOverview(),
+    refetchInterval: 10000,
+  });
+
+  const { data: quotesData } = useQuery({
+    queryKey: ['market', 'quotes', page, pageSize, sortBy],
+    queryFn: () => marketApi.getQuotes(page, pageSize, sortBy, 'desc'),
+    refetchInterval: 6000,
+    enabled: tab === 'all',
+  });
+
+  const total = quotesData?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  return (
+    <RequireAuth>
+      <div className="container mx-auto space-y-5 p-4 lg:p-6">
+        <div>
+          <h1 className="font-display text-3xl tracking-tight">看盘工作台</h1>
+          <p className="mt-1 text-sm text-muted-foreground">指数 · 自选 · 全市场行情 · 条件选股 — 点任意个股进入详情</p>
+        </div>
+
+        {/* 指数概览 */}
+        <div className="grid gap-3 sm:grid-cols-3">
+          {indices.map((idx) => {
+            const up = idx.changePercent >= 0;
+            return (
+              <Card key={idx.index}>
+                <CardContent className="p-4">
+                  <div className="text-xs text-muted-foreground">{idx.name}</div>
+                  <div className={cn('tnum mt-1 text-2xl font-semibold', up ? 'text-up' : 'text-down')}>
+                    {idx.value.toFixed(2)}
+                  </div>
+                  <div className={cn('tnum text-sm font-medium', up ? 'text-up' : 'text-down')}>
+                    {up ? '+' : ''}{idx.change.toFixed(2)} ({up ? '+' : ''}{idx.changePercent.toFixed(2)}%)
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+          {indices.length === 0 && (
+            <Card className="sm:col-span-3">
+              <CardContent className="p-4 text-sm text-muted-foreground">
+                指数行情暂不可用（免费源可能限流，稍后自动恢复）
+              </CardContent>
+            </Card>
+          )}
+        </div>
+
+        <SearchBox />
+
+        <div className="grid gap-5 lg:grid-cols-3">
+          {/* 自选股 */}
+          <div className="lg:col-span-1">
+            <Card className="lg:sticky lg:top-6">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">自选股</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <WatchlistPanel />
+              </CardContent>
+            </Card>
           </div>
-        ))}
+
+          {/* 全市场 / 选股 */}
+          <div className="lg:col-span-2">
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => setTab('all')}
+                      className={cn(
+                        'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                        tab === 'all' ? 'bg-brand text-brand-foreground' : 'text-muted-foreground hover:bg-muted'
+                      )}
+                    >
+                      全市场行情
+                    </button>
+                    <button
+                      onClick={() => setTab('screener')}
+                      className={cn(
+                        'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                        tab === 'screener' ? 'bg-brand text-brand-foreground' : 'text-muted-foreground hover:bg-muted'
+                      )}
+                    >
+                      条件选股
+                    </button>
+                  </div>
+                  {tab === 'all' && (
+                    <div className="flex items-center gap-2">
+                      <SourceNote source="东方财富" freshness="秒级快照" />
+                      <select
+                        value={sortBy}
+                        onChange={(e) => {
+                          setSortBy(e.target.value as typeof sortBy);
+                          setPage(1);
+                        }}
+                        className="rounded-md border border-border bg-background px-2 py-1 text-xs outline-none"
+                      >
+                        <option value="changePercent">按涨跌幅</option>
+                        <option value="price">按现价</option>
+                        <option value="volume">按成交量</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent>
+                {tab === 'all' ? (
+                  <>
+                    <QuotesTable
+                      stocks={quotesData?.stocks ?? []}
+                      emptyText="行情暂不可用（免费实时源可能限流，稍后自动恢复）"
+                    />
+                    {total > pageSize && (
+                      <div className="mt-3 flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">共 {total} 只</span>
+                        <div className="flex items-center gap-2">
+                          <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>
+                            上一页
+                          </Button>
+                          <span className="text-xs">{page} / {totalPages}</span>
+                          <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
+                            下一页
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <ScreenerPanel />
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       </div>
-    </div>
+    </RequireAuth>
   );
 }

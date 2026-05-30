@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from app.core.dtutil import parse_date, parse_datetime
-from app.core.numeric import to_float
+from app.core.numeric import parse_cn_number, to_float
 from app.providers import symbols
 from app.providers.base import (
     BarDTO,
@@ -49,6 +49,7 @@ class AkShareProvider(DataProvider):
         "financials",
         "dragon_tiger",
         "news",
+        "profile",
     }
 
     def get_instruments(self) -> list[InstrumentDTO]:
@@ -213,16 +214,18 @@ class AkShareProvider(DataProvider):
             d = parse_date(_pick(row, "报告期", "报告日", "date"))
             if d is None:
                 continue
+            # THS「按报告期」字段：金额带「亿/万」单位、比率带「%」、缺失值为 False，
+            # 统一用 parse_cn_number 解析（百分号仅剥离，金额按单位还原成元）。
             out.append(
                 FinancialSummaryDTO(
                     code=code,
                     report_date=d,
-                    eps=to_float(_pick(row, "基本每股收益", "每股收益")),
-                    bps=to_float(_pick(row, "每股净资产")),
-                    roe=to_float(_pick(row, "净资产收益率")),
-                    revenue=to_float(_pick(row, "营业总收入", "营业收入")),
-                    net_profit=to_float(_pick(row, "净利润")),
-                    gross_margin=to_float(_pick(row, "销售毛利率", "毛利率")),
+                    eps=parse_cn_number(_pick(row, "基本每股收益", "每股收益")),
+                    bps=parse_cn_number(_pick(row, "每股净资产")),
+                    roe=parse_cn_number(_pick(row, "净资产收益率")),
+                    revenue=parse_cn_number(_pick(row, "营业总收入", "营业收入")),
+                    net_profit=parse_cn_number(_pick(row, "净利润")),
+                    gross_margin=parse_cn_number(_pick(row, "销售毛利率", "毛利率")),
                 )
             )
         return out
@@ -256,6 +259,36 @@ class AkShareProvider(DataProvider):
                 )
             )
         return out
+
+    def get_stock_profile(self, code: str) -> dict:
+        import akshare as ak
+
+        six = symbols.to_six(code)
+        try:
+            df = ak.stock_individual_info_em(symbol=six)
+        except Exception:
+            return {}
+        # df 形如两列：item / value
+        kv: dict[str, str] = {}
+        for _, row in df.iterrows():
+            item = _pick(row, "item", "指标")
+            value = _pick(row, "value", "值")
+            if item is not None:
+                kv[str(item).strip()] = None if value is None else str(value).strip()
+
+        def _num(key: str) -> float | None:
+            return to_float(kv.get(key)) if kv.get(key) is not None else None
+
+        return {
+            "code": code,
+            "name": kv.get("股票简称") or "",
+            "industry": kv.get("行业") or None,
+            "listDate": kv.get("上市时间") or None,
+            "totalShares": _num("总股本"),
+            "floatShares": _num("流通股"),
+            "totalMarketCap": _num("总市值"),
+            "floatMarketCap": _num("流通市值"),
+        }
 
     def get_news(self, code: str, limit: int = 30) -> list[NewsItemDTO]:
         import akshare as ak

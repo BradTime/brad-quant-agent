@@ -29,6 +29,7 @@ _DEFAULT_ROUTE: dict[str, list[str]] = {
     "financials": ["akshare"],
     "dragon_tiger": ["akshare"],
     "news": ["akshare"],
+    "profile": ["akshare"],
 }
 
 _instances: dict[str, DataProvider] = {}

@@ -156,13 +156,13 @@ brad-quant-agent/
 - [ ] 部署：Docker Compose（postgres + backend + frontend）
 
 ### Phase 1 — MVP（看盘 + AI 看盘问答）
-- [ ] 自选股：增删 / 分组（持久化）
-- [ ] 个股详情页：实时快照报价、日 / 分钟 K线（ECharts candlestick + 周期切换）、指标 MA/MACD/KDJ/RSI/BOLL、资金流、所属板块、财务摘要、龙虎榜、新闻公告；标题数据来源 / 新鲜度 / 缺失标注
-- [ ] 大盘指数概览（复用现有 dashboard）
-- [ ] 选股工具（AI 可调用 + 手动条件筛选）
-- [ ] AI 看盘问答：嵌入式助手，自然语言 → 工具调用 → 流式作答，免责 + 红线
-- [ ] AI 准确性测试集（≥30 题）与回归校验脚本
-- [ ] 验收：`docker compose up` 一键起；个股详情首屏 < 2s
+- [x] 自选股：增删 / 分组（持久化，`user_id` 隔离）
+- [x] 个股详情页：实时快照报价（WS）、日 / 分钟 K线（ECharts candlestick + 周期切换）、指标 MA/MACD/KDJ/RSI/BOLL、资金流、所属板块、财务摘要、龙虎榜、新闻公告；标题数据来源 / 新鲜度 / 缺失标注（实时不可用降级展示最近收盘）
+- [x] 大盘指数概览（看盘工作台 + dashboard 复用）
+- [x] 选股工具（AI 可调用 `screen_stocks` + 手动条件筛选 UI）
+- [x] AI 看盘问答：嵌入式助手（个股详情右栏）+ 独立 `/ai` 页，自然语言 → 工具调用 → 流式作答，免责 + 红线
+- [x] AI 准确性测试集（36 题 `tests/golden_questions.json`）与回归校验脚本 `scripts/ai_eval.py`（离线/全量）
+- [~] 验收：`docker compose up` 一键起（已就绪）；个股详情首屏 < 2s（本地达标，依赖数据已落库）
 
 ---
 

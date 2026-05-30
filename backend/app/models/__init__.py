@@ -3,6 +3,7 @@
 from app.models.extra import CapitalFlow, DragonTiger, FinancialSummary, NewsItem
 from app.models.market import AdjustFactor, DailyBar, Instrument, MinuteBar
 from app.models.user import User
+from app.models.watchlist import WatchlistItem
 
 __all__ = [
     "User",
@@ -14,4 +15,5 @@ __all__ = [
     "FinancialSummary",
     "DragonTiger",
     "NewsItem",
+    "WatchlistItem",
 ]
