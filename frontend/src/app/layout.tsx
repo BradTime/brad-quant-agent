@@ -39,7 +39,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN" suppressHydrationWarning>
+      {/* suppressHydrationWarning：浏览器扩展（密码管理器 / Grammarly / 翻译插件等）
+          常在 hydration 前向 <body> 注入属性，导致服务端/客户端首帧不一致告警。
+          仅抑制 body 自身属性差异，不影响应用内容的正常水合校验。 */}
       <body
+        suppressHydrationWarning
         className={`${fraunces.variable} ${hanken.variable} ${plexMono.variable} antialiased`}
       >
         <ErrorBoundary>
