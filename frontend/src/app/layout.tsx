@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
+import Script from 'next/script';
 import { Fraunces, Hanken_Grotesk, IBM_Plex_Mono } from 'next/font/google';
+import { HYDRATION_GUARD_SCRIPT } from '@/lib/hydration-guard';
 import './globals.css';
 import { ReactQueryProvider } from '@/lib/react-query/provider';
 import { ThemeProvider } from '@/components/theme-provider';
@@ -39,13 +41,14 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN" suppressHydrationWarning>
-      {/* suppressHydrationWarning：浏览器扩展（密码管理器 / Grammarly / 翻译插件等）
-          常在 hydration 前向 <body> 注入属性，导致服务端/客户端首帧不一致告警。
-          仅抑制 body 自身属性差异，不影响应用内容的正常水合校验。 */}
       <body
         suppressHydrationWarning
         className={`${fraunces.variable} ${hanken.variable} ${plexMono.variable} antialiased`}
       >
+        {/* 在 React 水合前执行：清理扩展注入的 mpa-* / Grammarly / 密码管理器等属性 */}
+        <Script id="hydration-guard" strategy="beforeInteractive">
+          {HYDRATION_GUARD_SCRIPT}
+        </Script>
         <ErrorBoundary>
           <ReactQueryProvider>
             <ThemeProvider>{children}</ThemeProvider>
