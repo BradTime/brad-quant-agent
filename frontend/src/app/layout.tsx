@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Script from 'next/script';
 import { Fraunces, Hanken_Grotesk, IBM_Plex_Mono } from 'next/font/google';
-import { HYDRATION_GUARD_SCRIPT } from '@/lib/hydration-guard';
+import { HYDRATION_GUARD_SCRIPT, THEME_INIT_SCRIPT } from '@/lib/hydration-guard';
 import './globals.css';
 import { ReactQueryProvider } from '@/lib/react-query/provider';
 import { ThemeProvider } from '@/components/theme-provider';
@@ -45,6 +45,10 @@ export default function RootLayout({
         suppressHydrationWarning
         className={`${fraunces.variable} ${hanken.variable} ${plexMono.variable} antialiased`}
       >
+        {/* 水合前按持久化偏好设好明暗主题，消除刷新闪烁(FOUC) */}
+        <Script id="theme-init" strategy="beforeInteractive">
+          {THEME_INIT_SCRIPT}
+        </Script>
         {/* 在 React 水合前执行：清理扩展注入的 mpa-* / Grammarly / 密码管理器等属性 */}
         <Script id="hydration-guard" strategy="beforeInteractive">
           {HYDRATION_GUARD_SCRIPT}
