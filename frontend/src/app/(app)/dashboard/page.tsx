@@ -113,7 +113,7 @@ export default function DashboardPage() {
                       {index.value.toFixed(2)}
                     </div>
                     <div className={`text-sm font-semibold ${
-                      index.changePercent >= 0 ? 'text-green-600' : 'text-red-600'
+                      index.changePercent >= 0 ? 'text-up' : 'text-down'
                     }`}>
                       {index.change >= 0 ? '+' : ''}{index.change.toFixed(2)} (
                       {index.changePercent >= 0 ? '+' : ''}{index.changePercent.toFixed(2)}%)
@@ -195,14 +195,14 @@ export default function DashboardPage() {
                           </TableCell>
                           <TableCell
                             className={`text-right ${
-                              stock.change >= 0 ? 'text-green-600' : 'text-red-600'
+                              stock.change >= 0 ? 'text-up' : 'text-down'
                             }`}
                           >
                             {stock.change >= 0 ? '+' : ''}{stock.change.toFixed(2)}
                           </TableCell>
                           <TableCell
                             className={`text-right font-semibold ${
-                              stock.changePercent >= 0 ? 'text-green-600' : 'text-red-600'
+                              stock.changePercent >= 0 ? 'text-up' : 'text-down'
                             }`}
                           >
                             {stock.changePercent >= 0 ? '+' : ''}{stock.changePercent.toFixed(2)}%
@@ -257,6 +257,12 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
+        <Card className="border-brand/30 bg-brand-soft">
+          <CardContent className="p-4 text-sm text-muted-foreground">
+            资产、收益、持仓与交易记录属于 Phase 3 模拟交易范围；当前为占位数据，尚未接入真实模拟账户。
+          </CardContent>
+        </Card>
+
         {/* 统计卡片 */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
@@ -278,7 +284,7 @@ export default function DashboardPage() {
             <CardContent>
               <div className="text-2xl font-bold">
                 {statsLoading ? '加载中...' : (
-                  <span className={stats?.todayReturn && stats.todayReturn >= 0 ? 'text-green-600' : 'text-red-600'}>
+                  <span className={(stats?.todayReturn ?? 0) >= 0 ? 'text-up' : 'text-down'}>
                     {formatCurrency(stats?.todayReturn ?? 0)} ({formatPercent(stats?.todayReturnPercent ?? 0)})
                   </span>
                 )}
@@ -293,7 +299,7 @@ export default function DashboardPage() {
             <CardContent>
               <div className="text-2xl font-bold">
                 {statsLoading ? '加载中...' : (
-                  <span className={stats?.cumulativeReturn && stats.cumulativeReturn >= 0 ? 'text-green-600' : 'text-red-600'}>
+                  <span className={(stats?.cumulativeReturn ?? 0) >= 0 ? 'text-up' : 'text-down'}>
                     {formatCurrency(stats?.cumulativeReturn ?? 0)} ({formatPercent(stats?.cumulativeReturnPercent ?? 0)})
                   </span>
                 )}
@@ -327,7 +333,7 @@ export default function DashboardPage() {
                 <LineChart data={returnCurve} height={300} />
               ) : (
                 <div className="flex items-center justify-center h-[300px] text-muted-foreground">
-                  暂无数据
+                  模拟交易尚未开放，暂无收益曲线
                 </div>
               )}
             </CardContent>
@@ -351,7 +357,7 @@ export default function DashboardPage() {
                 />
               ) : (
                 <div className="flex items-center justify-center h-[300px] text-muted-foreground">
-                  暂无持仓数据
+                  模拟交易尚未开放，暂无持仓数据
                 </div>
               )}
             </CardContent>
@@ -399,7 +405,9 @@ export default function DashboardPage() {
                 </table>
               </div>
             ) : (
-              <div className="text-center py-4 text-muted-foreground">暂无交易记录</div>
+              <div className="text-center py-4 text-muted-foreground">
+                模拟交易尚未开放，暂无交易记录
+              </div>
             )}
           </CardContent>
         </Card>

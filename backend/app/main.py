@@ -11,12 +11,13 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.health import router as health_router
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.core.response import error
 from app.ws.routes import router as ws_router
 
 
@@ -62,6 +63,13 @@ app.add_middleware(
 app.include_router(health_router, tags=["health"])
 app.include_router(api_router)
 app.include_router(ws_router)
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    _ = request
+    detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+    return error(detail, code=exc.status_code, http_status=exc.status_code)
 
 
 @app.get("/")

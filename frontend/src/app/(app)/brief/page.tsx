@@ -6,6 +6,7 @@ import { RequireAuth } from '@/components/auth/require-auth';
 import { Markdown } from '@/components/ai/markdown';
 import {
   getLatestBrief,
+  getGlobalLatestBrief,
   listBriefs,
   getBrief,
   streamGenerateBrief,
@@ -46,9 +47,10 @@ function BriefView() {
     (async () => {
       try {
         const [latest] = await Promise.all([getLatestBrief(), refreshHistory()]);
-        if (latest) {
-          setContent(latest.content);
-          setMeta(latest);
+        const brief = latest ?? (await getGlobalLatestBrief());
+        if (brief) {
+          setContent(brief.content);
+          setMeta(brief);
         }
       } catch {
         /* 首次无早报属正常 */

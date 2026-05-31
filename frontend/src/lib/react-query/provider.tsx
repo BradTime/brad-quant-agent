@@ -14,8 +14,15 @@ export function ReactQueryProvider({ children }: ReactQueryProviderProps) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            // 失败时重试 3 次
-            retry: 3,
+            // 401 不重试，避免过期登录态触发多次无意义请求。
+            retry: (failureCount, error) => {
+              const code =
+                typeof error === 'object' && error !== null && 'code' in error
+                  ? Number((error as { code?: unknown }).code)
+                  : undefined;
+              if (code === 401) return false;
+              return failureCount < 2;
+            },
             // 5 分钟后数据过期
             staleTime: 5 * 60 * 1000,
             // 缓存时间 10 分钟
@@ -26,8 +33,7 @@ export function ReactQueryProvider({ children }: ReactQueryProviderProps) {
             refetchOnReconnect: true,
           },
           mutations: {
-            // 失败时重试 1 次
-            retry: 1,
+            retry: false,
           },
         },
       })

@@ -19,20 +19,24 @@ _MAX_KLINE_COUNT = 500
 
 @router.get("/quotes")
 def quotes(
-    page: int = 1, pageSize: int = 20, sortBy: str = "price", sortOrder: str = "desc"
+    page: int = 1,
+    pageSize: int = 20,
+    sortBy: str = "price",
+    sortOrder: str = "desc",
+    _user: User = Depends(get_current_user),
 ) -> dict:
     page_size = max(1, min(pageSize, _MAX_PAGE_SIZE))
     return success(market.get_quotes(page, page_size, sortBy, sortOrder))
 
 
 @router.get("/quotes/popular")
-def popular(limit: int = 20) -> dict:
+def popular(limit: int = 20, _user: User = Depends(get_current_user)) -> dict:
     data = market.get_quotes(1, limit, "changePercent", "desc")
     return success(data["stocks"])
 
 
 @router.get("/quote/{code}")
-def quote(code: str) -> dict:
+def quote(code: str, _user: User = Depends(get_current_user)) -> dict:
     q = market.get_quote(code)
     if q is None:
         return error("未找到该标的的实时行情", code=404, http_status=404)
@@ -40,7 +44,7 @@ def quote(code: str) -> dict:
 
 
 @router.get("/indexes")
-def indexes() -> dict:
+def indexes(_user: User = Depends(get_current_user)) -> dict:
     return success(market.get_indexes_as_stockquotes())
 
 
@@ -86,7 +90,7 @@ def freshness() -> dict:
 
 
 @router.post("/screen")
-def screen(body: ScreenRequest) -> dict:
+def screen(body: ScreenRequest, _user: User = Depends(get_current_user)) -> dict:
     return success(
         market.screen_stocks(
             body.filters or {}, body.limit, body.sortBy, body.sortOrder

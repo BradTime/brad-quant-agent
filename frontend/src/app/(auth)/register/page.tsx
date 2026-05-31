@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { authApi } from '@/lib/api/auth';
+import { getApiErrorMessage } from '@/lib/api/errors';
 import { useAuthStore } from '@/stores/useAuthStore';
 import type { RegisterRequest } from '@/types';
 
@@ -30,8 +31,7 @@ export default function RegisterPage() {
       router.push('/dashboard');
     },
     onError: (error: unknown) => {
-      const message = error instanceof Error ? error.message : '注册失败，请稍后重试';
-      setError(message);
+      setError(getApiErrorMessage(error, '注册失败，请稍后重试'));
     },
   });
 

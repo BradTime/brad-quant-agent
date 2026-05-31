@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Send, Square, Sparkles } from 'lucide-react';
 import { streamChat, type ChatMessage } from '@/lib/api/ai';
 import { cn } from '@/lib/utils';
+import { Markdown } from './markdown';
 
 interface ChatPanelProps {
   /** 注入给模型的上下文（作为 system 消息，不在界面显示），如"当前正在查看 600000.SH 浦发银行" */
@@ -49,10 +50,13 @@ export function ChatPanel({
     setMessages([...nextDisplay, { role: 'assistant', content: '' }]);
     setStreaming(true);
 
-    const payload: ChatMessage[] = nextDisplay.map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
+    // 后端只接受真实用户输入；历史 assistant 文本不回传，避免客户端伪造模型事实。
+    const payload: ChatMessage[] = nextDisplay
+      .filter((m) => m.role === 'user')
+      .map((m) => ({
+        role: 'user',
+        content: m.content,
+      }));
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -137,13 +141,17 @@ export function ChatPanel({
             >
               <div
                 className={cn(
-                  'max-w-[85%] whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed',
+                  'max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed',
                   m.role === 'user'
-                    ? 'bg-brand text-brand-foreground'
+                    ? 'whitespace-pre-wrap bg-brand text-brand-foreground'
                     : 'border border-border bg-card text-foreground'
                 )}
               >
-                {m.content || (streaming && i === messages.length - 1 ? '思考中…' : '')}
+                {m.role === 'assistant' && m.content ? (
+                  <Markdown content={m.content} />
+                ) : (
+                  m.content || (streaming && i === messages.length - 1 ? '思考中…' : '')
+                )}
               </div>
             </div>
           ))

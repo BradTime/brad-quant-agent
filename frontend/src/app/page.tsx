@@ -20,7 +20,7 @@ export default function HomePage() {
 
   // 如果未登录，显示首页欢迎页面
   return (
-    <div className="flex min-h-screen items-center justify-center p-4 bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
+    <div className="flex min-h-screen items-center justify-center bg-background p-4 text-foreground">
       <Card className="w-full max-w-2xl">
         <CardHeader className="text-center">
           <CardTitle className="text-4xl font-bold mb-2">量化投资 Agent 平台</CardTitle>
@@ -31,7 +31,7 @@ export default function HomePage() {
         <CardContent className="space-y-6">
           <div className="text-center space-y-2">
             <p className="text-muted-foreground">
-              提供智能化的投资策略分析、实时市场监控、风险评估和交易建议
+              提供智能化的市场监控、条件式研究辅助、风险提示与 AI 看盘问答
             </p>
           </div>
           <div className="flex gap-4 justify-center">
@@ -46,7 +46,7 @@ export default function HomePage() {
           </div>
           <div className="pt-6 border-t text-center">
             <p className="text-sm text-muted-foreground">
-              💡 提示：当前需要后端 API 服务才能正常登录。请确保后端服务已启动并配置正确的 API 地址。
+              提示：当前需要后端 API 服务才能正常登录。平台内容仅供研究，不构成投资建议。
             </p>
           </div>
         </CardContent>

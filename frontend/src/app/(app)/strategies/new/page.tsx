@@ -74,6 +74,12 @@ export default function NewStrategyPage() {
           <p className="text-muted-foreground">创建新的量化投资策略</p>
         </div>
 
+        <Card className="mb-6 border-brand/30 bg-brand-soft">
+          <CardContent className="p-4 text-sm text-muted-foreground">
+            策略创建将在 Phase 4 量化研究阶段开放。当前页面保留为设计占位，提交已禁用，避免产生无效请求。
+          </CardContent>
+        </Card>
+
         <form onSubmit={handleSubmit(onSubmit)}>
           <Card>
             <CardHeader>
@@ -172,8 +178,8 @@ export default function NewStrategyPage() {
           </Card>
 
           <div className="flex gap-4 mt-6">
-            <Button type="submit" disabled={createMutation.isPending}>
-              {createMutation.isPending ? '创建中...' : '创建策略'}
+            <Button type="submit" disabled>
+              创建策略（Phase 4）
             </Button>
             <Link href="/strategies">
               <Button type="button" variant="outline">

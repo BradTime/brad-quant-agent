@@ -84,10 +84,17 @@ export default function StrategiesPage() {
             <h1 className="text-3xl font-bold">策略管理</h1>
             <p className="text-muted-foreground">创建、管理和监控您的量化策略</p>
           </div>
-          <Link href="/strategies/new">
-            <Button>创建策略</Button>
-          </Link>
+          <Button disabled title="Phase 4 开放策略创建">
+            创建策略（Phase 4）
+          </Button>
         </div>
+
+        <Card className="border-brand/30 bg-brand-soft">
+          <CardContent className="p-4 text-sm text-muted-foreground">
+            策略管理属于 Phase 4 量化研究范围。当前仅保留占位入口，避免误以为已经支持真实创建、
+            编辑、运行和删除策略。
+          </CardContent>
+        </Card>
 
         {/* 筛选和搜索 */}
         <Card>
@@ -140,7 +147,7 @@ export default function StrategiesPage() {
               <div className="text-center py-8">加载中...</div>
             ) : strategies.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
-                暂无策略，<Link href="/strategies/new" className="text-primary hover:underline">立即创建</Link>
+                策略功能暂未开放，Phase 4 将提供真实策略 CRUD 与回测集成。
               </div>
             ) : (
               <>
@@ -181,8 +188,8 @@ export default function StrategiesPage() {
                             <span
                               className={
                                 strategy.performance.totalReturnPercent >= 0
-                                  ? 'text-green-600'
-                                  : 'text-red-600'
+                                  ? 'text-up'
+                                  : 'text-down'
                               }
                             >
                               {formatPercent(strategy.performance.totalReturnPercent)}

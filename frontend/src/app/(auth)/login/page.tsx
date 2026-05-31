@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { authApi } from '@/lib/api/auth';
+import { getApiErrorMessage } from '@/lib/api/errors';
 import { useAuthStore } from '@/stores/useAuthStore';
 import type { LoginRequest } from '@/types';
 
@@ -28,8 +29,7 @@ export default function LoginPage() {
       router.push('/dashboard');
     },
     onError: (error: unknown) => {
-      const message = error instanceof Error ? error.message : '登录失败，请检查您的邮箱和密码';
-      setError(message);
+      setError(getApiErrorMessage(error, '登录失败，请检查您的邮箱和密码'));
     },
   });
 

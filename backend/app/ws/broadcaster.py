@@ -34,7 +34,8 @@ def _payload_for(topic: str, cache: dict):
     if topic.startswith(_QUOTE_PREFIX):
         if "quotes" not in cache:
             cache["quotes"] = market.quotes_map_snapshot()
-        return cache["quotes"].get(topic[len(_QUOTE_PREFIX) :])
+        code = topic[len(_QUOTE_PREFIX) :]
+        return cache["quotes"].get(code) or market.get_cached_or_last_quote(code)
     return None
 
 

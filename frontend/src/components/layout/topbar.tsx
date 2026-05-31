@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { ChevronDown, LogOut, Menu, MonitorCog, Moon, Sun } from 'lucide-react';
+import { ChevronDown, LogOut, Menu, Moon, Sun } from 'lucide-react';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useThemeStore } from '@/stores/useThemeStore';
 import { authApi } from '@/lib/api/auth';
@@ -10,6 +10,7 @@ import { authApi } from '@/lib/api/auth';
 const TITLES: Record<string, [string, string]> = {
   '/dashboard': ['仪表盘', '你的投研总览'],
   '/market': ['看盘', '实时行情与个股'],
+  '/brief': ['盘前早报', 'AI 生成的条件式研究计划'],
   '/strategies': ['策略', '创建与管理量化策略'],
   '/backtest': ['回测', '用历史检验你的想法'],
   '/ai': ['AI 问答', '与你的投研助手对话'],
@@ -51,8 +52,9 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
 
 function ThemeToggle() {
   const { theme, toggleTheme } = useThemeStore();
-  const Icon = theme === 'dark' ? Moon : theme === 'light' ? Sun : MonitorCog;
-  const label = theme === 'dark' ? '深色' : theme === 'light' ? '浅色' : '跟随系统';
+  const isDark = theme === 'dark' || theme === 'system';
+  const Icon = isDark ? Moon : Sun;
+  const label = isDark ? '深色' : '浅色';
 
   return (
     <button

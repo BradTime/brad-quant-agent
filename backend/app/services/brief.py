@@ -47,12 +47,15 @@ def _recent_news(codes: list[str], hours: int = 48, limit: int = 12) -> list[dic
             .order_by(NewsItem.published_at.desc())
             .limit(limit)
         )
+        if codes:
+            stmt = stmt.where(NewsItem.code.in_(codes))
         rows = list(session.execute(stmt).scalars().all())
         if not rows:  # 落库新闻发布时间可能偏旧；放宽为「最近入库」兜底
+            fallback = select(NewsItem).order_by(NewsItem.fetched_at.desc()).limit(limit)
+            if codes:
+                fallback = fallback.where(NewsItem.code.in_(codes))
             rows = list(
-                session.execute(
-                    select(NewsItem).order_by(NewsItem.fetched_at.desc()).limit(limit)
-                )
+                session.execute(fallback)
                 .scalars()
                 .all()
             )
@@ -92,7 +95,8 @@ def _recent_dragon_tiger(days: int = 5, limit: int = 12) -> list[dict]:
 
 
 def build_data_pack(user_id: str | None) -> dict:
-    indices = market.get_market_overview()
+    # 早报生成必须是 cache/DB-only，不能在请求或定时任务中触发实时源阻塞抓取。
+    indices = market.indices_snapshot()
 
     items = watchlist.list_items(user_id) if user_id else []
     rated = [i for i in items if i.get("changePercent") is not None]
@@ -119,6 +123,8 @@ def build_data_pack(user_id: str | None) -> dict:
     )
 
     watch_codes = [i["code"] for i in items]
+    recent_dragon_tiger = _recent_dragon_tiger()
+    recent_news = _recent_news(watch_codes)
     pack = {
         "tradeDate": _today().isoformat(),
         "generatedAt": datetime.now(_TZ).isoformat(),
@@ -130,13 +136,13 @@ def build_data_pack(user_id: str | None) -> dict:
             "topLosers": top_losers,
         },
         "capitalFlow": capital_flow,
-        "dragonTiger": _recent_dragon_tiger(),
-        "news": _recent_news(watch_codes),
+        "dragonTiger": recent_dragon_tiger,
+        "news": recent_news,
         "coverage": {
             "indices": bool(indices),
             "watchlist": bool(items),
             "capitalFlow": bool(capital_flow),
-            "dragonTiger": bool(_recent_dragon_tiger()),
+            "dragonTiger": bool(recent_dragon_tiger),
             "missing": _MISSING,
         },
     }
@@ -158,7 +164,7 @@ def render_data_pack_text(pack: dict) -> str:
         lines.append("# 大盘指数（快照/最近收盘，免费源可能延迟）")
         for idx in indices:
             lines.append(
-                f"- {idx.get('name','?')}: {idx.get('price','—')}（{_fmt_pct(idx.get('changePercent'))}）"
+                f"- {idx.get('name','?')}: {idx.get('value','—')}（{_fmt_pct(idx.get('changePercent'))}）"
             )
     else:
         lines.append("# 大盘指数：暂无数据（实时源不可用且无落库快照）")

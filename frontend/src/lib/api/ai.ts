@@ -2,7 +2,7 @@ import { API_BASE_URL } from '@/lib/constants';
 import { useAuthStore } from '@/stores/useAuthStore';
 
 export interface ChatMessage {
-  role: 'user' | 'assistant';
+  role: 'user';
   content: string;
 }
 
@@ -10,7 +10,7 @@ interface StreamHandlers {
   onDelta: (text: string) => void;
   onError?: (message: string) => void;
   signal?: AbortSignal;
-  /** 服务端注入的上下文（如当前个股），不可伪造 system 角色 */
+  /** 界面上下文（如当前个股）；后端会按不可信元数据处理。 */
   contextHint?: string;
 }
 
