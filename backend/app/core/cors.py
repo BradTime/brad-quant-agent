@@ -23,7 +23,8 @@ def cors_lan_regex() -> str:
 def is_allowed_origin(origin: str) -> bool:
     if origin in settings.cors_origin_list:
         return True
-    if settings.cors_allow_private_lan:
+    # 局域网放开仅用于开发；生产环境强制关闭
+    if settings.cors_allow_private_lan and not settings.is_production:
         return bool(re.fullmatch(_CORS_LAN_REGEX, origin))
     return False
 

@@ -2,7 +2,10 @@
 
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_DEFAULT_JWT_SECRET = "change-me-in-production"
 
 
 class Settings(BaseSettings):
@@ -13,6 +16,8 @@ class Settings(BaseSettings):
     app_name: str = "Quant Agent Backend"
     version: str = "0.1.0"
     port: int = 3001
+    # 运行环境：dev / production —— 用于生产收紧安全默认（CORS、JWT 密钥校验）
+    app_env: str = "dev"
 
     # CORS：逗号分隔的来源列表
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
@@ -69,12 +74,25 @@ class Settings(BaseSettings):
     langchain_project: str = "brad-quant-agent"
 
     @property
+    def is_production(self) -> bool:
+        return self.app_env.strip().lower() in {"prod", "production"}
+
+    @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @property
     def index_code_list(self) -> list[str]:
         return [c.strip() for c in self.index_codes.split(",") if c.strip()]
+
+    @model_validator(mode="after")
+    def _enforce_production_security(self) -> "Settings":
+        # 生产环境严禁使用默认 JWT 密钥（启动即失败，避免可伪造令牌的弱配置上线）
+        if self.is_production and self.jwt_secret == _DEFAULT_JWT_SECRET:
+            raise ValueError(
+                "生产环境（APP_ENV=production）必须设置非默认 JWT_SECRET"
+            )
+        return self
 
 
 @lru_cache

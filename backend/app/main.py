@@ -70,7 +70,12 @@ app = FastAPI(title=settings.app_name, version=settings.version, lifespan=lifesp
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
-    allow_origin_regex=cors_lan_regex() if settings.cors_allow_private_lan else None,
+    # 局域网放开仅用于开发；生产环境强制关闭（即使误配 cors_allow_private_lan=true）
+    allow_origin_regex=(
+        cors_lan_regex()
+        if (settings.cors_allow_private_lan and not settings.is_production)
+        else None
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

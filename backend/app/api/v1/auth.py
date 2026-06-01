@@ -50,6 +50,9 @@ def refresh(body: RefreshRequest):
     if not payload or payload.get("type") != "refresh":
         return error("refresh token 无效或已过期", code=10003, http_status=401)
     subject = str(payload.get("sub"))
+    # 校验用户仍存在（账号被删/禁用后，旧 refresh token 不应继续换新令牌）
+    if auth_service.get_user_by_id(subject) is None:
+        return error("用户不存在或已失效", code=10003, http_status=401)
     return success(
         {"token": create_access_token(subject), "refreshToken": create_refresh_token(subject)}
     )
