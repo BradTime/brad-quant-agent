@@ -11,14 +11,20 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 
+import logging
+
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.health import router as health_router
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.core.cors import apply_cors_headers, cors_lan_regex
 from app.core.response import error
 from app.ws.routes import router as ws_router
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -55,9 +61,11 @@ app = FastAPI(title=settings.app_name, version=settings.version, lifespan=lifesp
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
+    allow_origin_regex=cors_lan_regex() if settings.cors_allow_private_lan else None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Type"],
 )
 
 app.include_router(health_router, tags=["health"])
@@ -65,11 +73,35 @@ app.include_router(api_router)
 app.include_router(ws_router)
 
 
+@app.middleware("http")
+async def ensure_cors_on_all_responses(request: Request, call_next):
+    """兜底：ASGI 层未捕获异常或异常响应未走 CORSMiddleware 时仍带 CORS 头。"""
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        logger.exception("request failed: %s", exc)
+        response = error("服务器内部错误", code=500, http_status=500, request=request)
+    else:
+        apply_cors_headers(request.headers.get("origin"), response)
+    return response
+
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
-    _ = request
     detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
-    return error(detail, code=exc.status_code, http_status=exc.status_code)
+    return error(detail, code=exc.status_code, http_status=exc.status_code, request=request)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.debug("validation error: %s", exc.errors())
+    return error("请求参数无效", code=400, http_status=400, request=request)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("unhandled error: %s", exc)
+    return error("服务器内部错误", code=500, http_status=500, request=request)
 
 
 @app.get("/")

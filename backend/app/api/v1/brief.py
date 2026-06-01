@@ -11,10 +11,11 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import get_current_user
+from app.core.cors import apply_cors_headers
 from app.core.response import success
 from app.models.user import User
 from app.services import brief
@@ -43,7 +44,10 @@ def detail(brief_id: str, user: User = Depends(get_current_user)) -> dict:
 
 
 @router.post("/generate")
-def generate(user: User = Depends(get_current_user)) -> StreamingResponse:
+def generate(
+    request: Request,
+    user: User = Depends(get_current_user),
+) -> StreamingResponse:
     user_id = str(user.id)
 
     def event_stream():
@@ -54,4 +58,6 @@ def generate(user: User = Depends(get_current_user)) -> StreamingResponse:
             yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    response = StreamingResponse(event_stream(), media_type="text/event-stream")
+    apply_cors_headers(request.headers.get("origin"), response)
+    return response
