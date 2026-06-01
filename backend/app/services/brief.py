@@ -339,7 +339,8 @@ def stream_generate(user_id: str | None):
             yield from _single_shot()
             _save("ready")
     except GeneratorExit:
-        _save("ready" if acc else "failed")
+        # 客户端断开/取消：已生成部分标 partial（get_latest 只取 ready，不会把残篇当最新），无内容标 failed
+        _save("partial" if acc else "failed")
         raise
     except Exception as exc:  # noqa: BLE001
         logger.warning("早报生成失败（引擎=%s）: %s", engine, exc)

@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     embedding_api_base: str = ""
     embedding_api_key: str = ""
     rag_top_k: int = 5
+    # RAG 总开关：关闭后早报/问答不做检索增强（不影响主流程）
+    rag_enabled: bool = True
+    # 启动时后台预热本地 embedding 模型（守护线程，不阻塞启动）
+    embedding_warm_on_start: bool = True
 
     # 盘前早报生成引擎：graph（LangGraph 多智能体）/ single（单轮合成，兜底）
     brief_engine: str = "graph"

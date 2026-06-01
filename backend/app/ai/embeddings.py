@@ -66,3 +66,22 @@ def embed_texts(texts: list[str], is_query: bool = False) -> list[list[float]]:
 
 def embed_query(text: str) -> list[float]:
     return embed_texts([text], is_query=True)[0]
+
+
+def warm() -> None:
+    """预加载本地 embedding 模型（首次会下载）。供启动时后台线程调用，避免首个
+    早报/问答请求被模型加载阻塞。失败仅记录、不抛出（离线环境照常降级）。"""
+    if settings.embedding_provider != "local":
+        return
+    try:
+        _get_local_model()
+        logger.info("本地 embedding 模型预热完成：%s", settings.embedding_model)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("embedding 预热失败（RAG 将在调用时重试/降级）：%s", exc)
+
+
+def warm_in_background() -> None:
+    """以守护线程预热，绝不阻塞启动。"""
+    import threading
+
+    threading.Thread(target=warm, name="embedding-warm", daemon=True).start()

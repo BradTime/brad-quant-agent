@@ -6,7 +6,16 @@ Business routers are mounted here as they are implemented.
 
 from fastapi import APIRouter
 
-from app.api.v1 import ai, auth, brief, dashboard, market, strategies, watchlist
+from app.api.v1 import (
+    ai,
+    auth,
+    backtest,
+    brief,
+    dashboard,
+    market,
+    strategies,
+    watchlist,
+)
 from app.core.response import success
 
 api_router = APIRouter(prefix="/api/v1")
@@ -24,3 +33,4 @@ api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboar
 api_router.include_router(ai.router, prefix="/ai", tags=["ai"])
 api_router.include_router(brief.router, prefix="/brief", tags=["brief"])
 api_router.include_router(strategies.router, prefix="/strategies", tags=["strategies"])
+api_router.include_router(backtest.router, prefix="/backtest", tags=["backtest"])

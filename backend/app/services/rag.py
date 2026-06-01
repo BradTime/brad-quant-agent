@@ -80,24 +80,29 @@ def index_document(
 
 
 def retrieve(query: str, k: int | None = None, source: str | None = None) -> list[dict]:
-    """语义检索：返回最相关的若干文档块（含相似度分数）。"""
+    """语义检索：返回最相关的若干文档块（含相似度分数）。
+
+    **硬降级**：embedding 加载/编码、pgvector 扩展缺失、documents 表未建、维度不匹配等
+    任何失败都不应影响调用方（早报/问答）——统一记录 warning 并返回 []。
+    """
+    if not settings.rag_enabled:
+        return []
     query = (query or "").strip()
     if not query:
         return []
     k = k or settings.rag_top_k
     try:
         qvec = embeddings.embed_query(query)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("查询向量化失败（RAG 跳过）：%s", exc)
+        with SessionLocal() as session:
+            distance = Document.embedding.cosine_distance(qvec).label("distance")
+            stmt = select(Document, distance)
+            if source:
+                stmt = stmt.where(Document.source == source)
+            stmt = stmt.order_by(distance).limit(k)
+            rows = session.execute(stmt).all()
+    except Exception as exc:  # noqa: BLE001  (检索为增强项，失败即降级为空)
+        logger.warning("RAG 检索失败，降级为空：%s", exc)
         return []
-
-    with SessionLocal() as session:
-        distance = Document.embedding.cosine_distance(qvec).label("distance")
-        stmt = select(Document, distance)
-        if source:
-            stmt = stmt.where(Document.source == source)
-        stmt = stmt.order_by(distance).limit(k)
-        rows = session.execute(stmt).all()
 
     out: list[dict] = []
     for doc, dist in rows:

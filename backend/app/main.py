@@ -39,6 +39,15 @@ async def lifespan(app: FastAPI):
         except Exception as exc:  # noqa: BLE001
             print(f"[warn] 行情调度器启动失败（已忽略，可手动 ingest）：{exc}")
 
+    # RAG：后台预热本地 embedding 模型（守护线程，不阻塞启动；离线/失败自动降级）
+    if settings.rag_enabled and settings.embedding_warm_on_start:
+        try:
+            from app.ai import embeddings
+
+            embeddings.warm_in_background()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("embedding 预热启动失败（已忽略）：%s", exc)
+
     from app.ws.broadcaster import push_loop
 
     push_task = asyncio.create_task(push_loop())
