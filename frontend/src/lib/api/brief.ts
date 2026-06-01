@@ -1,6 +1,7 @@
 import { API_BASE_URL } from '@/lib/constants';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { apiClient } from './client';
+import { createSSEParser } from './sse';
 
 export interface BriefSummary {
   id: string;
@@ -91,20 +92,12 @@ export async function streamGenerateBrief({
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
-  let buffer = '';
+  const parser = createSSEParser();
 
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    const frames = buffer.split('\n\n');
-    buffer = frames.pop() ?? '';
-
-    for (const frame of frames) {
-      const line = frame.trim();
-      if (!line.startsWith('data:')) continue;
-      const payload = line.slice(5).trim();
+    for (const payload of parser.push(decoder.decode(value, { stream: true }))) {
       if (payload === '[DONE]') {
         onDone?.();
         return;
