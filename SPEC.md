@@ -41,6 +41,7 @@
 | **Phase 0（地基）** | 仓库结构 frontend/backend 分离；FastAPI 骨架；数据源三件套 + `DataProvider` 抽象 + Postgres 落库（含 PIT 字段）；行情拉取调度器；DeepSeek 工具层；WebSocket 基座；前端全局导航壳；认证迁移到 FastAPI |
 | **Phase 1（MVP）** | 看盘"进阶版" + AI 看盘问答（含选股工具）✅ |
 | **Phase 2** | AI 盘前早报 / 对话问答 ✅ |
+| **AI 增强（增量）** | RAG 检索增强（pgvector + 本地 bge 中文向量）✅；后续多智能体 / 记忆 / MCP / 微调 |
 | **Phase 3** | 模拟交易（T+1 撮合 / 持仓 / 订单 + WS 回报 + AI 复盘） |
 | **Phase 4** | 量化研究 + 真回测引擎（backtrader/qlib，策略 API 向 RQAlpha/JoinQuant 对齐） |
 | **产品化扩展期** | 完整 RBAC + 商业化；其他市场（期货 / 港股 / 美股 / 加密）；i18n；（接付费源后）真实时 / Level-2 |
@@ -175,6 +176,14 @@ brad-quant-agent/
 - [x] 前端 `/brief`：最新早报 Markdown 渲染 + 「生成今日早报」流式 + 历史列表 + 来源/免责标注；侧栏导航
 - [x] 冒烟验证：真实 DeepSeek 生成全局早报，正文具体数字（净买额/资金流向/公告）均可溯源至数据包新闻标题（无杜撰），缺口板块如实标注，免责齐全
 - [ ] 对话中枢 / 自主深度研究（多轮规划编排）——留作 Phase 2 增量（当前 `/ai` 已具备多轮工具问答）
+
+### AI 增强 — RAG 检索增强（Phase A，增量）
+- [x] pgvector 向量库（docker 镜像 `pgvector/pgvector:pg16` + `CREATE EXTENSION vector`）+ `documents` 表（chunk/embedding/来源/时间，PIT 友好）
+- [x] 可插拔 embedding 接口（`embedding_provider` local/api；默认本地 `BAAI/bge-small-zh-v1.5`，懒加载、离线免费；查询侧加 bge 检索指令、L2 归一化 + 余弦距离）
+- [x] `services/rag`：切块 → 向量化 → upsert → 语义检索 `retrieve`；`cli rag-backfill` 把已落库新闻/历史早报灌入（回填 135 块）
+- [x] 暴露 AI 工具 `search_knowledge`（问答可自动调用）；早报数据包接入 RAG 背景检索（更早新闻 / 历史早报，提供延续性）
+- [x] 验证：语义检索相关性达标（白酒→茅台、半导体→封测/光通信）；39 项单测通过
+- [ ] 后续：HNSW 索引（语料增大后）、混合检索（BM25+向量）、多智能体 / 记忆 / MCP / 微调
 
 ---
 

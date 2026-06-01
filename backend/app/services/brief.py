@@ -23,7 +23,7 @@ from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models.brief import MorningBrief
 from app.models.extra import DragonTiger, NewsItem
-from app.services import market, watchlist
+from app.services import market, rag, watchlist
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +125,11 @@ def build_data_pack(user_id: str | None) -> dict:
     watch_codes = [i["code"] for i in items]
     recent_dragon_tiger = _recent_dragon_tiger()
     recent_news = _recent_news(watch_codes)
+
+    # RAG：用近期新闻主题检索相关背景（更早新闻 / 历史早报），为研判提供延续性上下文
+    rag_query = " ".join(n.get("title", "") for n in recent_news[:5] if n.get("title"))
+    related_knowledge = rag.retrieve(rag_query, k=5) if rag_query.strip() else []
+
     pack = {
         "tradeDate": _today().isoformat(),
         "generatedAt": datetime.now(_TZ).isoformat(),
@@ -138,11 +143,13 @@ def build_data_pack(user_id: str | None) -> dict:
         "capitalFlow": capital_flow,
         "dragonTiger": recent_dragon_tiger,
         "news": recent_news,
+        "relatedKnowledge": related_knowledge,
         "coverage": {
             "indices": bool(indices),
             "watchlist": bool(items),
             "capitalFlow": bool(capital_flow),
             "dragonTiger": bool(recent_dragon_tiger),
+            "relatedKnowledge": bool(related_knowledge),
             "missing": _MISSING,
         },
     }
@@ -212,6 +219,14 @@ def render_data_pack_text(pack: dict) -> str:
         lines.append("# 新闻：暂无落库数据")
     lines.append("")
 
+    related = pack.get("relatedKnowledge") or []
+    if related:
+        lines.append("# 相关背景检索（RAG，更早新闻/历史早报片段，供延续性参考）")
+        for r in related:
+            tag = "历史早报" if r.get("source") == "brief" else "新闻"
+            lines.append(f"- [{tag} {r.get('publishedAt','') or ''}] {(r.get('chunk','') or '')[:120]}")
+        lines.append("")
+
     lines.append("# 已知数据缺口（免费源未接入，请勿编造，需如实说明）")
     for m in pack["coverage"]["missing"]:
         lines.append(f"- {m}")
@@ -256,8 +271,18 @@ def stream_generate(user_id: str | None):
     """流式生成并在结束时落库。产出文本分片（供 SSE）。"""
     brief_id = uuid.uuid4().hex
     trade_date = _today()
-    pack = build_data_pack(user_id)
-    content_text = render_data_pack_text(pack)
+
+    try:
+        pack = build_data_pack(user_id)
+        content_text = render_data_pack_text(pack)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("早报数据装配失败: %s", exc)
+        yield f"\n\n⚠️ 早报数据装配失败：{exc}\n\n请确认 PostgreSQL 已启动且已执行数据库迁移。"
+        try:
+            _persist(brief_id, user_id, trade_date, {}, "", "failed", str(exc))
+        except Exception:  # noqa: BLE001
+            pass
+        return
 
     acc: list[str] = []
     persisted = False

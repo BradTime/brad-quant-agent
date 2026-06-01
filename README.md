@@ -82,8 +82,23 @@ python -m pytest tests/                   # 离线单测
 python -c "from app.services import brief; print(brief.generate(None)['title'])"
 ```
 
+## AI 增强：RAG 检索增强（pgvector + 本地中文向量）
+- **向量库**：Postgres + pgvector（docker 镜像已切到 `pgvector/pgvector:pg16`，`init-db` 自动 `CREATE EXTENSION vector` 并建 `documents` 表）。
+- **Embedding**：可插拔（`EMBEDDING_PROVIDER=local|api`），默认本地 `BAAI/bge-small-zh-v1.5`（离线免费，首次自动下载约 95MB）。
+- **能力**：新闻/历史早报切块向量化后语义检索；AI 工具 `search_knowledge`（问答自动调用）+ 早报数据包注入 RAG 背景。
+
+```bash
+# 先确保用带 pgvector 的镜像起库
+docker compose up -d postgres
+cd backend && source .venv/bin/activate
+pip install -r requirements.txt        # 含 pgvector / sentence-transformers
+python -m app.cli init-db              # 建 vector 扩展 + documents 表
+python -m app.cli rag-backfill         # 把已落库新闻/历史早报灌入向量库
+```
+> 切换 embedding 模型若维度变化（默认 512），需重建 `documents` 表（或调整 `EMBEDDING_DIM`）。
+
 ## 开发阶段
-Phase 0 地基 ✅ → Phase 1 看盘 + AI 问答 ✅ → Phase 2 盘前早报 ✅ → Phase 3 模拟交易 → Phase 4 量化研究 / 回测。详见 `SPEC.md`。
+Phase 0 地基 ✅ → Phase 1 看盘 + AI 问答 ✅ → Phase 2 盘前早报 ✅ →（AI 增强：RAG ✅）→ Phase 3 模拟交易 → Phase 4 量化研究 / 回测。详见 `SPEC.md`。
 
 ## 许可证
 MIT

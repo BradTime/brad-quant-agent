@@ -3,7 +3,8 @@
 # 说明：后端镜像构建需联网装 pip 依赖；前端镜像构建需联网拉 Google 字体。
 services:
   postgres:
-    image: postgres:16-alpine
+    # pgvector/pgvector:pg16 = PG16 + 预装 pgvector 扩展（RAG 向量检索用），与 postgres:16 数据格式兼容
+    image: pgvector/pgvector:pg16
     container_name: quant-agent-postgres
     environment:
       POSTGRES_USER: postgres

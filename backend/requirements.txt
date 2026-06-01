@@ -22,6 +22,10 @@ efinance
 # AI（DeepSeek 为 OpenAI 兼容协议）
 openai
 
+# RAG：向量检索（pgvector）+ 本地中文 embedding（默认 bge-small-zh）
+pgvector
+sentence-transformers
+
 # Auth
 python-jose[cryptography]
 passlib[bcrypt]

@@ -65,6 +65,8 @@ def main(argv: list[str] | None = None) -> int:
     p_news.add_argument("--limit", type=int, default=30)
     p_news.add_argument("--provider", default=None)
 
+    sub.add_parser("rag-backfill", help="把已落库新闻/历史早报向量化灌入 RAG 检索库")
+
     args = parser.parse_args(argv)
 
     if args.cmd == "init-db":
@@ -72,6 +74,13 @@ def main(argv: list[str] | None = None) -> int:
 
         init_db()
         print("✅ 数据库表已创建")
+        return 0
+
+    if args.cmd == "rag-backfill":
+        from app.services import rag
+
+        stats = rag.backfill_all()
+        print(f"✅ RAG 回填完成：新闻 {stats['news']} 块、历史早报 {stats['briefs']} 块")
         return 0
 
     from app.services import ingest

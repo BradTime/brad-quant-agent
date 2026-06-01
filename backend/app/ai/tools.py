@@ -149,6 +149,25 @@ TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "search_knowledge",
+            "description": (
+                "语义检索本平台已落库的新闻/公告与历史早报（RAG）。"
+                "当用户问及近期消息面、事件、主题背景、或需要支撑性资料时调用；"
+                "返回最相关的文本片段（含来源与时间）。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "检索问题/主题，如 '半导体 国产替代 政策'"},
+                    "k": {"type": "integer", "description": "返回片段数，默认 5"},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "screen_stocks",
             "description": (
                 "条件选股：基于全市场实时快照，按价格/涨跌幅/成交量/成交额区间与关键词筛选。"
@@ -245,6 +264,14 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> dict:
         }
     if name == "get_stock_profile":
         return {"profile": market.get_stock_profile(str(arguments.get("code", "")))}
+    if name == "search_knowledge":
+        from app.services import rag
+
+        return {
+            "results": rag.retrieve(
+                str(arguments.get("query", "")), int(arguments.get("k", 0) or 0) or None
+            )
+        }
     if name == "screen_stocks":
         filters = {k: v for k, v in arguments.items() if k in _SCREEN_KEYS and v is not None}
         return market.screen_stocks(

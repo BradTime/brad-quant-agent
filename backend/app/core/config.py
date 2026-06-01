@@ -15,7 +15,9 @@ class Settings(BaseSettings):
     port: int = 3001
 
     # CORS：逗号分隔的来源列表
-    cors_origins: str = "http://localhost:3000"
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+    # 开发环境允许局域网 IP 访问前端（如 http://192.168.x.x:3000）
+    cors_allow_private_lan: bool = True
 
     # Database
     database_url: str = "postgresql+psycopg2://postgres:postgres@localhost:5432/quant_agent"
@@ -43,6 +45,15 @@ class Settings(BaseSettings):
     enable_brief_scheduler: bool = True
     brief_cron_hour: int = 8
     brief_cron_minute: int = 30
+
+    # RAG（检索增强）：可插拔 embedding 后端
+    # embedding_provider: local（本地 sentence-transformers）/ api（OpenAI 兼容）
+    embedding_provider: str = "local"
+    embedding_model: str = "BAAI/bge-small-zh-v1.5"
+    embedding_dim: int = 512
+    embedding_api_base: str = ""
+    embedding_api_key: str = ""
+    rag_top_k: int = 5
 
     @property
     def cors_origin_list(self) -> list[str]:
