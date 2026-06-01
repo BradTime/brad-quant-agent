@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import * as echarts from 'echarts';
 import type { EChartsOption } from 'echarts';
+import { useThemeStore } from '@/stores/useThemeStore';
+import { getChartPalette } from './chart-theme';
 
 interface PieChartData {
   name: string;
@@ -18,24 +20,24 @@ interface PieChartProps {
 export function PieChart({ data, height = 300, title }: PieChartProps) {
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<echarts.ECharts | null>(null);
+  const theme = useThemeStore((s) => s.theme);
 
   useEffect(() => {
     if (!chartRef.current) return;
-
     if (!chartInstance.current) {
       chartInstance.current = echarts.init(chartRef.current);
     }
+    const c = getChartPalette();
 
     const option: EChartsOption = {
-      title: title ? { text: title, left: 'center' } : undefined,
-      tooltip: {
-        trigger: 'item',
-        formatter: '{a} <br/>{b}: ¥{c} ({d}%)',
-      },
+      color: c.series,
+      title: title ? { text: title, left: 'center', textStyle: { color: c.foreground } } : undefined,
+      tooltip: { trigger: 'item', formatter: '{a} <br/>{b}: ¥{c} ({d}%)' },
       legend: {
         orient: 'vertical',
         left: 'left',
         top: title ? 50 : 20,
+        textStyle: { color: c.muted },
       },
       series: [
         {
@@ -43,44 +45,29 @@ export function PieChart({ data, height = 300, title }: PieChartProps) {
           type: 'pie',
           radius: ['40%', '70%'],
           avoidLabelOverlap: false,
-          itemStyle: {
-            borderRadius: 10,
-            borderColor: '#fff',
-            borderWidth: 2,
-          },
-          label: {
-            show: false,
-            position: 'center',
-          },
-          emphasis: {
-            label: {
-              show: true,
-              fontSize: '20',
-              fontWeight: 'bold',
-            },
-          },
-          labelLine: {
-            show: false,
-          },
-          data: data,
+          // 切片描边用卡片底色，明暗主题下都能清晰分隔（原先硬编码 #fff 在暗色下突兀）
+          itemStyle: { borderRadius: 10, borderColor: c.card, borderWidth: 2 },
+          label: { show: false, position: 'center', color: c.foreground },
+          emphasis: { label: { show: true, fontSize: 20, fontWeight: 'bold', color: c.foreground } },
+          labelLine: { show: false },
+          data,
         },
       ],
     };
 
-    chartInstance.current.setOption(option);
+    chartInstance.current.setOption(option, { notMerge: true });
 
-    const handleResize = () => {
-      chartInstance.current?.resize();
-    };
+    const handleResize = () => chartInstance.current?.resize();
     window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [data, height, title, theme]);
 
+  useEffect(() => {
     return () => {
-      window.removeEventListener('resize', handleResize);
       chartInstance.current?.dispose();
+      chartInstance.current = null;
     };
-  }, [data, height, title]);
+  }, []);
 
   return <div ref={chartRef} style={{ width: '100%', height: `${height}px` }} />;
 }
-
-
