@@ -26,6 +26,10 @@ openai
 pgvector
 sentence-transformers
 
+# 多智能体编排（盘前早报）+ 可观测（LangSmith 随 langchain 附带）
+langgraph
+langchain-openai
+
 # Auth
 python-jose[cryptography]
 passlib[bcrypt]

@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
+from app.agents import brief_graph
 from app.ai.compliance import enforce_compliance
 from app.ai.orchestrator import run_completion_stream
 from app.ai.prompts import MORNING_BRIEF_PROMPT
@@ -247,9 +248,13 @@ def _persist(
     content: str,
     status: str,
     error: str | None = None,
+    trace: list[dict] | None = None,
+    engine: str = "single",
 ) -> None:
     title = f"A股盘前早报 · {trade_date.isoformat()}"
     note = "数据来源：本平台已落库公开免费数据（指数/自选股/资金流/龙虎榜/新闻）；隔夜外盘与宏观政策暂未接入"
+    # data_pack_json 同时保存依据数据快照与多智能体逐步轨迹，便于复盘 / 可观测 / PIT。
+    snapshot = {"engine": engine, "pack": pack, "agentTrace": trace or []}
     with SessionLocal() as session:
         row = session.get(MorningBrief, brief_id)
         if row is None:
@@ -260,31 +265,43 @@ def _persist(
         row.status = status
         row.title = title
         row.content = content
-        row.data_pack_json = json.dumps(pack, ensure_ascii=False, default=str)
+        row.data_pack_json = json.dumps(snapshot, ensure_ascii=False, default=str)
         row.source_note = note
         row.model = settings.deepseek_model
         row.error = error
         session.commit()
 
 
+def _stream_chunks(text: str):
+    """把整段早报按行产出，给前端逐行出现的流式观感。"""
+    for line in text.splitlines(keepends=True):
+        yield line
+
+
 def stream_generate(user_id: str | None):
-    """流式生成并在结束时落库。产出文本分片（供 SSE）。"""
+    """流式生成并在结束时落库。产出事件 dict：``{"step":...}`` 进度 / ``{"delta":...}`` 正文。
+
+    引擎：``brief_engine=graph`` 走 LangGraph 多智能体（规划→三分析并行→主编→合规反思，
+    逐步产出进度），不可用或异常时降级为单轮合成。
+    """
     brief_id = uuid.uuid4().hex
     trade_date = _today()
+    engine = settings.brief_engine
 
     try:
         pack = build_data_pack(user_id)
         content_text = render_data_pack_text(pack)
     except Exception as exc:  # noqa: BLE001
         logger.warning("早报数据装配失败: %s", exc)
-        yield f"\n\n⚠️ 早报数据装配失败：{exc}\n\n请确认 PostgreSQL 已启动且已执行数据库迁移。"
+        yield {"delta": f"\n\n⚠️ 早报数据装配失败：{exc}\n\n请确认 PostgreSQL 已启动且已执行数据库迁移。"}
         try:
-            _persist(brief_id, user_id, trade_date, {}, "", "failed", str(exc))
+            _persist(brief_id, user_id, trade_date, {}, "", "failed", str(exc), engine=engine)
         except Exception:  # noqa: BLE001
             pass
         return
 
     acc: list[str] = []
+    trace: list[dict] = []
     persisted = False
 
     def _save(status: str, error: str | None = None) -> None:
@@ -294,28 +311,54 @@ def stream_generate(user_id: str | None):
         persisted = True
         try:
             _persist(brief_id, user_id, trade_date, pack,
-                     enforce_compliance("".join(acc)), status, error)
+                     enforce_compliance("".join(acc)), status, error, trace=trace, engine=engine)
         except Exception as exc:  # noqa: BLE001
             logger.warning("早报落库失败: %s", exc)
 
-    try:
+    def _single_shot():
         for piece in run_completion_stream(MORNING_BRIEF_PROMPT, content_text):
             acc.append(piece)
-            yield piece
-        _save("ready")
+            yield {"delta": piece}
+
+    use_graph = engine == "graph" and brief_graph.is_available()
+    try:
+        if use_graph:
+            final_text = ""
+            for ev in brief_graph.stream_steps(content_text):
+                if ev["type"] == "step":
+                    yield {"step": ev["label"], "node": ev.get("node"), "ms": ev.get("ms")}
+                else:
+                    final_text = ev.get("content") or ""
+                    trace = ev.get("trace") or []
+            final_text = enforce_compliance(final_text)
+            for chunk in _stream_chunks(final_text):
+                acc.append(chunk)
+                yield {"delta": chunk}
+            _save("ready")
+        else:
+            yield from _single_shot()
+            _save("ready")
     except GeneratorExit:
-        # 客户端断开：尽量把已生成的内容落库（标记 ready 以便复盘）
         _save("ready" if acc else "failed")
         raise
     except Exception as exc:  # noqa: BLE001
-        logger.warning("早报生成失败: %s", exc)
+        logger.warning("早报生成失败（引擎=%s）: %s", engine, exc)
+        if use_graph and not acc:  # 图引擎异常 → 降级单轮
+            try:
+                yield {"step": "图引擎异常，降级单轮合成"}
+                yield from _single_shot()
+                _save("ready")
+                return
+            except Exception as exc2:  # noqa: BLE001
+                exc = exc2
         _save("failed", str(exc))
-        yield f"\n\n⚠️ 早报生成出错：{exc}"
+        yield {"delta": f"\n\n⚠️ 早报生成出错：{exc}"}
 
 
 def generate(user_id: str | None = None) -> dict:
     """非流式生成（供调度器/脚本），返回早报记录 dict。"""
-    text = "".join(stream_generate(user_id))
+    parts = [ev["delta"] for ev in stream_generate(user_id) if "delta" in ev]
+    text = "".join(parts)
     latest = get_latest(user_id)
     return latest or {"content": text}
 

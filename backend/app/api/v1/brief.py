@@ -52,8 +52,9 @@ def generate(
 
     def event_stream():
         try:
-            for piece in brief.stream_generate(user_id):
-                yield f"data: {json.dumps({'delta': piece}, ensure_ascii=False)}\n\n"
+            # stream_generate 产出事件 dict：{"step":...}（多智能体进度）或 {"delta":...}（正文）
+            for event in brief.stream_generate(user_id):
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         except Exception as exc:  # noqa: BLE001
             yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"

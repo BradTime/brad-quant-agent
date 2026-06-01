@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Newspaper, Sparkles, Loader2, Clock, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Newspaper, Sparkles, Loader2, Clock, RefreshCw, AlertTriangle, Check } from 'lucide-react';
 import { RequireAuth } from '@/components/auth/require-auth';
 import { Markdown } from '@/components/ai/markdown';
 import {
@@ -12,6 +12,7 @@ import {
   streamGenerateBrief,
   type Brief,
   type BriefSummary,
+  type BriefStep,
 } from '@/lib/api/brief';
 import { cn } from '@/lib/utils';
 
@@ -32,6 +33,7 @@ function BriefView() {
   const [history, setHistory] = useState<BriefSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [steps, setSteps] = useState<BriefStep[]>([]);
   const [error, setError] = useState('');
   const abortRef = useRef<AbortController | null>(null);
 
@@ -66,6 +68,7 @@ function BriefView() {
     setError('');
     setContent('');
     setMeta(null);
+    setSteps([]);
     setGenerating(true);
     const controller = new AbortController();
     abortRef.current = controller;
@@ -73,6 +76,7 @@ function BriefView() {
     let acc = '';
     await streamGenerateBrief({
       signal: controller.signal,
+      onStep: (s) => setSteps((prev) => [...prev, s]),
       onDelta: (piece) => {
         acc += piece;
         setContent(acc);
@@ -153,6 +157,33 @@ function BriefView() {
           {error && (
             <div className="mb-4 flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               <AlertTriangle className="h-4 w-4" /> {error}
+            </div>
+          )}
+
+          {steps.length > 0 && (
+            <div className="mb-4 rounded-xl border border-border bg-muted/30 p-3">
+              <div className="mb-2 text-xs font-medium text-muted-foreground">
+                多智能体流水线（LangGraph）
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {steps.map((s, i) => (
+                  <span
+                    key={`${s.node ?? s.label}-${i}`}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs"
+                  >
+                    <Check className="h-3 w-3 text-down" />
+                    {s.label}
+                    {typeof s.ms === 'number' && (
+                      <span className="text-[10px] text-muted-foreground">{s.ms}ms</span>
+                    )}
+                  </span>
+                ))}
+                {generating && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" /> 处理中…
+                  </span>
+                )}
+              </div>
             </div>
           )}
 

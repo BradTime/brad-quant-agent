@@ -41,7 +41,7 @@
 | **Phase 0（地基）** | 仓库结构 frontend/backend 分离；FastAPI 骨架；数据源三件套 + `DataProvider` 抽象 + Postgres 落库（含 PIT 字段）；行情拉取调度器；DeepSeek 工具层；WebSocket 基座；前端全局导航壳；认证迁移到 FastAPI |
 | **Phase 1（MVP）** | 看盘"进阶版" + AI 看盘问答（含选股工具）✅ |
 | **Phase 2** | AI 盘前早报 / 对话问答 ✅ |
-| **AI 增强（增量）** | RAG 检索增强（pgvector + 本地 bge 中文向量）✅；后续多智能体 / 记忆 / MCP / 微调 |
+| **AI 增强（增量）** | RAG 检索增强（pgvector + 本地 bge）✅；多智能体早报（LangGraph）+ 可观测 ✅；后续 记忆 / MCP / 微调 |
 | **Phase 3** | 模拟交易（T+1 撮合 / 持仓 / 订单 + WS 回报 + AI 复盘） |
 | **Phase 4** | 量化研究 + 真回测引擎（backtrader/qlib，策略 API 向 RQAlpha/JoinQuant 对齐） |
 | **产品化扩展期** | 完整 RBAC + 商业化；其他市场（期货 / 港股 / 美股 / 加密）；i18n；（接付费源后）真实时 / Level-2 |
@@ -183,7 +183,14 @@ brad-quant-agent/
 - [x] `services/rag`：切块 → 向量化 → upsert → 语义检索 `retrieve`；`cli rag-backfill` 把已落库新闻/历史早报灌入（回填 135 块）
 - [x] 暴露 AI 工具 `search_knowledge`（问答可自动调用）；早报数据包接入 RAG 背景检索（更早新闻 / 历史早报，提供延续性）
 - [x] 验证：语义检索相关性达标（白酒→茅台、半导体→封测/光通信）；39 项单测通过
-- [ ] 后续：HNSW 索引（语料增大后）、混合检索（BM25+向量）、多智能体 / 记忆 / MCP / 微调
+- [ ] 后续：HNSW 索引（语料增大后）、混合检索（BM25+向量）
+
+### AI 增强 — 多智能体早报 + 可观测（LangGraph，增量）
+- [x] LangGraph 状态图：规划者 → [市场结构 / 资金面 / 消息面(RAG)] 三分析师**并行** → 主编汇总 → 合规反思（代码化红线校验）
+- [x] LLM 经 `langchain-openai` 接 DeepSeek（OpenAI 兼容）；`brief_engine=graph|single` 开关，图不可用/异常自动**降级单轮**
+- [x] 可观测三件套：① 每节点 `{node, ms, chars}` **轨迹落库**（`data_pack_json.agentTrace`）；② 生成时 **SSE step 事件**前端实时进度条；③ **LangSmith 追踪**（配置 `LANGCHAIN_API_KEY` 才开，默认关、离线无依赖）
+- [x] 复用同一数据装配（含 RAG 背景）与合规守卫；早报正文仍为条件式、附免责、缺口如实
+- [ ] 后续：反思回环（evaluator-optimizer 多轮修订）、分析师按需调用更多工具
 
 ---
 

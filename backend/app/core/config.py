@@ -55,6 +55,15 @@ class Settings(BaseSettings):
     embedding_api_key: str = ""
     rag_top_k: int = 5
 
+    # 盘前早报生成引擎：graph（LangGraph 多智能体）/ single（单轮合成，兜底）
+    brief_engine: str = "graph"
+
+    # 可观测（LangSmith）：仅当 langchain_api_key 非空时启用追踪
+    langchain_tracing: bool = True
+    langchain_api_key: str = ""
+    langchain_endpoint: str = "https://api.smith.langchain.com"
+    langchain_project: str = "brad-quant-agent"
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

@@ -41,8 +41,16 @@ export const getBrief = async (id: string): Promise<Brief | null> => {
   return res.data;
 };
 
+export interface BriefStep {
+  label: string;
+  node?: string;
+  ms?: number;
+}
+
 interface GenerateHandlers {
   onDelta: (text: string) => void;
+  /** 多智能体逐步进度（规划/各分析师/主编/合规审查） */
+  onStep?: (step: BriefStep) => void;
   onError?: (message: string) => void;
   onDone?: () => void;
   signal?: AbortSignal;
@@ -54,6 +62,7 @@ interface GenerateHandlers {
  */
 export async function streamGenerateBrief({
   onDelta,
+  onStep,
   onError,
   onDone,
   signal,
@@ -101,11 +110,18 @@ export async function streamGenerateBrief({
         return;
       }
       try {
-        const obj = JSON.parse(payload) as { delta?: string; error?: string };
+        const obj = JSON.parse(payload) as {
+          delta?: string;
+          step?: string;
+          node?: string;
+          ms?: number;
+          error?: string;
+        };
         if (obj.error) {
           onError?.(obj.error);
           return;
         }
+        if (obj.step) onStep?.({ label: obj.step, node: obj.node, ms: obj.ms });
         if (obj.delta) onDelta(obj.delta);
       } catch {
         /* 跳过无法解析的帧 */
