@@ -1,8 +1,19 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/useAuthStore';
+
+// 水合检测：服务端与客户端首帧返回 false，水合后返回 true（无需在 effect 里 setState，
+// 避免 react-hooks 的 set-state-in-effect 告警，同时保持 SSR/客户端首帧一致防水合不匹配）。
+const noopSubscribe = () => () => {};
+function useHydrated(): boolean {
+  return useSyncExternalStore(
+    noopSubscribe,
+    () => true,
+    () => false
+  );
+}
 
 interface RequireAuthProps {
   children: React.ReactNode;
@@ -27,11 +38,7 @@ function meetsRole(userRole: string | undefined, requiredRole?: 'user' | 'vip' |
 export function RequireAuth({ children, requiredRole }: RequireAuthProps) {
   const router = useRouter();
   const { isAuthenticated, user } = useAuthStore();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = useHydrated();
 
   useEffect(() => {
     if (!mounted) return;

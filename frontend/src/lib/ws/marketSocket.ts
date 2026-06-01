@@ -14,6 +14,9 @@ type StatusHandler = (status: WsStatus) => void;
 const HEARTBEAT_MS = 30_000;
 const PONG_TIMEOUT_MS = 10_000;
 const MAX_BACKOFF_MS = 30_000;
+const MAX_RECONNECT_ATTEMPTS = 12;
+// 后端在 token 无效/过期时以 1008 关闭；据此停止重连（等待携带新 token 重新 connect）
+const WS_CLOSE_AUTH = 1008;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
@@ -42,6 +45,7 @@ class MarketSocket {
     }
     this.token = token;
     this.shouldRun = true;
+    this.reconnectAttempts = 0; // 新 token / 显式重连：重置退避计数
     if (this.ws) {
       this.ws.close();
       this.ws = null;
@@ -148,9 +152,15 @@ class MarketSocket {
       this.setStatus('error');
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event: CloseEvent) => {
       this.stopHeartbeat();
       this.ws = null;
+      if (event.code === WS_CLOSE_AUTH) {
+        // 令牌无效/过期：停止重连，避免用坏 token 无限重试；等待上层用新 token 重新 connect
+        this.shouldRun = false;
+        this.setStatus('error');
+        return;
+      }
       this.setStatus('closed');
       if (this.shouldRun) {
         this.scheduleReconnect();
@@ -205,6 +215,12 @@ class MarketSocket {
 
   private scheduleReconnect(): void {
     if (!this.shouldRun) return;
+    if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      // 多次重连仍失败：停止并置错，避免无意义的无限退避循环
+      this.shouldRun = false;
+      this.setStatus('error');
+      return;
+    }
     const delay = Math.min(1000 * 2 ** this.reconnectAttempts, MAX_BACKOFF_MS);
     this.reconnectAttempts += 1;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
