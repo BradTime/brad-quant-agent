@@ -24,12 +24,14 @@ from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models.brief import MorningBrief
 from app.models.extra import DragonTiger, NewsItem
+from app.providers import llmquant
 from app.services import market, rag, watchlist
 
 logger = logging.getLogger(__name__)
 
 _TZ = ZoneInfo("Asia/Shanghai")
-_MISSING = ["隔夜全球市场（美股/港股/汇率/商品）", "国内宏观与政策", "机构研报观点"]
+# 海外宏观已由 LLMQuant 快照补上；仍缺：隔夜外盘盘面行情、国内宏观政策、机构研报
+_MISSING = ["隔夜全球股指/汇率/商品的盘面行情", "国内宏观与政策", "机构研报观点"]
 
 
 def _today() -> date:
@@ -131,6 +133,9 @@ def build_data_pack(user_id: str | None) -> dict:
     rag_query = " ".join(n.get("title", "") for n in recent_news[:5] if n.get("title"))
     related_knowledge = rag.retrieve(rag_query, k=5) if rag_query.strip() else []
 
+    # 海外宏观：经 LLMQuant Data（MCP）取美国宏观快照；失败/无 key/无 npx 自动降级为空
+    us_macro = llmquant.get_us_macro_snapshot()
+
     pack = {
         "tradeDate": _today().isoformat(),
         "generatedAt": datetime.now(_TZ).isoformat(),
@@ -145,12 +150,14 @@ def build_data_pack(user_id: str | None) -> dict:
         "dragonTiger": recent_dragon_tiger,
         "news": recent_news,
         "relatedKnowledge": related_knowledge,
+        "usMacro": us_macro,
         "coverage": {
             "indices": bool(indices),
             "watchlist": bool(items),
             "capitalFlow": bool(capital_flow),
             "dragonTiger": bool(recent_dragon_tiger),
             "relatedKnowledge": bool(related_knowledge),
+            "usMacro": bool(us_macro),
             "missing": _MISSING,
         },
     }
@@ -227,6 +234,21 @@ def render_data_pack_text(pack: dict) -> str:
             tag = "历史早报" if r.get("source") == "brief" else "新闻"
             lines.append(f"- [{tag} {r.get('publishedAt','') or ''}] {(r.get('chunk','') or '')[:120]}")
         lines.append("")
+
+    us_macro = pack.get("usMacro") or []
+    if us_macro:
+        lines.append("# 海外宏观快照（美国，来源 LLMQuant·FRED）")
+        for m in us_macro:
+            unit = f" {m.get('units')}" if m.get("units") else ""
+            d = m.get("deltaPct")
+            delta = f"，环比 {d:+.2f}%" if isinstance(d, (int, float)) else ""
+            lines.append(
+                f"- {m.get('title') or m.get('indicator')}: {m.get('value')}{unit}"
+                f"（{m.get('date','')}{delta}）"
+            )
+    else:
+        lines.append("# 海外宏观：暂无数据接入")
+    lines.append("")
 
     lines.append("# 已知数据缺口（免费源未接入，请勿编造，需如实说明）")
     for m in pack["coverage"]["missing"]:

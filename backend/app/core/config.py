@@ -73,6 +73,16 @@ class Settings(BaseSettings):
     langchain_endpoint: str = "https://api.smith.langchain.com"
     langchain_project: str = "brad-quant-agent"
 
+    # LLMQuant Data（经官方 MCP server 取美国宏观快照，补早报"海外宏观"缺口）
+    # 需 LLMQUANT_API_KEY（llmquantdata.com）+ 运行环境有 npx；缺任一则降级为空
+    llmquant_enabled: bool = True
+    llmquant_api_key: str = ""
+    llmquant_base_url: str = "https://api.llmquantdata.com"
+    llmquant_macro_indicators: str = (
+        "us.cpi.headline,us.pce.core,us.unemployment_rate,"
+        "us.rates.fed_funds,us.yield.10y,us.yield_curve.10y_2y"
+    )
+
     @property
     def is_production(self) -> bool:
         return self.app_env.strip().lower() in {"prod", "production"}
@@ -84,6 +94,10 @@ class Settings(BaseSettings):
     @property
     def index_code_list(self) -> list[str]:
         return [c.strip() for c in self.index_codes.split(",") if c.strip()]
+
+    @property
+    def llmquant_macro_list(self) -> list[str]:
+        return [c.strip() for c in self.llmquant_macro_indicators.split(",") if c.strip()]
 
     @model_validator(mode="after")
     def _enforce_production_security(self) -> "Settings":

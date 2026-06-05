@@ -26,6 +26,7 @@ _LABELS = {
     "market": "市场结构分析",
     "capital": "资金面分析",
     "news": "消息面分析(RAG)",
+    "macro": "海外宏观分析",
     "editor": "主编汇总",
     "reviewer": "合规审查",
 }
@@ -37,6 +38,7 @@ class BriefState(TypedDict, total=False):
     market: str
     capital: str
     news: str
+    macro: str
     draft: str
     final: str
     trace: Annotated[list[dict], operator.add]
@@ -86,6 +88,11 @@ def _news(state: BriefState) -> dict:
     return {"news": text, "trace": [tr]}
 
 
+def _macro(state: BriefState) -> dict:
+    text, tr = _invoke("macro", prompts.MACRO_ANALYST_PROMPT, state["data_text"])
+    return {"macro": text, "trace": [tr]}
+
+
 def _editor(state: BriefState) -> dict:
     human = (
         f"【数据包】\n{state['data_text']}\n\n"
@@ -93,6 +100,7 @@ def _editor(state: BriefState) -> dict:
         f"【市场结构分析】\n{state.get('market','')}\n\n"
         f"【资金面分析】\n{state.get('capital','')}\n\n"
         f"【消息面分析】\n{state.get('news','')}\n\n"
+        f"【海外宏观分析】\n{state.get('macro','')}\n\n"
         "请据此整合成最终盘前早报。"
     )
     text, tr = _invoke("editor", prompts.EDITOR_PROMPT, human, temperature=0.4)
@@ -129,15 +137,18 @@ def get_graph():
     g.add_node("market", _market)
     g.add_node("capital", _capital)
     g.add_node("news", _news)
+    g.add_node("macro", _macro)
     g.add_node("editor", _editor)
     g.add_node("reviewer", _reviewer)
     g.add_edge(START, "planner")
     g.add_edge("planner", "market")
     g.add_edge("planner", "capital")
     g.add_edge("planner", "news")
+    g.add_edge("planner", "macro")
     g.add_edge("market", "editor")
     g.add_edge("capital", "editor")
     g.add_edge("news", "editor")
+    g.add_edge("macro", "editor")
     g.add_edge("editor", "reviewer")
     g.add_edge("reviewer", END)
     _compiled = g.compile()
