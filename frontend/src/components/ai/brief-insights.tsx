@@ -20,6 +20,55 @@ const SCORE_LABELS: Record<string, string> = {
   actionable: '可执行',
 };
 
+const NODE_COLOR: Record<string, string> = {
+  planner: 'bg-brand',
+  market: 'bg-sky-500',
+  capital: 'bg-violet-500',
+  news: 'bg-amber-500',
+  macro: 'bg-teal-500',
+  editor: 'bg-brand',
+  editor_revise: 'bg-brand/60',
+  evaluator: 'bg-rose-500',
+  reviewer: 'bg-muted-foreground',
+};
+
+/** 时序甘特图：按 start/end 绘制各节点条带，直观展示分析师并行重叠与各段耗时 */
+function Gantt({ trace }: { trace: AgentTraceEntry[] }) {
+  const timed = trace.filter((t) => typeof t.start === 'number' && typeof t.end === 'number');
+  if (timed.length < 2) return null;
+  const t0 = Math.min(...timed.map((t) => t.start as number));
+  const tEnd = Math.max(...timed.map((t) => t.end as number));
+  const total = Math.max(tEnd - t0, 1);
+  return (
+    <div className="mb-3 space-y-1 border-b border-border pb-3">
+      <div className="mb-1 text-[10px] text-muted-foreground">
+        耗时时序 · 并行重叠（总 {(total / 1000).toFixed(1)}s）
+      </div>
+      {timed.map((t, i) => {
+        const left = (((t.start as number) - t0) / total) * 100;
+        const width = Math.max((((t.end as number) - (t.start as number)) / total) * 100, 1.5);
+        return (
+          <div key={`${t.node}-${i}`} className="flex items-center gap-1.5">
+            <span className="w-14 shrink-0 truncate text-[10px] text-muted-foreground" title={t.label}>
+              {t.label}
+            </span>
+            <div className="relative h-2 flex-1 rounded bg-muted/40">
+              <div
+                className={cn('absolute top-0 h-2 rounded', NODE_COLOR[t.node ?? ''] ?? 'bg-brand')}
+                style={{ left: `${left}%`, width: `${width}%` }}
+                title={`${t.ms}ms`}
+              />
+            </div>
+            <span className="w-9 shrink-0 text-right tnum text-[10px] text-muted-foreground">
+              {t.ms}ms
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function fmtNum(v: number | null | undefined): string {
   if (v === null || v === undefined || Number.isNaN(v)) return '—';
   return typeof v === 'number' ? v.toLocaleString('en-US', { maximumFractionDigits: 4 }) : String(v);
@@ -122,6 +171,7 @@ export function BriefInsights({
               {engine === 'graph' ? 'LangGraph 多智能体' : '单轮合成'}
             </span>
           </div>
+          <Gantt trace={trace} />
           <div className="space-y-1">
             {trace.map((entry, i) =>
               entry.scores || entry.node === 'evaluator' ? (

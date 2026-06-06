@@ -37,6 +37,9 @@ export interface AgentTraceEntry {
   node?: string;
   label?: string;
   ms?: number;
+  /** 节点起止时刻（epoch 毫秒），用于时序甘特图（展示并行重叠） */
+  start?: number;
+  end?: number;
   chars?: number;
   tools?: string[];
   note?: string;

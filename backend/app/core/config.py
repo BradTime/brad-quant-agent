@@ -66,6 +66,8 @@ class Settings(BaseSettings):
 
     # 盘前早报生成引擎：graph（LangGraph 多智能体）/ single（单轮合成，兜底）
     brief_engine: str = "graph"
+    # 多智能体早报 evaluator-optimizer 反思回环的最大修订轮数（0=关闭修订；上限见 brief_graph 封顶）
+    brief_max_revisions: int = 1
 
     # 可观测（LangSmith）：仅当 langchain_api_key 非空时启用追踪
     langchain_tracing: bool = True

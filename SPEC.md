@@ -193,7 +193,10 @@ brad-quant-agent/
 - [x] **反思回环（evaluator-optimizer，有界 1 轮）**：质量评审官按 grounding/honesty/conditional/structure/actionable 五维 JSON 打分，不达标触发主编修订再评审；评分入轨迹供观测
 - [x] **分析师按需调工具**：消息面/研究分析师可调用 `search_knowledge`(RAG) 补背景（有界 1 轮，复用 `ai.tools.execute_tool` 能力层）
 - [x] **前端可观测/可视化**：`/brief` 详情接口暴露 `dataPack`+`agentTrace`+`engine`；早报页右栏「智能体观测（含质量自评分数/工具调用/修订）/ 海外宏观 / 量化知识背景」卡片
-- [ ] 后续：评审多轮（>1）、分析师暴露更多工具（行情/资金流）、轨迹时序甘特图
+- [x] **评审轮数可配**：`brief_max_revisions`（默认 1，`brief_graph` 封顶 3，防失控）
+- [x] **分析师按域暴露更多工具**：市场结构→`get_market_overview`/`get_kline`、资金面→`get_capital_flow`/`get_dragon_tiger`、消息面→`search_knowledge`/`get_news`（均有界 1 轮、复用同一能力层）
+- [x] **轨迹时序甘特图**：每节点记录 `start/end`（epoch ms），前端按真实起止绘制条带，直观呈现四分析师**并行重叠**与各段耗时
+- [ ] 后续：分析师暴露行情实时工具（需配合超时降级）、轨迹下钻查看各节点输入输出
 
 ---
 

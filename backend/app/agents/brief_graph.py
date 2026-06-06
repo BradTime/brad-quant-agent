@@ -23,6 +23,7 @@ from typing_extensions import TypedDict
 
 from app.agents import prompts
 from app.agents.llm import get_chat_model
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,27 @@ _LABELS = {
     "reviewer": "合规审查",
 }
 
-_MAX_REVISIONS = 1
+# 反思回环修订轮数上限（防失控）；实际轮数取 min(settings.brief_max_revisions, 此上限)
+_REVISION_CAP = 3
+
+# 各分析师可按需调用的工具（节点→工具名白名单）；复用 ai.tools 能力层、有界 1 轮。
+# 仅暴露与分析域相关、且以落库/已加超时降级为主的工具，沿用「早报不阻塞实时」的设计。
+_NODE_TOOLS: dict[str, list[str]] = {
+    "market": ["get_market_overview", "get_kline"],
+    "capital": ["get_capital_flow", "get_dragon_tiger"],
+    "news": ["search_knowledge", "get_news"],
+}
+
+
+def _max_revisions() -> int:
+    return max(0, min(settings.brief_max_revisions, _REVISION_CAP))
+
+
+def _node_tools(node: str) -> list[dict]:
+    from app.ai.tools import TOOLS
+
+    names = set(_NODE_TOOLS.get(node, []))
+    return [t for t in TOOLS if t.get("function", {}).get("name") in names]
 
 
 class BriefState(TypedDict, total=False):
@@ -65,15 +86,29 @@ def is_available() -> bool:
         return False
 
 
+def _trace(node: str, start: float, text: str, **extra) -> dict:
+    """统一节点轨迹：含耗时 ms + 起止 epoch ms（start/end），供前端时序甘特图展示并行重叠。"""
+    end = time.time()
+    tr = {
+        "node": node,
+        "label": _LABELS.get(node, node),
+        "ms": int((end - start) * 1000),
+        "start": int(start * 1000),
+        "end": int(end * 1000),
+        "chars": len(text),
+    }
+    tr.update({k: v for k, v in extra.items() if v is not None})
+    return tr
+
+
 def _invoke(node: str, system_prompt: str, human: str, temperature: float = 0.3) -> tuple[str, dict]:
     from langchain_core.messages import HumanMessage, SystemMessage
 
-    t0 = time.monotonic()
+    start = time.time()
     model = get_chat_model(temperature)
     resp = model.invoke([SystemMessage(content=system_prompt), HumanMessage(content=human)])
     text = resp.content if isinstance(resp.content, str) else str(resp.content)
-    ms = int((time.monotonic() - t0) * 1000)
-    return text, {"node": node, "label": _LABELS.get(node, node), "ms": ms, "chars": len(text)}
+    return text, _trace(node, start, text)
 
 
 def _invoke_with_tools(
@@ -92,7 +127,7 @@ def _invoke_with_tools(
 
     from app.ai.tools import execute_tool
 
-    t0 = time.monotonic()
+    start = time.time()
     model = get_chat_model(temperature).bind_tools(tool_specs)
     messages = [SystemMessage(content=system_prompt), HumanMessage(content=human)]
     used: list[str] = []
@@ -123,14 +158,18 @@ def _invoke_with_tools(
         )
         resp2 = get_chat_model(temperature).invoke(messages)
         text = resp2.content if isinstance(resp2.content, str) else str(resp2.content)
-    ms = int((time.monotonic() - t0) * 1000)
-    tr = {"node": node, "label": _LABELS.get(node, node), "ms": ms, "chars": len(text)}
-    if used:
-        tr["tools"] = used
-    return text, tr
+    return text, _trace(node, start, text, tools=used or None)
 
 
 # ---------- 节点 ----------
+
+
+def _analyst(node: str, system_prompt: str, state: BriefState) -> tuple[str, dict]:
+    """分析师统一入口：有白名单工具则按需调用（有界 1 轮），否则纯文本生成。"""
+    specs = _node_tools(node)
+    if specs:
+        return _invoke_with_tools(node, system_prompt, state["data_text"], specs, max_rounds=1)
+    return _invoke(node, system_prompt, state["data_text"])
 
 
 def _planner(state: BriefState) -> dict:
@@ -139,24 +178,17 @@ def _planner(state: BriefState) -> dict:
 
 
 def _market(state: BriefState) -> dict:
-    text, tr = _invoke("market", prompts.MARKET_ANALYST_PROMPT, state["data_text"])
+    text, tr = _analyst("market", prompts.MARKET_ANALYST_PROMPT, state)
     return {"market": text, "trace": [tr]}
 
 
 def _capital(state: BriefState) -> dict:
-    text, tr = _invoke("capital", prompts.CAPITAL_ANALYST_PROMPT, state["data_text"])
+    text, tr = _analyst("capital", prompts.CAPITAL_ANALYST_PROMPT, state)
     return {"capital": text, "trace": [tr]}
 
 
 def _news(state: BriefState) -> dict:
-    # 消息面/研究分析师按需调用 search_knowledge(RAG) 补背景；其余工具不暴露，控成本与发散
-    from app.ai.tools import TOOLS
-
-    sk = [t for t in TOOLS if t.get("function", {}).get("name") == "search_knowledge"]
-    if sk:
-        text, tr = _invoke_with_tools("news", prompts.NEWS_ANALYST_PROMPT, state["data_text"], sk, max_rounds=1)
-    else:
-        text, tr = _invoke("news", prompts.NEWS_ANALYST_PROMPT, state["data_text"])
+    text, tr = _analyst("news", prompts.NEWS_ANALYST_PROMPT, state)
     return {"news": text, "trace": [tr]}
 
 
@@ -212,7 +244,7 @@ def _evaluator(state: BriefState) -> dict:
     """质量评审官：对主编草稿做 JSON 化自评打分（不重写正文），输出落入 trace 供观测。"""
     from langchain_core.messages import HumanMessage, SystemMessage
 
-    t0 = time.monotonic()
+    start = time.time()
     human = (
         f"【数据包】\n{state['data_text']}\n\n【主编草稿】\n{state.get('draft','')}\n\n"
         "请严格按规则只输出 JSON 评审结果。"
@@ -221,17 +253,17 @@ def _evaluator(state: BriefState) -> dict:
     resp = model.invoke([SystemMessage(content=prompts.EVALUATOR_PROMPT), HumanMessage(content=human)])
     raw = resp.content if isinstance(resp.content, str) else str(resp.content)
     report = _parse_review(raw)
-    ms = int((time.monotonic() - t0) * 1000)
-    tr = {
-        "node": "evaluator",
-        "label": _LABELS["evaluator"],
-        "ms": ms,
-        "chars": len(raw),
-        "pass": report.get("pass"),
-        "scores": report.get("scores"),
-        "total": report.get("total"),
-        "issues": report.get("issues") or [],
-    }
+    tr = _trace(
+        "evaluator",
+        start,
+        raw,
+        **{
+            "pass": report.get("pass"),
+            "scores": report.get("scores"),
+            "total": report.get("total"),
+            "issues": report.get("issues") or [],
+        },
+    )
     return {"review": report, "trace": [tr]}
 
 
@@ -252,7 +284,7 @@ def _editor_revise(state: BriefState) -> dict:
 
 def _route_after_review(state: BriefState) -> str:
     report = state.get("review") or {}
-    if not report.get("pass", True) and state.get("revisions", 0) < _MAX_REVISIONS:
+    if not report.get("pass", True) and state.get("revisions", 0) < _max_revisions():
         return "revise"
     return "done"
 
@@ -261,16 +293,12 @@ def _reviewer(state: BriefState) -> dict:
     """代码化合规反思：确保免责声明、拦截确定性买卖指令（不依赖额外 LLM 调用，确定性强）。"""
     from app.ai.compliance import enforce_compliance, find_advice_flags
 
-    t0 = time.monotonic()
+    start = time.time()
     draft = state.get("draft", "")
     flags = find_advice_flags(draft)
     final = enforce_compliance(draft)
-    ms = int((time.monotonic() - t0) * 1000)
     note = "通过" if not flags else f"拦截买卖指令:{flags}"
-    return {
-        "final": final,
-        "trace": [{"node": "reviewer", "label": _LABELS["reviewer"], "ms": ms, "chars": len(final), "note": note}],
-    }
+    return {"final": final, "trace": [_trace("reviewer", start, final, note=note)]}
 
 
 _compiled = None
