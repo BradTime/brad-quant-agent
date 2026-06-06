@@ -186,11 +186,14 @@ brad-quant-agent/
 - [ ] 后续：HNSW 索引（语料增大后）、混合检索（BM25+向量）
 
 ### AI 增强 — 多智能体早报 + 可观测（LangGraph，增量）
-- [x] LangGraph 状态图：规划者 → [市场结构 / 资金面 / 消息面(RAG)] 三分析师**并行** → 主编汇总 → 合规反思（代码化红线校验）
+- [x] LangGraph 状态图：规划者 → [市场结构 / 资金面 / 消息面(RAG) / 海外宏观] 四分析师**并行** → 主编汇总 → 质量评审官 →（不达标且未修订过）主编修订 → 再评审 → 合规反思（代码化红线校验）
 - [x] LLM 经 `langchain-openai` 接 DeepSeek（OpenAI 兼容）；`brief_engine=graph|single` 开关，图不可用/异常自动**降级单轮**
-- [x] 可观测三件套：① 每节点 `{node, ms, chars}` **轨迹落库**（`data_pack_json.agentTrace`）；② 生成时 **SSE step 事件**前端实时进度条；③ **LangSmith 追踪**（配置 `LANGCHAIN_API_KEY` 才开，默认关、离线无依赖）
+- [x] 可观测三件套：① 每节点 `{node, ms, chars, tools, scores...}` **轨迹落库**（`data_pack_json.agentTrace`）；② 生成时 **SSE step 事件**前端实时进度条；③ **LangSmith 追踪**（配置 `LANGCHAIN_API_KEY` 才开，默认关、离线无依赖）
 - [x] 复用同一数据装配（含 RAG 背景）与合规守卫；早报正文仍为条件式、附免责、缺口如实
-- [ ] 后续：反思回环（evaluator-optimizer 多轮修订）、分析师按需调用更多工具
+- [x] **反思回环（evaluator-optimizer，有界 1 轮）**：质量评审官按 grounding/honesty/conditional/structure/actionable 五维 JSON 打分，不达标触发主编修订再评审；评分入轨迹供观测
+- [x] **分析师按需调工具**：消息面/研究分析师可调用 `search_knowledge`(RAG) 补背景（有界 1 轮，复用 `ai.tools.execute_tool` 能力层）
+- [x] **前端可观测/可视化**：`/brief` 详情接口暴露 `dataPack`+`agentTrace`+`engine`；早报页右栏「智能体观测（含质量自评分数/工具调用/修订）/ 海外宏观 / 量化知识背景」卡片
+- [ ] 后续：评审多轮（>1）、分析师暴露更多工具（行情/资金流）、轨迹时序甘特图
 
 ---
 

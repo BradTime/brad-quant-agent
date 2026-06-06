@@ -399,7 +399,7 @@ def generate(user_id: str | None = None) -> dict:
     return latest or {"content": text}
 
 
-def _to_dict(row: MorningBrief, with_content: bool = True) -> dict:
+def _to_dict(row: MorningBrief, with_content: bool = True, with_pack: bool = False) -> dict:
     out = {
         "id": row.id,
         "userId": row.user_id,
@@ -412,6 +412,20 @@ def _to_dict(row: MorningBrief, with_content: bool = True) -> dict:
     }
     if with_content:
         out["content"] = row.content
+    if with_pack:
+        # 从落库快照取依据数据 + 多智能体轨迹，供前端「海外宏观/量化知识/智能体观测」卡片
+        engine, data_pack, trace = "single", None, []
+        if row.data_pack_json:
+            try:
+                snap = json.loads(row.data_pack_json)
+                engine = snap.get("engine", "single")
+                data_pack = snap.get("pack")
+                trace = snap.get("agentTrace") or []
+            except (ValueError, TypeError):
+                pass
+        out["engine"] = engine
+        out["dataPack"] = data_pack
+        out["agentTrace"] = trace
     return out
 
 
@@ -424,7 +438,7 @@ def get_latest(user_id: str | None) -> dict | None:
             .limit(1)
         )
         row = session.execute(stmt).scalar_one_or_none()
-        return _to_dict(row) if row else None
+        return _to_dict(row, with_pack=True) if row else None
 
 
 def list_briefs(user_id: str | None, limit: int = 20) -> list[dict]:
@@ -444,7 +458,7 @@ def get_brief(brief_id: str, user_id: str | None) -> dict | None:
         row = session.get(MorningBrief, brief_id)
         if row is None or row.user_id != user_id:
             return None
-        return _to_dict(row)
+        return _to_dict(row, with_pack=True)
 
 
 def generate_daily_global() -> None:

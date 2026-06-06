@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Newspaper, Sparkles, Loader2, Clock, RefreshCw, AlertTriangle, Check } from 'lucide-react';
 import { RequireAuth } from '@/components/auth/require-auth';
 import { Markdown } from '@/components/ai/markdown';
+import { BriefInsights } from '@/components/ai/brief-insights';
 import {
   getLatestBrief,
   getGlobalLatestBrief,
@@ -29,7 +30,7 @@ function fmtTime(iso: string | null): string {
 
 function BriefView() {
   const [content, setContent] = useState('');
-  const [meta, setMeta] = useState<BriefSummary | null>(null);
+  const [meta, setMeta] = useState<Brief | null>(null);
   const [history, setHistory] = useState<BriefSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -217,8 +218,14 @@ function BriefView() {
           )}
         </div>
 
-        {/* 历史 */}
-        <aside className="order-1 lg:order-2">
+        {/* 侧栏：智能体观测 / 海外宏观 / 量化知识 / 历史 */}
+        <aside className="order-1 space-y-4 lg:order-2">
+          <BriefInsights
+            dataPack={meta?.dataPack}
+            agentTrace={meta?.agentTrace}
+            engine={meta?.engine}
+          />
+
           <div className="rounded-2xl border border-border bg-card p-4">
             <div className="mb-3 flex items-center gap-2 text-sm font-medium">
               <Clock className="h-4 w-4 text-muted-foreground" /> 历史早报

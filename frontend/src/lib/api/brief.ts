@@ -14,8 +14,51 @@ export interface BriefSummary {
   generatedAt: string | null;
 }
 
+/** 海外宏观快照条目（LLMQuant·FRED） */
+export interface MacroItem {
+  indicator?: string;
+  title?: string;
+  value?: number | null;
+  date?: string | null;
+  deltaPct?: number | null;
+  units?: string | null;
+}
+
+/** 量化知识背景条目（LLMQuant wiki 语义检索） */
+export interface KnowledgeItem {
+  title?: string;
+  summary?: string;
+  slug?: string;
+  wikiItemId?: string;
+}
+
+/** 多智能体逐节点轨迹（含质量评审官的自评打分） */
+export interface AgentTraceEntry {
+  node?: string;
+  label?: string;
+  ms?: number;
+  chars?: number;
+  tools?: string[];
+  note?: string;
+  pass?: boolean;
+  total?: number | null;
+  scores?: Record<string, number>;
+  issues?: string[];
+}
+
+/** 早报落库的依据数据快照（前端只用部分字段做可视化卡片） */
+export interface BriefDataPack {
+  usMacro?: MacroItem[];
+  quantKnowledge?: KnowledgeItem[];
+  coverage?: Record<string, unknown>;
+  [k: string]: unknown;
+}
+
 export interface Brief extends BriefSummary {
   content: string;
+  engine?: string;
+  dataPack?: BriefDataPack | null;
+  agentTrace?: AgentTraceEntry[];
 }
 
 /** 当前用户最新一份个性化早报（无则 null） */
