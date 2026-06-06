@@ -1,17 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  Send,
-  Square,
-  Sparkles,
-  Check,
-  Wrench,
-  Telescope,
-  MessageSquare,
-  Loader2,
-  History,
-} from 'lucide-react';
+import { Send, Square, Sparkles, Telescope, MessageSquare, History } from 'lucide-react';
 import {
   streamChat,
   streamDeepResearch,
@@ -23,6 +13,7 @@ import {
 } from '@/lib/api/ai';
 import { cn } from '@/lib/utils';
 import { Markdown } from './markdown';
+import { ResearchPlanCard } from './research-plan';
 
 function fmtTime(iso: string | null): string {
   if (!iso) return '';
@@ -237,53 +228,22 @@ export function ChatPanel({
             >
               <div
                 className={cn(
-                  'max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed',
+                  'rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed',
                   m.role === 'user'
-                    ? 'whitespace-pre-wrap bg-brand text-brand-foreground'
-                    : 'border border-border bg-card text-foreground'
+                    ? 'max-w-[85%] whitespace-pre-wrap bg-brand text-brand-foreground'
+                    : 'border border-border bg-card text-foreground',
+                  // 研究模式正文较长，放宽气泡宽度以利阅读
+                  m.role === 'assistant' && m.mode === 'research' ? 'w-full max-w-[92%]' : 'max-w-[85%]'
                 )}
               >
                 {m.role === 'assistant' &&
                   m.mode === 'research' &&
                   ((m.plan?.length ?? 0) > 0 || (m.steps?.length ?? 0) > 0) && (
-                    <div className="mb-2.5 space-y-2 border-b border-border pb-2.5">
-                      {(m.plan?.length ?? 0) > 0 && (
-                        <div>
-                          <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
-                            <Telescope className="h-3 w-3" /> 研究计划
-                          </div>
-                          <ol className="list-decimal space-y-0.5 pl-4 text-[11px] text-muted-foreground">
-                            {m.plan!.map((p, idx) => (
-                              <li key={idx}>{p}</li>
-                            ))}
-                          </ol>
-                        </div>
-                      )}
-                      {(m.steps?.length ?? 0) > 0 && (
-                        <ul className="space-y-1">
-                          {m.steps!.map((s, idx) => (
-                            <li
-                              key={idx}
-                              className="flex items-start gap-1.5 text-[11px] text-muted-foreground"
-                            >
-                              <Check className="mt-0.5 h-3 w-3 shrink-0 text-down" />
-                              <span className="flex-1">{s.label}</span>
-                              {s.tools && s.tools.length > 0 && (
-                                <span className="inline-flex shrink-0 items-center gap-0.5 text-brand">
-                                  <Wrench className="h-2.5 w-2.5" />
-                                  {s.tools.join(', ')}
-                                </span>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                      {streaming && i === messages.length - 1 && (
-                        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                          <Loader2 className="h-3 w-3 animate-spin" /> 研究进行中…
-                        </div>
-                      )}
-                    </div>
+                    <ResearchPlanCard
+                      plan={m.plan ?? []}
+                      steps={m.steps ?? []}
+                      active={streaming && i === messages.length - 1}
+                    />
                   )}
                 {m.role === 'assistant' && m.content ? (
                   <Markdown content={m.content} />
