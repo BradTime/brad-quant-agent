@@ -1,11 +1,10 @@
 """LLMQuant Data 接入（经官方 MCP server，stdio）。
 
 后端在这里**充当 MCP 客户端**：按需 `npx -y @llmquant/data-mcp` 拉起官方 MCP server，
-完成握手后批量调用 `macro_indicator_snapshot` 取美国宏观快照。用官方 MCP 接口而非
-逆向其私有 REST，对上游更稳。
+完成握手后批量调用工具（美国宏观快照 / wiki 知识检索）。用官方 MCP 接口而非逆向其私有 REST。
 
-优雅降级（与项目其它数据源一致）：未启用 / 无 API key / 无 npx / 超时 / 出错 → 返回 []，
-绝不影响早报主流程。仅在早报生成（低频）时调用，子进程开销可接受。
+成本控制：结果带 **TTL 进程内缓存**（默认 12h），避免每次早报生成都重复 npx + 计费；
+调度器每日定时刷新缓存。优雅降级：未启用 / 无 key / 无 npx / 超时 / 出错 → 返回 []。
 """
 
 from __future__ import annotations
@@ -15,17 +14,31 @@ import logging
 import os
 import shutil
 import subprocess
+import time
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+# 进程内 TTL 缓存：key -> (timestamp, value)
+_cache: dict[str, tuple[float, list]] = {}
+
+
+def _cached(key: str, producer, force: bool = False) -> list:
+    ttl = settings.llmquant_cache_ttl_seconds
+    now = time.time()
+    if not force:
+        hit = _cache.get(key)
+        if hit and (now - hit[0]) < ttl:
+            return hit[1]
+    value = producer()
+    if value:  # 只缓存非空结果，避免把瞬时失败的 [] 固化进缓存
+        _cache[key] = (now, value)
+    return value
+
 
 def _extract_payload(result: dict) -> dict | None:
-    """从 MCP tools/call 结果里取出工具返回的 JSON 负载。
-
-    兼容两种形态：``result.structuredContent`` 或 ``result.content[0].text``（JSON 串）。
-    """
+    """从 MCP tools/call 结果取出工具返回的 JSON 负载（兼容 structuredContent / content[].text）。"""
     if not isinstance(result, dict) or result.get("isError"):
         return None
     sc = result.get("structuredContent")
@@ -40,23 +53,18 @@ def _extract_payload(result: dict) -> dict | None:
     return None
 
 
-def get_us_macro_snapshot(timeout: int = 60) -> list[dict]:
-    """取一组美国宏观指标的最新快照（CPI / 核心PCE / 失业率 / 联邦基金利率 / 10Y / 10y-2y 等）。
+def _run_mcp(tool_calls: list[tuple[str, dict]], timeout: int = 60) -> dict[int, dict]:
+    """一次 npx 子进程跑完一批 tools/call。返回 {request_id: payload}。失败返回 {}。
 
-    返回 ``[{indicator, title, value, date, deltaPct, units}, ...]``；任何失败均降级为 []。
+    request_id 从 2 起（1 留给 initialize）。
     """
-    if not settings.llmquant_enabled or not settings.llmquant_api_key:
-        return []
+    if not (settings.llmquant_enabled and settings.llmquant_api_key) or not tool_calls:
+        return {}
     npx = shutil.which("npx")
     if not npx:
-        logger.info("未找到 npx，跳过 LLMQuant 海外宏观取数（降级为空）")
-        return []
+        logger.info("未找到 npx，跳过 LLMQuant 取数（降级为空）")
+        return {}
 
-    indicators = settings.llmquant_macro_list
-    if not indicators:
-        return []
-
-    # 批量 JSON-RPC：initialize -> initialized -> 每个指标一个 tools/call，靠 stdin EOF 结束
     messages: list[dict] = [
         {
             "jsonrpc": "2.0",
@@ -70,19 +78,13 @@ def get_us_macro_snapshot(timeout: int = 60) -> list[dict]:
         },
         {"jsonrpc": "2.0", "method": "notifications/initialized"},
     ]
-    id_to_indicator: dict[int, str] = {}
-    for offset, indicator in enumerate(indicators):
-        req_id = 2 + offset
-        id_to_indicator[req_id] = indicator
+    for offset, (name, args) in enumerate(tool_calls):
         messages.append(
             {
                 "jsonrpc": "2.0",
-                "id": req_id,
+                "id": 2 + offset,
                 "method": "tools/call",
-                "params": {
-                    "name": "macro_indicator_snapshot",
-                    "arguments": {"indicator": indicator},
-                },
+                "params": {"name": name, "arguments": args},
             }
         )
     stdin_payload = "\n".join(json.dumps(m, ensure_ascii=False) for m in messages) + "\n"
@@ -101,11 +103,11 @@ def get_us_macro_snapshot(timeout: int = 60) -> list[dict]:
             timeout=timeout,
             env=env,
         )
-    except Exception as exc:  # noqa: BLE001  (子进程/超时/环境问题均降级)
-        logger.warning("LLMQuant 海外宏观取数失败，降级为空：%s", exc)
-        return []
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("LLMQuant 取数失败，降级为空：%s", exc)
+        return {}
 
-    out: list[dict] = []
+    out: dict[int, dict] = {}
     for line in proc.stdout.splitlines():
         line = line.strip()
         if not line:
@@ -115,25 +117,75 @@ def get_us_macro_snapshot(timeout: int = 60) -> list[dict]:
         except (ValueError, TypeError):
             continue
         rid = msg.get("id")
-        if rid not in id_to_indicator or "result" not in msg:
-            continue
-        payload = _extract_payload(msg["result"])
-        if not payload:
-            continue
-        item = payload.get("item") or {}
-        latest = item.get("latest") or {}
-        if latest.get("value") is None:
-            continue
-        out.append(
-            {
-                "indicator": item.get("indicator") or id_to_indicator[rid],
-                "title": item.get("title"),
-                "value": latest.get("value"),
-                "date": latest.get("date"),
-                "deltaPct": item.get("deltaPct"),
-                "units": item.get("units"),
-            }
-        )
-    if not out:
-        logger.info("LLMQuant 海外宏观无有效返回（降级为空）")
+        if isinstance(rid, int) and rid >= 2 and "result" in msg:
+            payload = _extract_payload(msg["result"])
+            if payload is not None:
+                out[rid] = payload
     return out
+
+
+# ---------- 美国宏观快照（带缓存） ----------
+
+
+def get_us_macro_snapshot(force: bool = False) -> list[dict]:
+    """取一组美国宏观指标最新快照（CPI/核心PCE/失业率/联邦基金利率/10Y/10y-2y 等）。带 TTL 缓存。"""
+    indicators = settings.llmquant_macro_list
+    if not indicators:
+        return []
+
+    def produce() -> list[dict]:
+        results = _run_mcp([("macro_indicator_snapshot", {"indicator": ind}) for ind in indicators])
+        out: list[dict] = []
+        for rid in sorted(results):
+            item = (results[rid] or {}).get("item") or {}
+            latest = item.get("latest") or {}
+            if latest.get("value") is None:
+                continue
+            out.append(
+                {
+                    "indicator": item.get("indicator"),
+                    "title": item.get("title"),
+                    "value": latest.get("value"),
+                    "date": latest.get("date"),
+                    "deltaPct": item.get("deltaPct"),
+                    "units": item.get("units"),
+                }
+            )
+        return out
+
+    return _cached("macro", produce, force=force)
+
+
+def refresh_macro_job() -> None:
+    """调度器入口：每日定时强制刷新海外宏观缓存（让当日早报无需在生成时再取数）。"""
+    try:
+        n = len(get_us_macro_snapshot(force=True))
+        logger.info("LLMQuant 海外宏观缓存已刷新：%d 项", n)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("LLMQuant 海外宏观缓存刷新失败：%s", exc)
+
+
+# ---------- 量化知识背景（wiki 语义检索，带缓存） ----------
+
+
+def search_quant_knowledge(query: str, k: int | None = None) -> list[dict]:
+    """对 LLMQuant wiki 知识库做语义检索，返回若干条目（标题/摘要/slug）。按 query 缓存。"""
+    query = (query or "").strip()
+    if not settings.llmquant_knowledge_enabled or not query:
+        return []
+    k = k or settings.llmquant_knowledge_topk
+
+    def produce() -> list[dict]:
+        results = _run_mcp([("wiki_search", {"query": query[:2000], "topK": min(max(k, 1), 10)})])
+        items = (results.get(2) or {}).get("items") or []
+        return [
+            {
+                "title": it.get("title"),
+                "summary": it.get("summary"),
+                "slug": it.get("slug"),
+                "wikiItemId": it.get("wikiItemId"),
+            }
+            for it in items
+        ]
+
+    return _cached(f"wiki:{query}", produce)

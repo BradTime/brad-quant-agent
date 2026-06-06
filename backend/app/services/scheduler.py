@@ -51,6 +51,21 @@ def start_scheduler():
     if settings.enable_brief_scheduler:
         from app.services import brief
 
+        # 早报生成前先把海外宏观缓存刷新（避免在生成时同步 npx 取数 + 重复计费）
+        if settings.llmquant_enabled:
+            from app.providers import llmquant
+
+            scheduler.add_job(
+                llmquant.refresh_macro_job,
+                "cron",
+                hour=settings.brief_cron_hour,
+                minute=max(settings.brief_cron_minute - 30, 0),
+                id="refresh_us_macro",
+                max_instances=1,
+                coalesce=True,
+                misfire_grace_time=1800,
+            )
+
         scheduler.add_job(
             brief.generate_daily_global,
             "cron",

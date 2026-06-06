@@ -82,6 +82,11 @@ class Settings(BaseSettings):
         "us.cpi.headline,us.pce.core,us.unemployment_rate,"
         "us.rates.fed_funds,us.yield.10y,us.yield_curve.10y_2y"
     )
+    # 进程内 TTL 缓存秒数（默认 12h）：避免每次早报生成都 npx 取数 + 计费
+    llmquant_cache_ttl_seconds: int = 43200
+    # 量化知识背景（wiki 语义检索）：给「消息面/研究分析师」补概念背景
+    llmquant_knowledge_enabled: bool = True
+    llmquant_knowledge_topk: int = 4
 
     @property
     def is_production(self) -> bool:

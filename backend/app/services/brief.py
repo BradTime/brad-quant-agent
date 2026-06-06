@@ -133,8 +133,11 @@ def build_data_pack(user_id: str | None) -> dict:
     rag_query = " ".join(n.get("title", "") for n in recent_news[:5] if n.get("title"))
     related_knowledge = rag.retrieve(rag_query, k=5) if rag_query.strip() else []
 
-    # 海外宏观：经 LLMQuant Data（MCP）取美国宏观快照；失败/无 key/无 npx 自动降级为空
+    # 海外宏观：经 LLMQuant Data（MCP）取美国宏观快照；失败/无 key/无 npx 自动降级为空（带缓存）
     us_macro = llmquant.get_us_macro_snapshot()
+
+    # 量化知识背景：用近期新闻主题对 LLMQuant wiki 做语义检索（带缓存），给消息面/研究分析师补概念背景
+    quant_knowledge = llmquant.search_quant_knowledge(rag_query) if rag_query.strip() else []
 
     pack = {
         "tradeDate": _today().isoformat(),
@@ -151,6 +154,7 @@ def build_data_pack(user_id: str | None) -> dict:
         "news": recent_news,
         "relatedKnowledge": related_knowledge,
         "usMacro": us_macro,
+        "quantKnowledge": quant_knowledge,
         "coverage": {
             "indices": bool(indices),
             "watchlist": bool(items),
@@ -158,6 +162,7 @@ def build_data_pack(user_id: str | None) -> dict:
             "dragonTiger": bool(recent_dragon_tiger),
             "relatedKnowledge": bool(related_knowledge),
             "usMacro": bool(us_macro),
+            "quantKnowledge": bool(quant_knowledge),
             "missing": _MISSING,
         },
     }
@@ -249,6 +254,14 @@ def render_data_pack_text(pack: dict) -> str:
     else:
         lines.append("# 海外宏观：暂无数据接入")
     lines.append("")
+
+    quant_knowledge = pack.get("quantKnowledge") or []
+    if quant_knowledge:
+        lines.append("# 量化知识背景（LLMQuant wiki，概念释义，供研判用语严谨化，勿当作行情/事实）")
+        for q in quant_knowledge:
+            summary = (q.get("summary") or "").strip().replace("\n", " ")
+            lines.append(f"- {q.get('title','')}：{summary[:120]}")
+        lines.append("")
 
     lines.append("# 已知数据缺口（免费源未接入，请勿编造，需如实说明）")
     for m in pack["coverage"]["missing"]:
