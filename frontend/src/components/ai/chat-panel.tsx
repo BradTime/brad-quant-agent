@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Send, Square, Sparkles } from 'lucide-react';
-import { streamChat, type ChatMessage } from '@/lib/api/ai';
+import { Send, Square, Sparkles, Check, Wrench, Telescope, MessageSquare, Loader2 } from 'lucide-react';
+import { streamChat, streamDeepResearch, type ChatMessage, type ResearchStep } from '@/lib/api/ai';
 import { cn } from '@/lib/utils';
 import { Markdown } from './markdown';
 
@@ -15,11 +15,18 @@ interface ChatPanelProps {
   className?: string;
   /** 紧凑模式（嵌入个股详情侧栏时使用更小的留白） */
   compact?: boolean;
+  /** 开启「深度研究」模式切换（自主多轮规划编排）。默认关闭（嵌入式侧栏不显示）。 */
+  enableDeepResearch?: boolean;
 }
 
 interface DisplayMessage {
   role: 'user' | 'assistant';
   content: string;
+  /** 深度研究：规划者拆出的子问题列表 */
+  plan?: string[];
+  /** 深度研究：逐步进度 */
+  steps?: ResearchStep[];
+  mode?: 'chat' | 'research';
 }
 
 export function ChatPanel({
@@ -28,10 +35,12 @@ export function ChatPanel({
   placeholder = '问问行情、指数、个股、板块…',
   className,
   compact = false,
+  enableDeepResearch = false,
 }: ChatPanelProps) {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
+  const [deepMode, setDeepMode] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -46,8 +55,12 @@ export function ChatPanel({
     if (!content || streaming) return;
     setInput('');
 
+    const research = deepMode && enableDeepResearch;
     const nextDisplay: DisplayMessage[] = [...messages, { role: 'user', content }];
-    setMessages([...nextDisplay, { role: 'assistant', content: '' }]);
+    setMessages([
+      ...nextDisplay,
+      { role: 'assistant', content: '', mode: research ? 'research' : 'chat', plan: [], steps: [] },
+    ]);
     setStreaming(true);
 
     // 后端只接受真实用户输入；历史 assistant 文本不回传，避免客户端伪造模型事实。
@@ -61,38 +74,54 @@ export function ChatPanel({
     const controller = new AbortController();
     abortRef.current = controller;
 
+    const patchLast = (patch: Partial<DisplayMessage>) =>
+      setMessages((prev) => {
+        const copy = [...prev];
+        copy[copy.length - 1] = { ...copy[copy.length - 1], ...patch };
+        return copy;
+      });
+
     let acc = '';
     try {
+      if (research) {
+        await streamDeepResearch(content, {
+          signal: controller.signal,
+          contextHint,
+          onPlan: (steps) => patchLast({ plan: steps }),
+          onStep: (s) =>
+            setMessages((prev) => {
+              const copy = [...prev];
+              const last = { ...copy[copy.length - 1] };
+              last.steps = [...(last.steps ?? []), s];
+              copy[copy.length - 1] = last;
+              return copy;
+            }),
+          onDelta: (piece) => {
+            acc += piece;
+            patchLast({ content: acc });
+          },
+          onError: (msg) => {
+            acc = acc || `⚠️ ${msg}`;
+            patchLast({ content: acc });
+          },
+        });
+        return;
+      }
       await streamChat(payload, {
         signal: controller.signal,
         contextHint,
         onDelta: (piece) => {
           acc += piece;
-          setMessages((prev) => {
-            const copy = [...prev];
-            copy[copy.length - 1] = { role: 'assistant', content: acc };
-            return copy;
-          });
+          patchLast({ content: acc });
         },
         onError: (msg) => {
           acc = acc || `⚠️ ${msg}`;
-          setMessages((prev) => {
-            const copy = [...prev];
-            copy[copy.length - 1] = { role: 'assistant', content: acc };
-            return copy;
-          });
+          patchLast({ content: acc });
         },
       });
     } catch (err) {
       if (!(err instanceof DOMException && err.name === 'AbortError')) {
-        setMessages((prev) => {
-          const copy = [...prev];
-          copy[copy.length - 1] = {
-            role: 'assistant',
-            content: acc || '⚠️ 连接出错，请稍后重试。',
-          };
-          return copy;
-        });
+        patchLast({ content: acc || '⚠️ 连接出错，请稍后重试。' });
       }
     } finally {
       setStreaming(false);
@@ -147,10 +176,57 @@ export function ChatPanel({
                     : 'border border-border bg-card text-foreground'
                 )}
               >
+                {m.role === 'assistant' &&
+                  m.mode === 'research' &&
+                  ((m.plan?.length ?? 0) > 0 || (m.steps?.length ?? 0) > 0) && (
+                    <div className="mb-2.5 space-y-2 border-b border-border pb-2.5">
+                      {(m.plan?.length ?? 0) > 0 && (
+                        <div>
+                          <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                            <Telescope className="h-3 w-3" /> 研究计划
+                          </div>
+                          <ol className="list-decimal space-y-0.5 pl-4 text-[11px] text-muted-foreground">
+                            {m.plan!.map((p, idx) => (
+                              <li key={idx}>{p}</li>
+                            ))}
+                          </ol>
+                        </div>
+                      )}
+                      {(m.steps?.length ?? 0) > 0 && (
+                        <ul className="space-y-1">
+                          {m.steps!.map((s, idx) => (
+                            <li
+                              key={idx}
+                              className="flex items-start gap-1.5 text-[11px] text-muted-foreground"
+                            >
+                              <Check className="mt-0.5 h-3 w-3 shrink-0 text-down" />
+                              <span className="flex-1">{s.label}</span>
+                              {s.tools && s.tools.length > 0 && (
+                                <span className="inline-flex shrink-0 items-center gap-0.5 text-brand">
+                                  <Wrench className="h-2.5 w-2.5" />
+                                  {s.tools.join(', ')}
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {streaming && i === messages.length - 1 && (
+                        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                          <Loader2 className="h-3 w-3 animate-spin" /> 研究进行中…
+                        </div>
+                      )}
+                    </div>
+                  )}
                 {m.role === 'assistant' && m.content ? (
                   <Markdown content={m.content} />
                 ) : (
-                  m.content || (streaming && i === messages.length - 1 ? '思考中…' : '')
+                  m.content ||
+                  (streaming && i === messages.length - 1
+                    ? m.mode === 'research'
+                      ? '规划中…'
+                      : '思考中…'
+                    : '')
                 )}
               </div>
             </div>
@@ -159,6 +235,32 @@ export function ChatPanel({
       </div>
 
       <div className="border-t border-border p-3">
+        {enableDeepResearch && (
+          <div className="mb-2 inline-flex rounded-lg border border-border p-0.5 text-xs">
+            <button
+              type="button"
+              onClick={() => setDeepMode(false)}
+              disabled={streaming}
+              className={cn(
+                'inline-flex items-center gap-1 rounded-md px-2.5 py-1 transition-colors disabled:opacity-50',
+                !deepMode ? 'bg-brand text-brand-foreground' : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <MessageSquare className="h-3 w-3" /> 问答
+            </button>
+            <button
+              type="button"
+              onClick={() => setDeepMode(true)}
+              disabled={streaming}
+              className={cn(
+                'inline-flex items-center gap-1 rounded-md px-2.5 py-1 transition-colors disabled:opacity-50',
+                deepMode ? 'bg-brand text-brand-foreground' : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <Telescope className="h-3 w-3" /> 深度研究
+            </button>
+          </div>
+        )}
         <div className="flex items-end gap-2">
           <textarea
             value={input}
@@ -170,7 +272,11 @@ export function ChatPanel({
               }
             }}
             rows={1}
-            placeholder={placeholder}
+            placeholder={
+              enableDeepResearch && deepMode
+                ? '输入研究问题，AI 自主规划并分步调研后成稿…'
+                : placeholder
+            }
             className="max-h-32 flex-1 resize-none rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-brand/50"
           />
           {streaming ? (

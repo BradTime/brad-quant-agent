@@ -175,7 +175,7 @@ brad-quant-agent/
 - [x] 调度器每日定时（默认 08:30 Asia/Shanghai，`enable_brief_scheduler` / `brief_cron_*`）生成全局早报
 - [x] 前端 `/brief`：最新早报 Markdown 渲染 + 「生成今日早报」流式 + 历史列表 + 来源/免责标注；侧栏导航
 - [x] 冒烟验证：真实 DeepSeek 生成全局早报，正文具体数字（净买额/资金流向/公告）均可溯源至数据包新闻标题（无杜撰），缺口板块如实标注，免责齐全
-- [ ] 对话中枢 / 自主深度研究（多轮规划编排）——留作 Phase 2 增量（当前 `/ai` 已具备多轮工具问答）
+- [x] 对话中枢 / 自主深度研究（多轮规划编排）：`ai/deep_research.py` 显式三段编排——规划者拆 2-4 个子问题 → 逐子问题跑工具调用 ReAct（复用 `orchestrator.run_chat_collect` 同一能力层）取真实数据 → 主笔综合成结构化报告；`POST /ai/research`（SSE：plan/step/delta）；前端 `/ai`「深度研究」模式开关 + 研究计划/分步进度/工具调用可视化；全程合规守卫、子步失败降级、缺数据如实不杜撰
 
 ### AI 增强 — RAG 检索增强（Phase A，增量）
 - [x] pgvector 向量库（docker 镜像 `pgvector/pgvector:pg16` + `CREATE EXTENSION vector`）+ `documents` 表（chunk/embedding/来源/时间，PIT 友好）

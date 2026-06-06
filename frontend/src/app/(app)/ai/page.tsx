@@ -23,13 +23,14 @@ export default function AiPage() {
           <div>
             <h1 className="font-display text-2xl tracking-tight">AI 看盘问答</h1>
             <p className="text-sm text-muted-foreground">
-              自然语言提问，AI 调用行情 / K线 / 财务 / 资金流 / 选股工具，基于真实落库数据流式作答
+              自然语言提问，AI 调用行情 / K线 / 财务 / 资金流 / 选股工具，基于真实落库数据流式作答；
+              「深度研究」模式下自主规划并分步调研后成稿
             </p>
           </div>
         </div>
 
         <div className="flex-1 overflow-hidden rounded-2xl border border-border bg-card">
-          <ChatPanel suggestions={SUGGESTIONS} />
+          <ChatPanel suggestions={SUGGESTIONS} enableDeepResearch />
         </div>
       </div>
     </RequireAuth>

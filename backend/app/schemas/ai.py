@@ -16,3 +16,10 @@ class ChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(min_length=1, max_length=50)
     # 界面上下文（如当前个股）。服务端会作为不可信元数据包裹，绝不作为 system 指令。
     contextHint: str | None = Field(default=None, max_length=4_000)
+
+
+class ResearchRequest(BaseModel):
+    """自主深度研究请求：单个研究问题 + 可选界面上下文（不可信元数据）。"""
+
+    question: str = Field(min_length=1, max_length=2_000)
+    contextHint: str | None = Field(default=None, max_length=4_000)

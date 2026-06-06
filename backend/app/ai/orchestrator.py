@@ -98,8 +98,13 @@ def run_completion_stream(system_prompt: str, user_content: str) -> Iterator[str
         yield tail
 
 
-def run_chat_collect(user_messages: list[dict]) -> dict:
-    """Non-streaming variant for evaluation/regression."""
+def run_chat_collect(user_messages: list[dict], enforce: bool = True) -> dict:
+    """Non-streaming variant for evaluation/regression.
+
+    ``enforce=False`` skips the compliance final pass — used by the deep-research
+    orchestrator for intermediate sub-steps (the final synthesis enforces once),
+    avoiding a disclaimer appended to every sub-finding.
+    """
     answer_parts: list[str] = []
     tools_called: list[str] = []
     tool_results: list[dict] = []
@@ -127,8 +132,9 @@ def run_chat_collect(user_messages: list[dict]) -> dict:
         tools_called.extend(called)
         tool_results.extend(results)
 
+    answer = "".join(answer_parts)
     return {
-        "answer": enforce_compliance("".join(answer_parts)),
+        "answer": enforce_compliance(answer) if enforce else answer.strip(),
         "toolsCalled": tools_called,
         "toolResults": tool_results,
     }
