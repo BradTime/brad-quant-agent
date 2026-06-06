@@ -67,7 +67,36 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("rag-backfill", help="把已落库新闻/历史早报向量化灌入 RAG 检索库")
 
+    p_bf = sub.add_parser("backfill", help="批量回填一组标的的 日K+复权+资金流+财务+新闻")
+    p_bf.add_argument("--codes", default=None, help="逗号分隔；缺省=所有自选股代码")
+    p_bf.add_argument("--start", default=None, help="日K/复权起始日；缺省近 2 年")
+    p_bf.add_argument("--end", default=None, help="日K/复权结束日；缺省今天")
+    p_bf.add_argument("--provider", default=None)
+
     args = parser.parse_args(argv)
+
+    if args.cmd == "backfill":
+        from datetime import date, timedelta
+
+        from app.services import ingest
+
+        codes = (
+            [c.strip() for c in args.codes.split(",") if c.strip()]
+            if args.codes
+            else ingest.watchlist_codes()
+        )
+        if not codes:
+            print("没有可回填的标的（自选股为空，且未提供 --codes）")
+            return 1
+        end = args.end or date.today().isoformat()
+        start = args.start or (date.today() - timedelta(days=730)).isoformat()
+        print(f"开始回填 {len(codes)} 个标的（{start} ~ {end}）…")
+        s = ingest.backfill_codes(codes, start, end, args.provider)
+        print(
+            f"✅ 回填完成：日K {s['daily']}、复权 {s['adjust']}、资金流 {s['capital_flow']}、"
+            f"财务 {s['financials']}、新闻 {s['news']}；失败 {s['errors']}"
+        )
+        return 0
 
     if args.cmd == "init-db":
         from app.db.init_db import init_db

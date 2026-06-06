@@ -8,7 +8,9 @@ just returns them for connectivity checks / API serving.
 from __future__ import annotations
 
 import hashlib
+import logging
 from datetime import datetime, timezone
+from functools import partial
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
@@ -19,6 +21,8 @@ from app.models.extra import CapitalFlow, DragonTiger, FinancialSummary, NewsIte
 from app.models.market import AdjustFactor, DailyBar, Instrument, MinuteBar
 from app.providers.base import QuoteDTO
 from app.providers.registry import get_provider, get_provider_for
+
+logger = logging.getLogger(__name__)
 
 
 def _now():
@@ -276,6 +280,41 @@ def ingest_dragon_tiger(start: str, end: str, provider_name: str | None = None) 
         )
         session.commit()
     return n
+
+
+def watchlist_codes() -> list[str]:
+    """所有自选股去重代码（批量回填的默认目标）。"""
+    from sqlalchemy import distinct, select
+
+    from app.models.watchlist import WatchlistItem
+
+    with SessionLocal() as session:
+        return [c for (c,) in session.execute(select(distinct(WatchlistItem.code))).all() if c]
+
+
+def backfill_codes(
+    codes: list[str], start: str, end: str, provider_name: str | None = None
+) -> dict[str, int]:
+    """批量回填一组标的的 日K + 复权因子 + 资金流 + 财务 + 新闻。
+
+    逐标的、逐类目独立 try，单点失败不影响其余（免费源易限流/缺数据）；返回各类目落库计数。
+    """
+    stats = {"daily": 0, "adjust": 0, "capital_flow": 0, "financials": 0, "news": 0, "errors": 0}
+    for code in codes:
+        tasks = (
+            ("daily", partial(ingest_daily, code, start, end, "none", provider_name)),
+            ("adjust", partial(ingest_adjust, code, start, end, provider_name)),
+            ("capital_flow", partial(ingest_capital_flow, code, provider_name)),
+            ("financials", partial(ingest_financials, code, provider_name)),
+            ("news", partial(ingest_news, code, 30, provider_name)),
+        )
+        for label, fn in tasks:
+            try:
+                stats[label] += fn()
+            except Exception as exc:  # noqa: BLE001  (单源失败降级，继续其余)
+                stats["errors"] += 1
+                logger.warning("回填 %s/%s 失败: %s", code, label, exc)
+    return stats
 
 
 def ingest_news(code: str, limit: int = 30, provider_name: str | None = None) -> int:
