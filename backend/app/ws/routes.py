@@ -31,6 +31,7 @@ def _now_ms() -> int:
 async def ws_v1(websocket: WebSocket, token: str | None = None) -> None:
     await manager.connect(websocket)
 
+    authed = False
     if token:
         payload = decode_token(token)
         if not payload or payload.get("type") != "access":
@@ -40,11 +41,17 @@ async def ws_v1(websocket: WebSocket, token: str | None = None) -> None:
             await manager.disconnect(websocket)
             await websocket.close(code=1008)
             return
+        # 已鉴权连接绑定 user_id，开启私有定向推送通道（成交回报/通知等）
+        await manager.bind_user(websocket, payload.get("sub"))
+        authed = True
 
     await websocket.send_json(
         {
             "type": "welcome",
-            "payload": {"topics": ["market.indices", "market.quote.<code>"]},
+            "payload": {
+                "topics": ["market.indices", "market.quote.<code>"],
+                "privateChannel": authed,
+            },
             "timestamp": _now_ms(),
         }
     )
