@@ -8,8 +8,8 @@ cached; swapping in a paid source later means editing only this file.
 from __future__ import annotations
 
 from app.providers.akshare_provider import AkShareProvider
-from app.providers.base import DataProvider
 from app.providers.baostock_provider import BaoStockProvider
+from app.providers.base import DataProvider
 from app.providers.efinance_provider import EfinanceProvider
 
 _REGISTRY: dict[str, type[DataProvider]] = {

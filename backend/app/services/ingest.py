@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import partial
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 def _now():
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _resolve(provider_name: str | None, capability: str):

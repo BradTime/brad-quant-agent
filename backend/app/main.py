@@ -9,9 +9,8 @@ cached quotes/indices to subscribers.
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
-
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -64,6 +63,25 @@ async def lifespan(app: FastAPI):
 
         shutdown_scheduler()
 
+
+def _init_sentry() -> None:
+    """仅当配置了 SENTRY_DSN 才初始化（默认关闭、零开销、不外联）。"""
+    if not settings.sentry_dsn:
+        return
+    try:
+        import sentry_sdk
+
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn,
+            environment=settings.app_env,
+            traces_sample_rate=settings.sentry_traces_sample_rate,
+        )
+        logger.info("Sentry 已启用（environment=%s）", settings.app_env)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Sentry 初始化失败（已忽略）：%s", exc)
+
+
+_init_sentry()
 
 app = FastAPI(title=settings.app_name, version=settings.version, lifespan=lifespan)
 

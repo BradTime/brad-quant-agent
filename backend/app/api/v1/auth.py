@@ -7,7 +7,7 @@ the standard status so the client's interceptor can react.
 
 from __future__ import annotations
 
-from fastapi import Depends
+from fastapi import APIRouter, Depends
 
 from app.api.deps import get_current_user
 from app.core.response import error, success
@@ -15,8 +15,6 @@ from app.core.security import create_access_token, create_refresh_token, decode_
 from app.models.user import User
 from app.schemas.auth import LoginRequest, RefreshRequest, RegisterRequest
 from app.services import auth as auth_service
-
-from fastapi import APIRouter
 
 router = APIRouter()
 

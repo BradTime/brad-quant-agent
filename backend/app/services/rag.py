@@ -60,7 +60,7 @@ def index_document(
         session.execute(
             delete(Document).where(Document.source == source, Document.ref_id == ref_id)
         )
-        for i, (chunk, vec) in enumerate(zip(chunks, vectors)):
+        for i, (chunk, vec) in enumerate(zip(chunks, vectors, strict=False)):
             session.add(
                 Document(
                     id=_sha1(source, ref_id, str(i)),

@@ -3,8 +3,7 @@
 from fastapi import APIRouter
 from sqlalchemy import text
 
-from app.core.response import error
-from app.core.response import success
+from app.core.response import error, success
 from app.db.session import engine
 
 router = APIRouter()

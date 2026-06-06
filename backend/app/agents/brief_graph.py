@@ -78,8 +78,8 @@ class BriefState(TypedDict, total=False):
 
 def is_available() -> bool:
     try:
-        import langgraph  # noqa: F401
         import langchain_openai  # noqa: F401
+        import langgraph  # noqa: F401
 
         return True
     except Exception:  # noqa: BLE001

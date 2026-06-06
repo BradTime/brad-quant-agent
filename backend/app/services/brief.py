@@ -309,8 +309,7 @@ def _persist(
 
 def _stream_chunks(text: str):
     """把整段早报按行产出，给前端逐行出现的流式观感。"""
-    for line in text.splitlines(keepends=True):
-        yield line
+    yield from text.splitlines(keepends=True)
 
 
 def stream_generate(user_id: str | None):

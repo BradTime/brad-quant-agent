@@ -7,8 +7,8 @@ so this module stays importable without the dependency installed.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Iterator
 
 from app.core.dtutil import parse_baostock_time, parse_date, parse_datetime
 from app.core.numeric import to_float

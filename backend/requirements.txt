@@ -37,8 +37,12 @@ passlib[bcrypt]
 # 行情拉取调度器
 APScheduler
 
-# 测试
+# 可观测（Sentry，DSN 未配置则不启用、不引入运行开销）
+sentry-sdk
+
+# 测试 / 质量
 pytest
+ruff
 
 # 后置（按需启用）：
 # redis

@@ -69,6 +69,10 @@ class Settings(BaseSettings):
     # 多智能体早报 evaluator-optimizer 反思回环的最大修订轮数（0=关闭修订；上限见 brief_graph 封顶）
     brief_max_revisions: int = 1
 
+    # 可观测（Sentry）：仅当 sentry_dsn 非空时启用；默认关、零开销、不外联
+    sentry_dsn: str = ""
+    sentry_traces_sample_rate: float = 0.0
+
     # 可观测（LangSmith）：仅当 langchain_api_key 非空时启用追踪
     langchain_tracing: bool = True
     langchain_api_key: str = ""
