@@ -1,8 +1,9 @@
 /**
  * API 配置常量
  */
+// 后端为 FastAPI（默认 :8000）。可用 NEXT_PUBLIC_API_BASE_URL 覆盖（见 .env.example）。
 export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001/api/v1';
+  process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api/v1';
 
 export const API_TIMEOUT = 30000; // 30秒
 
@@ -10,7 +11,7 @@ export const API_TIMEOUT = 30000; // 30秒
  * WebSocket 配置
  */
 export const WS_BASE_URL =
-  process.env.NEXT_PUBLIC_WS_BASE_URL || 'ws://localhost:3001/ws/v1';
+  process.env.NEXT_PUBLIC_WS_BASE_URL || 'ws://localhost:8000/ws/v1';
 
 /**
  * Token 存储键名
