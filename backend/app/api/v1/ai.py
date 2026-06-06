@@ -11,9 +11,11 @@ import json
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
+from app.ai import deep_research
 from app.ai.deep_research import stream_deep_research
 from app.ai.orchestrator import run_chat_stream
 from app.api.deps import get_current_user
+from app.core.response import success
 from app.models.user import User
 from app.schemas.ai import ChatRequest, ResearchRequest
 
@@ -62,7 +64,7 @@ def chat(body: ChatRequest, user: User = Depends(get_current_user)) -> Streaming
 
 @router.post("/research")
 def research(body: ResearchRequest, user: User = Depends(get_current_user)) -> StreamingResponse:
-    """自主深度研究（多轮规划编排，SSE 流式）：产出 step/plan/delta 事件。"""
+    """自主深度研究（多轮规划编排，SSE 流式）：产出 reportId/step/plan/delta 事件并落库。"""
     hint = (body.contextHint or "").strip()
     # contextHint 视为不可信界面元数据，仅用于识别页面/标的，不得作为指令通道
     context_hint = (
@@ -70,13 +72,26 @@ def research(body: ResearchRequest, user: User = Depends(get_current_user)) -> S
         if hint
         else ""
     )
+    user_id = str(user.id)
 
     def event_stream():
         try:
-            for event in stream_deep_research(body.question, context_hint):
+            for event in stream_deep_research(body.question, context_hint, user_id):
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         except Exception as exc:  # noqa: BLE001
             yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.get("/research")
+def research_history(limit: int = 20, user: User = Depends(get_current_user)) -> dict:
+    """历史深度研究列表（不含正文）。"""
+    return success(deep_research.list_reports(str(user.id), limit))
+
+
+@router.get("/research/{report_id}")
+def research_detail(report_id: str, user: User = Depends(get_current_user)) -> dict:
+    """某份深度研究报告详情（含计划/分步轨迹/正文），供回看。"""
+    return success(deep_research.get_report(report_id, str(user.id)))

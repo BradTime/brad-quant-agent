@@ -4,6 +4,7 @@ from app.models.brief import MorningBrief
 from app.models.document import Document
 from app.models.extra import CapitalFlow, DragonTiger, FinancialSummary, NewsItem
 from app.models.market import AdjustFactor, DailyBar, Instrument, MinuteBar
+from app.models.research import ResearchReport
 from app.models.user import User
 from app.models.watchlist import WatchlistItem
 
@@ -20,4 +21,5 @@ __all__ = [
     "WatchlistItem",
     "MorningBrief",
     "Document",
+    "ResearchReport",
 ]

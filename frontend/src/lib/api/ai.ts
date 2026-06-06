@@ -1,5 +1,6 @@
 import { API_BASE_URL } from '@/lib/constants';
 import { useAuthStore } from '@/stores/useAuthStore';
+import { apiClient } from './client';
 import { createSSEParser } from './sse';
 
 export interface ChatMessage {
@@ -78,6 +79,33 @@ export interface ResearchStep {
   node?: string;
   tools?: string[];
 }
+
+export interface ResearchReportSummary {
+  id: string;
+  userId: string | null;
+  question: string;
+  status: string;
+  model: string;
+  createdAt: string | null;
+}
+
+export interface ResearchReportDetail extends ResearchReportSummary {
+  content: string;
+  plan: string[];
+  steps: ResearchStep[];
+}
+
+/** 历史深度研究列表（不含正文） */
+export const listResearchReports = async (limit = 20): Promise<ResearchReportSummary[]> => {
+  const res = await apiClient.get<ResearchReportSummary[]>('/ai/research', { params: { limit } });
+  return res.data ?? [];
+};
+
+/** 某份深度研究报告详情（含计划/分步/正文），供回看 */
+export const getResearchReport = async (id: string): Promise<ResearchReportDetail | null> => {
+  const res = await apiClient.get<ResearchReportDetail | null>(`/ai/research/${id}`);
+  return res.data;
+};
 
 interface ResearchHandlers {
   /** 研究计划（规划者拆出的子问题列表） */

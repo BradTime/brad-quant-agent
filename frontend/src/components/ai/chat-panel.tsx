@@ -1,10 +1,38 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { Send, Square, Sparkles, Check, Wrench, Telescope, MessageSquare, Loader2 } from 'lucide-react';
-import { streamChat, streamDeepResearch, type ChatMessage, type ResearchStep } from '@/lib/api/ai';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Send,
+  Square,
+  Sparkles,
+  Check,
+  Wrench,
+  Telescope,
+  MessageSquare,
+  Loader2,
+  History,
+} from 'lucide-react';
+import {
+  streamChat,
+  streamDeepResearch,
+  listResearchReports,
+  getResearchReport,
+  type ChatMessage,
+  type ResearchStep,
+  type ResearchReportSummary,
+} from '@/lib/api/ai';
 import { cn } from '@/lib/utils';
 import { Markdown } from './markdown';
+
+function fmtTime(iso: string | null): string {
+  if (!iso) return '';
+  return new Date(iso).toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 
 interface ChatPanelProps {
   /** 注入给模型的上下文（作为 system 消息，不在界面显示），如"当前正在查看 600000.SH 浦发银行" */
@@ -41,6 +69,8 @@ export function ChatPanel({
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [deepMode, setDeepMode] = useState(false);
+  const [history, setHistory] = useState<ResearchReportSummary[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -49,6 +79,42 @@ export function ChatPanel({
   }, [messages]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  const refreshHistory = useCallback(async () => {
+    if (!enableDeepResearch) return;
+    try {
+      setHistory(await listResearchReports(20));
+    } catch {
+      /* ignore */
+    }
+  }, [enableDeepResearch]);
+
+  useEffect(() => {
+    void (async () => {
+      await refreshHistory();
+    })();
+  }, [refreshHistory]);
+
+  const loadReport = async (id: string) => {
+    setShowHistory(false);
+    try {
+      const r = await getResearchReport(id);
+      if (!r) return;
+      setMessages((prev) => [
+        ...prev,
+        { role: 'user', content: r.question },
+        {
+          role: 'assistant',
+          content: r.content,
+          mode: 'research',
+          plan: r.plan,
+          steps: r.steps,
+        },
+      ]);
+    } catch {
+      /* ignore */
+    }
+  };
 
   const send = async (text: string) => {
     const content = text.trim();
@@ -126,6 +192,7 @@ export function ChatPanel({
     } finally {
       setStreaming(false);
       abortRef.current = null;
+      if (research) refreshHistory();
     }
   };
 
@@ -236,29 +303,61 @@ export function ChatPanel({
 
       <div className="border-t border-border p-3">
         {enableDeepResearch && (
-          <div className="mb-2 inline-flex rounded-lg border border-border p-0.5 text-xs">
-            <button
-              type="button"
-              onClick={() => setDeepMode(false)}
-              disabled={streaming}
-              className={cn(
-                'inline-flex items-center gap-1 rounded-md px-2.5 py-1 transition-colors disabled:opacity-50',
-                !deepMode ? 'bg-brand text-brand-foreground' : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              <MessageSquare className="h-3 w-3" /> 问答
-            </button>
-            <button
-              type="button"
-              onClick={() => setDeepMode(true)}
-              disabled={streaming}
-              className={cn(
-                'inline-flex items-center gap-1 rounded-md px-2.5 py-1 transition-colors disabled:opacity-50',
-                deepMode ? 'bg-brand text-brand-foreground' : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              <Telescope className="h-3 w-3" /> 深度研究
-            </button>
+          <div className="mb-2 flex items-center gap-2">
+            <div className="inline-flex rounded-lg border border-border p-0.5 text-xs">
+              <button
+                type="button"
+                onClick={() => setDeepMode(false)}
+                disabled={streaming}
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-md px-2.5 py-1 transition-colors disabled:opacity-50',
+                  !deepMode ? 'bg-brand text-brand-foreground' : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <MessageSquare className="h-3 w-3" /> 问答
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeepMode(true)}
+                disabled={streaming}
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-md px-2.5 py-1 transition-colors disabled:opacity-50',
+                  deepMode ? 'bg-brand text-brand-foreground' : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <Telescope className="h-3 w-3" /> 深度研究
+              </button>
+            </div>
+
+            {history.length > 0 && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowHistory((v) => !v)}
+                  className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <History className="h-3 w-3" /> 研究历史
+                </button>
+                {showHistory && (
+                  <div className="absolute bottom-full left-0 z-20 mb-1 max-h-64 w-72 overflow-auto rounded-xl border border-border bg-card p-1 shadow-lg">
+                    {history.map((h) => (
+                      <button
+                        key={h.id}
+                        type="button"
+                        onClick={() => loadReport(h.id)}
+                        className="block w-full rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-muted"
+                      >
+                        <div className="truncate text-xs">{h.question}</div>
+                        <div className="text-[10px] text-muted-foreground">
+                          {fmtTime(h.createdAt)}
+                          {h.status !== 'ready' ? ` · ${h.status}` : ''}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
         <div className="flex items-end gap-2">

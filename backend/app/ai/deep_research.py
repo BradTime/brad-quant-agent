@@ -14,12 +14,17 @@ from __future__ import annotations
 import json
 import logging
 import re
+import uuid
 from collections.abc import Iterator
+
+from sqlalchemy import select
 
 from app.ai.deepseek import get_client
 from app.ai.orchestrator import run_chat_collect, run_completion_stream
 from app.ai.prompts import RESEARCH_PLANNER_PROMPT, RESEARCH_SYNTHESIS_PROMPT
 from app.core.config import settings
+from app.db.session import SessionLocal
+from app.models.research import ResearchReport
 
 logger = logging.getLogger(__name__)
 
@@ -73,35 +78,137 @@ def _assemble(question: str, findings: list[tuple[str, str, list[str]]]) -> str:
     return "\n".join(parts)
 
 
-def stream_deep_research(question: str, context_hint: str = "") -> Iterator[dict]:
-    """流式产出研究编排事件：step（进度）/ plan（研究计划）/ delta（报告）/ error。"""
+def _persist(
+    report_id: str,
+    user_id: str | None,
+    question: str,
+    plan: list[str],
+    steps: list[dict],
+    content: str,
+    status: str,
+    error: str | None = None,
+) -> None:
+    with SessionLocal() as session:
+        row = session.get(ResearchReport, report_id)
+        if row is None:
+            row = ResearchReport(id=report_id)
+            session.add(row)
+        row.user_id = user_id
+        row.question = question[:2000]
+        row.status = status
+        row.content = content
+        row.plan_json = json.dumps(plan, ensure_ascii=False)
+        row.steps_json = json.dumps(steps, ensure_ascii=False, default=str)
+        row.model = settings.deepseek_model
+        row.error = error
+        session.commit()
+
+
+def stream_deep_research(
+    question: str, context_hint: str = "", user_id: str | None = None
+) -> Iterator[dict]:
+    """流式产出研究编排事件并落库：reportId / step / plan / delta / error。
+
+    落库状态：正常结束=ready；客户端中断（GeneratorExit）=partial（有正文）/failed；异常=failed。
+    """
     question = (question or "").strip()
     if not question:
         yield {"delta": "请提供研究问题。"}
         return
 
-    yield {"step": "规划研究路径", "node": "planner"}
-    plan = _plan(question, context_hint)
-    yield {"plan": plan}
+    report_id = uuid.uuid4().hex
+    yield {"reportId": report_id}
 
-    findings: list[tuple[str, str, list[str]]] = []
-    total = len(plan)
-    for i, subq in enumerate(plan, 1):
+    plan: list[str] = []
+    steps: list[dict] = []  # [{label, tools}] —— 落库供回看的分步轨迹
+    acc: list[str] = []
+    persisted = False
+
+    def _save(status: str, error: str | None = None) -> None:
+        nonlocal persisted
+        if persisted:
+            return
+        persisted = True
         try:
-            res = run_chat_collect([{"role": "user", "content": subq}], enforce=False)
-            answer = res.get("answer", "")
-            tools = res.get("toolsCalled") or []
+            _persist(report_id, user_id, question, plan, steps, "".join(acc), status, error)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("子问题调研失败：%s", exc)
-            answer, tools = f"（该子问题调研失败：{exc}）", []
-        findings.append((subq, answer, tools))
-        yield {"step": f"完成 {i}/{total}：{subq}", "node": "research", "tools": tools or None}
+            logger.warning("研究报告落库失败: %s", exc)
 
-    yield {"step": "综合成稿", "node": "synth"}
-    assembled = _assemble(question, findings)
     try:
+        yield {"step": "规划研究路径", "node": "planner"}
+        plan = _plan(question, context_hint)
+        yield {"plan": plan}
+
+        findings: list[tuple[str, str, list[str]]] = []
+        total = len(plan)
+        for i, subq in enumerate(plan, 1):
+            try:
+                res = run_chat_collect([{"role": "user", "content": subq}], enforce=False)
+                answer = res.get("answer", "")
+                tools = res.get("toolsCalled") or []
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("子问题调研失败：%s", exc)
+                answer, tools = f"（该子问题调研失败：{exc}）", []
+            findings.append((subq, answer, tools))
+            label = f"完成 {i}/{total}：{subq}"
+            steps.append({"label": label, "tools": tools})
+            yield {"step": label, "node": "research", "tools": tools or None}
+
+        yield {"step": "综合成稿", "node": "synth"}
+        assembled = _assemble(question, findings)
         for piece in run_completion_stream(RESEARCH_SYNTHESIS_PROMPT, assembled):
+            acc.append(piece)
             yield {"delta": piece}
+        _save("ready")
+    except GeneratorExit:
+        _save("partial" if acc else "failed")
+        raise
     except Exception as exc:  # noqa: BLE001
         logger.warning("研究成稿失败：%s", exc)
+        _save("failed", str(exc))
         yield {"delta": f"\n\n⚠️ 研究成稿出错：{exc}"}
+
+
+# ---------- 读取（回看） ----------
+
+
+def _to_dict(row: ResearchReport, with_content: bool = True) -> dict:
+    out = {
+        "id": row.id,
+        "userId": row.user_id,
+        "question": row.question,
+        "status": row.status,
+        "model": row.model,
+        "createdAt": row.created_at.isoformat() if row.created_at else None,
+    }
+    if with_content:
+        out["content"] = row.content
+        try:
+            out["plan"] = json.loads(row.plan_json) if row.plan_json else []
+        except (ValueError, TypeError):
+            out["plan"] = []
+        try:
+            out["steps"] = json.loads(row.steps_json) if row.steps_json else []
+        except (ValueError, TypeError):
+            out["steps"] = []
+    return out
+
+
+def list_reports(user_id: str | None, limit: int = 20) -> list[dict]:
+    with SessionLocal() as session:
+        stmt = (
+            select(ResearchReport)
+            .where(ResearchReport.user_id == user_id)
+            .order_by(ResearchReport.created_at.desc())
+            .limit(limit)
+        )
+        rows = list(session.execute(stmt).scalars().all())
+        return [_to_dict(r, with_content=False) for r in rows]
+
+
+def get_report(report_id: str, user_id: str | None) -> dict | None:
+    with SessionLocal() as session:
+        row = session.get(ResearchReport, report_id)
+        if row is None or row.user_id != user_id:
+            return None
+        return _to_dict(row)
