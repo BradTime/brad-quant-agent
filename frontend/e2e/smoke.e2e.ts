@@ -46,6 +46,10 @@ test('登录后关键页可正常渲染', async ({ page }) => {
   await page.goto('/brief');
   await expect(page.getByRole('heading', { name: 'AI 盘前早报' })).toBeVisible();
   await expect(page.getByRole('button', { name: /生成今日早报/ })).toBeVisible();
+
+  await page.goto('/sim');
+  await expect(page.getByRole('heading', { name: '模拟交易' })).toBeVisible();
+  await expect(page.getByText('总资产')).toBeVisible();
 });
 
 // 可选：真实 AI 流冒烟（会调用 DeepSeek，默认跳过；设 RUN_AI_E2E=1 才跑）

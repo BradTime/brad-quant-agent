@@ -9,6 +9,7 @@ import {
   Layers,
   Newspaper,
   Sparkles,
+  Wallet,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -24,6 +25,7 @@ const NAV: NavItem[] = [
   { href: '/dashboard', label: '仪表盘', en: 'Overview', icon: LayoutDashboard },
   { href: '/market', label: '看盘', en: 'Markets', icon: Activity },
   { href: '/brief', label: '盘前早报', en: 'Brief', icon: Newspaper },
+  { href: '/sim', label: '模拟交易', en: 'Paper', icon: Wallet },
   { href: '/strategies', label: '策略', en: 'Strategies', icon: Layers },
   { href: '/backtest', label: '回测', en: 'Backtest', icon: FlaskConical },
   { href: '/ai', label: 'AI 问答', en: 'Copilot', icon: Sparkles },
