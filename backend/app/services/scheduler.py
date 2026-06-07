@@ -48,6 +48,25 @@ def start_scheduler():
         misfire_grace_time=30,
     )
 
+    # 模拟交易：用最新快照价撮合挂单（限价单），cache-only 价源、开销小
+    def _match_pending_job():
+        from app.services import trading
+
+        try:
+            trading.try_match_pending()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("挂单撮合失败（忽略）：%s", exc)
+
+    scheduler.add_job(
+        _match_pending_job,
+        "interval",
+        seconds=max(index_secs, 15),
+        id="match_pending_orders",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=30,
+    )
+
     if settings.enable_brief_scheduler:
         from app.services import brief
 

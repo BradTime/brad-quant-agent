@@ -5,6 +5,7 @@ from app.models.document import Document
 from app.models.extra import CapitalFlow, DragonTiger, FinancialSummary, NewsItem
 from app.models.market import AdjustFactor, DailyBar, Instrument, MinuteBar
 from app.models.research import ResearchReport
+from app.models.trading import SimAccount, SimOrder, SimPosition, SimTrade
 from app.models.user import User
 from app.models.watchlist import WatchlistItem
 
@@ -22,4 +23,8 @@ __all__ = [
     "MorningBrief",
     "Document",
     "ResearchReport",
+    "SimAccount",
+    "SimOrder",
+    "SimPosition",
+    "SimTrade",
 ]
