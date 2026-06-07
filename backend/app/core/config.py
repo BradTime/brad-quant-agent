@@ -69,6 +69,13 @@ class Settings(BaseSettings):
     # 多智能体早报 evaluator-optimizer 反思回环的最大修订轮数（0=关闭修订；上限见 brief_graph 封顶）
     brief_max_revisions: int = 1
 
+    # AI 成本闸：每用户每日生成配额（防超额/滥用；<=0 表示不限），按昂贵程度分桶
+    ai_daily_quota_chat: int = 100
+    ai_daily_quota_research: int = 20
+    ai_daily_quota_brief: int = 20
+    # 重型生成（research/brief）两次之间的最小间隔秒（防连点；<=0 不限）
+    ai_heavy_min_interval_sec: int = 5
+
     # 可观测（Sentry）：仅当 sentry_dsn 非空时启用；默认关、零开销、不外联
     sentry_dsn: str = ""
     sentry_traces_sample_rate: float = 0.0

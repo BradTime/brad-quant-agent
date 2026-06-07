@@ -18,7 +18,7 @@ from app.api.deps import get_current_user
 from app.core.cors import apply_cors_headers
 from app.core.response import success
 from app.models.user import User
-from app.services import brief
+from app.services import brief, rate_limit
 
 router = APIRouter()
 
@@ -49,8 +49,14 @@ def generate(
     user: User = Depends(get_current_user),
 ) -> StreamingResponse:
     user_id = str(user.id)
+    blocked = rate_limit.ai_cost_gate(user_id, "brief")
 
     def event_stream():
+        if blocked:
+            # 成本闸拦截：只发一个 error 帧 + DONE，不触发多智能体生成
+            yield f"data: {json.dumps({'error': blocked}, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+            return
         try:
             # stream_generate 产出事件 dict：{"step":...}（多智能体进度）或 {"delta":...}（正文）
             for event in brief.stream_generate(user_id):

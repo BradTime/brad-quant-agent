@@ -18,8 +18,15 @@ from app.api.deps import get_current_user
 from app.core.response import success
 from app.models.user import User
 from app.schemas.ai import ChatRequest, ResearchRequest
+from app.services import rate_limit
 
 router = APIRouter()
+
+
+def _sse_blocked(message: str):
+    """成本闸拦截时的 SSE 响应：只发一个 error 帧 + DONE，不触发任何 LLM 调用。"""
+    yield f"data: {json.dumps({'error': message}, ensure_ascii=False)}\n\n"
+    yield "data: [DONE]\n\n"
 
 
 def _to_llm_messages(body: ChatRequest) -> list[dict]:
@@ -50,8 +57,12 @@ def _to_llm_messages(body: ChatRequest) -> list[dict]:
 @router.post("/chat")
 def chat(body: ChatRequest, user: User = Depends(get_current_user)) -> StreamingResponse:
     messages = _to_llm_messages(body)
+    blocked = rate_limit.ai_cost_gate(str(user.id), "chat")
 
     def event_stream():
+        if blocked:
+            yield from _sse_blocked(blocked)
+            return
         try:
             for piece in run_chat_stream(messages):
                 yield f"data: {json.dumps({'delta': piece}, ensure_ascii=False)}\n\n"
@@ -73,8 +84,12 @@ def research(body: ResearchRequest, user: User = Depends(get_current_user)) -> S
         else ""
     )
     user_id = str(user.id)
+    blocked = rate_limit.ai_cost_gate(user_id, "research")
 
     def event_stream():
+        if blocked:
+            yield from _sse_blocked(blocked)
+            return
         try:
             for event in stream_deep_research(body.question, context_hint, user_id):
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
