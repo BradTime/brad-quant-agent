@@ -40,6 +40,8 @@
     "**/*.test.ts",
     "**/*.test.tsx",
     "vitest.config.ts",
-    "vitest.setup.ts"
+    "vitest.setup.ts",
+    "e2e/**",
+    "playwright.config.ts"
   ]
 }
