@@ -293,21 +293,37 @@ def watchlist_codes() -> list[str]:
 
 
 def backfill_codes(
-    codes: list[str], start: str, end: str, provider_name: str | None = None
+    codes: list[str],
+    start: str,
+    end: str,
+    provider_name: str | None = None,
+    minute_periods: list[str] | None = None,
+    minute_start: str | None = None,
 ) -> dict[str, int]:
-    """批量回填一组标的的 日K + 复权因子 + 资金流 + 财务 + 新闻。
+    """批量回填一组标的的 日K + 复权因子 + 资金流 + 财务 + 新闻（+ 可选分钟K）。
 
     逐标的、逐类目独立 try，单点失败不影响其余（免费源易限流/缺数据）；返回各类目落库计数。
+
+    ``minute_periods``：如 ``["5","30"]`` 时额外回填对应分钟周期；缺省不回填（分钟数据量大、
+    免费源易限流）。分钟起始日用 ``minute_start``（缺省复用 ``start``，建议传更短窗口）。
     """
-    stats = {"daily": 0, "adjust": 0, "capital_flow": 0, "financials": 0, "news": 0, "errors": 0}
+    stats = {
+        "daily": 0, "adjust": 0, "capital_flow": 0,
+        "financials": 0, "news": 0, "minute": 0, "errors": 0,
+    }
+    m_start = minute_start or start
     for code in codes:
-        tasks = (
+        tasks: list[tuple[str, partial]] = [
             ("daily", partial(ingest_daily, code, start, end, "none", provider_name)),
             ("adjust", partial(ingest_adjust, code, start, end, provider_name)),
             ("capital_flow", partial(ingest_capital_flow, code, provider_name)),
             ("financials", partial(ingest_financials, code, provider_name)),
             ("news", partial(ingest_news, code, 30, provider_name)),
-        )
+        ]
+        for period in minute_periods or []:
+            tasks.append(
+                ("minute", partial(ingest_minute, code, period, m_start, end, provider_name))
+            )
         for label, fn in tasks:
             try:
                 stats[label] += fn()

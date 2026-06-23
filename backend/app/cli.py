@@ -67,10 +67,12 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("rag-backfill", help="把已落库新闻/历史早报向量化灌入 RAG 检索库")
 
-    p_bf = sub.add_parser("backfill", help="批量回填一组标的的 日K+复权+资金流+财务+新闻")
+    p_bf = sub.add_parser("backfill", help="批量回填一组标的的 日K+复权+资金流+财务+新闻(+可选分钟K)")
     p_bf.add_argument("--codes", default=None, help="逗号分隔；缺省=所有自选股代码")
     p_bf.add_argument("--start", default=None, help="日K/复权起始日；缺省近 2 年")
     p_bf.add_argument("--end", default=None, help="日K/复权结束日；缺省今天")
+    p_bf.add_argument("--minute", default=None, help="逗号分隔分钟周期(5,15,30,60)；缺省=不回填分钟（数据量大）")
+    p_bf.add_argument("--minute-start", default=None, help="分钟K起始日；缺省最近 120 天（窗口更短防限流）")
     p_bf.add_argument("--provider", default=None)
 
     args = parser.parse_args(argv)
@@ -90,12 +92,32 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         end = args.end or date.today().isoformat()
         start = args.start or (date.today() - timedelta(days=730)).isoformat()
+
+        minute_periods = None
+        minute_start = args.minute_start
+        if args.minute:
+            valid = {"5", "15", "30", "60"}
+            minute_periods = [p.strip() for p in args.minute.split(",") if p.strip()]
+            bad = [p for p in minute_periods if p not in valid]
+            if bad:
+                print(f"非法分钟周期 {bad}，仅支持 5/15/30/60")
+                return 1
+            if not minute_start:
+                minute_start = (date.today() - timedelta(days=120)).isoformat()
+
         print(f"开始回填 {len(codes)} 个标的（{start} ~ {end}）…")
-        s = ingest.backfill_codes(codes, start, end, args.provider)
-        print(
-            f"✅ 回填完成：日K {s['daily']}、复权 {s['adjust']}、资金流 {s['capital_flow']}、"
-            f"财务 {s['financials']}、新闻 {s['news']}；失败 {s['errors']}"
+        s = ingest.backfill_codes(
+            codes, start, end, args.provider,
+            minute_periods=minute_periods, minute_start=minute_start,
         )
+        msg = (
+            f"✅ 回填完成：日K {s['daily']}、复权 {s['adjust']}、资金流 {s['capital_flow']}、"
+            f"财务 {s['financials']}、新闻 {s['news']}"
+        )
+        if minute_periods:
+            msg += f"、分钟K {s['minute']}（周期 {','.join(minute_periods)} 自 {minute_start}）"
+        msg += f"；失败 {s['errors']}"
+        print(msg)
         return 0
 
     if args.cmd == "init-db":
