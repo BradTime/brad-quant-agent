@@ -63,6 +63,12 @@ class Settings(BaseSettings):
     rag_enabled: bool = True
     # 启动时后台预热本地 embedding 模型（守护线程，不阻塞启动）
     embedding_warm_on_start: bool = True
+    # 混合检索：向量召回 + 关键词(ILIKE)召回，用 RRF 融合排序（关闭则纯向量）
+    rag_hybrid_enabled: bool = True
+    # 混合检索每路候选池大小（融合后再截断到 rag_top_k）
+    rag_hybrid_candidates: int = 20
+    # HNSW 检索精度参数 ef_search（越大越准越慢；需已建 HNSW 索引才生效）
+    rag_hnsw_ef_search: int = 64
 
     # 盘前早报生成引擎：graph（LangGraph 多智能体）/ single（单轮合成，兜底）
     brief_engine: str = "graph"
