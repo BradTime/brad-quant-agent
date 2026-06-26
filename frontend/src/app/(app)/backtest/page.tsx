@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlaskConical, Loader2 } from 'lucide-react';
+import { Markdown } from '@/components/ai/markdown';
 import { LineChart } from '@/components/charts';
 import {
   backtestApi,
+  streamBacktestReview,
   type BacktestRunResult,
   type StrategyCatalogItem,
 } from '@/lib/api/backtest';
@@ -43,6 +45,8 @@ export default function BacktestPage() {
   const [error, setError] = useState('');
   const [result, setResult] = useState<BacktestRunResult | null>(null);
   const [history, setHistory] = useState<BacktestRunResult[]>([]);
+  const [reviewText, setReviewText] = useState('');
+  const [reviewing, setReviewing] = useState(false);
 
   const current = useMemo(
     () => catalog.find((c) => c.type === strategyType),
@@ -78,6 +82,7 @@ export default function BacktestPage() {
   const run = useCallback(async () => {
     setRunning(true);
     setError('');
+    setReviewText('');
     try {
       const res = await backtestApi.run({
         strategyType,
@@ -103,13 +108,33 @@ export default function BacktestPage() {
       const r = await backtestApi.get(id);
       setResult(r);
       setError(r.error || '');
+      setReviewText('');
     } catch {
       /* ignore */
     }
   }, []);
 
+  const aiReview = useCallback(async () => {
+    if (!result) return;
+    setReviewing(true);
+    setReviewText('');
+    try {
+      await streamBacktestReview(result.id, {
+        onDelta: (t) => setReviewText((prev) => prev + t),
+        onError: (msg) => setReviewText((prev) => `${prev}\n\n⚠️ ${msg}`),
+      });
+    } finally {
+      setReviewing(false);
+    }
+  }, [result]);
+
   const equityData = useMemo(
-    () => (result?.equityCurve || []).map((p) => ({ date: p.date, value: p.returnPercent })),
+    () =>
+      (result?.equityCurve || []).map((p) => ({
+        date: p.date,
+        value: p.returnPercent,
+        benchmark: p.benchmark,
+      })),
     [result],
   );
   const m = result?.metrics || {};
@@ -299,15 +324,19 @@ export default function BacktestPage() {
                 <Stat label="胜率" value={`${m.winRate ?? 0}%`} />
                 <Stat label="盈亏比" value={`${m.profitFactor ?? 0}`} />
                 <Stat label="交易数" value={`${m.totalTrades ?? 0}`} />
-                <Stat label="引擎" value={result.engine} />
+                <Stat
+                  label={`超额(vs${m.benchmarkLabel ?? '基准'})`}
+                  value={`${(m.excessReturnPercent ?? 0) > 0 ? '+' : ''}${m.excessReturnPercent ?? 0}%`}
+                  tone={pctClass(m.excessReturnPercent)}
+                />
               </div>
 
               <div className="rounded-2xl border border-border bg-card p-4">
                 <p className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">
-                  权益曲线（累计收益率）
+                  权益曲线（累计收益率 vs {m.benchmarkLabel ?? '基准'}）
                 </p>
                 {equityData.length > 0 ? (
-                  <LineChart data={equityData} height={320} showLegend={false} />
+                  <LineChart data={equityData} height={320} showLegend />
                 ) : (
                   <p className="py-10 text-center text-sm text-muted-foreground">无权益数据</p>
                 )}
@@ -350,6 +379,28 @@ export default function BacktestPage() {
                   </div>
                 </div>
               )}
+
+              <div className="rounded-2xl border border-border bg-card p-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                    AI 回测点评
+                  </p>
+                  <button
+                    onClick={aiReview}
+                    disabled={reviewing}
+                    className="rounded-lg border border-border px-3 py-1.5 text-xs transition-colors hover:border-brand/50 disabled:opacity-60"
+                  >
+                    {reviewing ? '点评中…' : 'AI 点评'}
+                  </button>
+                </div>
+                {reviewText ? (
+                  <Markdown content={reviewText} />
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    点击「AI 点评」让 AI 基于本次回测真实结果做策略诊断（含改进方向，非投资建议）。
+                  </p>
+                )}
+              </div>
             </>
           )}
         </div>

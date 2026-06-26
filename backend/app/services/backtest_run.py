@@ -18,6 +18,8 @@ from app.db.session import SessionLocal
 from app.models.backtest import BacktestRun
 
 # 内置策略目录：type / 名称 / 说明 / 参数 schema（前端按 schema 渲染表单）
+_TARGET_PARAM = {"key": "target", "label": "目标仓位", "type": "float", "default": 0.95, "min": 0.1, "max": 1.0}
+
 _STRATEGY_CATALOG = [
     {
         "type": "dual_ma",
@@ -26,7 +28,37 @@ _STRATEGY_CATALOG = [
         "params": [
             {"key": "fast", "label": "快线周期", "type": "int", "default": 5, "min": 1, "max": 120},
             {"key": "slow", "label": "慢线周期", "type": "int", "default": 20, "min": 2, "max": 250},
-            {"key": "target", "label": "目标仓位", "type": "float", "default": 0.95, "min": 0.1, "max": 1.0},
+            _TARGET_PARAM,
+        ],
+    },
+    {
+        "type": "rsi",
+        "name": "RSI 反转",
+        "description": "RSI 超卖买入、超买清仓（均值回归）",
+        "params": [
+            {"key": "period", "label": "RSI 周期", "type": "int", "default": 14, "min": 2, "max": 60},
+            {"key": "low", "label": "超卖阈值", "type": "float", "default": 30, "min": 5, "max": 50},
+            {"key": "high", "label": "超买阈值", "type": "float", "default": 70, "min": 50, "max": 95},
+            _TARGET_PARAM,
+        ],
+    },
+    {
+        "type": "boll",
+        "name": "布林带",
+        "description": "价格触下轨买入、触上轨清仓（均值回归）",
+        "params": [
+            {"key": "period", "label": "周期", "type": "int", "default": 20, "min": 2, "max": 120},
+            {"key": "k", "label": "标准差倍数", "type": "float", "default": 2.0, "min": 0.5, "max": 4.0},
+            _TARGET_PARAM,
+        ],
+    },
+    {
+        "type": "momentum",
+        "name": "动量",
+        "description": "过去 N 日收益为正则持有、为负则清仓（趋势延续）",
+        "params": [
+            {"key": "lookback", "label": "回看天数", "type": "int", "default": 20, "min": 1, "max": 250},
+            _TARGET_PARAM,
         ],
     },
 ]
@@ -125,3 +157,35 @@ def get_run(user_id: str, run_id: str) -> dict | None:
         if row is None or row.user_id != user_id:
             return None
         return _to_dict(row, with_detail=True)
+
+
+def build_review_input(user_id: str, run_id: str) -> str | None:
+    """把回测结果汇总成给 LLM 的诊断输入文本（只喂真实数据）。无此回测返回 None。"""
+    run = get_run(user_id, run_id)
+    if run is None:
+        return None
+    m = run.get("metrics", {})
+    cfg = run.get("config", {})
+    lines = ["【回测结果汇总】"]
+    lines.append(
+        f"策略 {cfg.get('strategyType')}｜参数 {cfg.get('params')}｜标的 {cfg.get('codes')}｜"
+        f"区间 {cfg.get('start')}~{cfg.get('end')}｜初始资金 {cfg.get('initialCapital')}｜滑点 {cfg.get('slippage')}"
+    )
+    lines.append(
+        f"总收益 {m.get('totalReturnPercent')}%｜年化 {m.get('annualReturnPercent')}%｜"
+        f"夏普 {m.get('sharpeRatio')}｜最大回撤 {m.get('maxDrawdownPercent')}%"
+    )
+    lines.append(f"胜率 {m.get('winRate')}%｜盈亏比 {m.get('profitFactor')}｜交易回合 {m.get('totalTrades')}")
+    lines.append(
+        f"基准（{m.get('benchmarkLabel')}）{m.get('benchmarkReturnPercent')}%｜超额 {m.get('excessReturnPercent')}%"
+    )
+    trades = run.get("trades") or []
+    if trades:
+        lines.append("\n近期成交回合（最多 10）：")
+        for t in trades[:10]:
+            lines.append(
+                f"- {t.get('symbol')} {t.get('entryTime')}买@{t.get('entryPrice')} → "
+                f"{t.get('exitTime')}卖@{t.get('exitPrice')} 收益 {t.get('returnPercent')}%"
+            )
+    lines.append("\n请基于以上真实回测数据做诊断。")
+    return "\n".join(lines)

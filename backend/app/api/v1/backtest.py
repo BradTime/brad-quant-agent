@@ -7,9 +7,15 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+import json
 
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import StreamingResponse
+
+from app.ai.orchestrator import run_completion_stream
+from app.ai.prompts import BACKTEST_REVIEW_PROMPT
 from app.api.deps import get_current_user
+from app.core.cors import apply_cors_headers
 from app.core.response import error, success
 from app.models.user import User
 from app.schemas.backtest import RunBacktestRequest
@@ -55,3 +61,33 @@ def get_metrics(backtest_id: str, user: User = Depends(get_current_user)):
     if result is None:
         return error("回测结果不存在", code=404, http_status=404)
     return success(result.get("metrics") or {})
+
+
+@router.post("/{backtest_id}/review")
+def review(
+    backtest_id: str, request: Request, user: User = Depends(get_current_user)
+) -> StreamingResponse:
+    """AI 回测诊断（单轮合成，走成本闸；只喂真实回测结果）。SSE 流式 delta/[DONE]。"""
+    user_id = str(user.id)
+    text = backtest_run.build_review_input(user_id, backtest_id)
+    blocked = rate_limit.ai_cost_gate(user_id, "chat") if text else None
+
+    def event_stream():
+        if text is None:
+            yield f"data: {json.dumps({'error': '回测结果不存在'}, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+        if blocked:
+            yield f"data: {json.dumps({'error': blocked}, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+        try:
+            for piece in run_completion_stream(BACKTEST_REVIEW_PROMPT, text):
+                yield f"data: {json.dumps({'delta': piece}, ensure_ascii=False)}\n\n"
+        except Exception as exc:  # noqa: BLE001
+            yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    response = StreamingResponse(event_stream(), media_type="text/event-stream")
+    apply_cors_headers(request.headers.get("origin"), response)
+    return response

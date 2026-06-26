@@ -128,3 +128,22 @@ def test_run_backtest_smoke():
     assert out["engine"] == "native"
     assert len(out["equityCurve"]) > 0
     assert "sharpeRatio" in out["metrics"]
+
+
+def test_all_catalog_strategies_run():
+    """目录中每个策略都能在合成数据上跑通（产出完整权益序列），且目录不超出已注册集合。"""
+    from datetime import timedelta
+
+    from app.backtest.strategies import STRATEGY_REGISTRY, get_strategy
+    from app.services.backtest_run import strategy_catalog
+
+    assert {c["type"] for c in strategy_catalog()} <= set(STRATEGY_REGISTRY)
+
+    d0 = date(2024, 1, 1)
+    bars = [
+        _bar("X", d0 + timedelta(days=i), 10 + (i % 5) + i * 0.2, 10 + (i % 5) + i * 0.2)
+        for i in range(40)
+    ]
+    for stype in STRATEGY_REGISTRY:
+        res = NativeEngine().run(_cfg(strategy_type=stype), get_strategy(stype), {"X": bars})
+        assert len(res.equity_curve) == len(bars)

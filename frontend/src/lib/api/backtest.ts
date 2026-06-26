@@ -1,6 +1,9 @@
+import { API_BASE_URL } from '@/lib/constants';
 import type { ApiResponse } from '@/types';
 import type { BacktestMetrics, EquityPoint, TradeRecord } from '@/types/backtest';
+import { useAuthStore } from '@/stores/useAuthStore';
 import { apiClient } from './client';
+import { createSSEParser } from './sse';
 
 /** 内置策略目录项（后端 /backtest/strategies 返回，驱动前端参数表单）。 */
 export interface StrategyParamSpec {
@@ -30,6 +33,16 @@ export interface BacktestRunRequest {
   engine?: string;
 }
 
+export interface EquityPointWithBenchmark extends EquityPoint {
+  benchmark?: number;
+}
+
+export interface BacktestMetricsExt extends Partial<BacktestMetrics> {
+  benchmarkLabel?: string;
+  benchmarkReturnPercent?: number;
+  excessReturnPercent?: number;
+}
+
 export interface BacktestRunResult {
   id: string;
   strategyType: string;
@@ -38,8 +51,8 @@ export interface BacktestRunResult {
   error?: string | null;
   createdAt: string;
   config: Record<string, unknown>;
-  metrics: Partial<BacktestMetrics>;
-  equityCurve?: EquityPoint[];
+  metrics: BacktestMetricsExt;
+  equityCurve?: EquityPointWithBenchmark[];
   trades?: TradeRecord[];
   dataQuality?: Record<string, string>;
 }
@@ -59,3 +72,49 @@ export const backtestApi = {
     unwrap<{ items: BacktestRunResult[]; total: number }>(apiClient.get('/backtest')),
   get: (id: string) => unwrap<BacktestRunResult>(apiClient.get(`/backtest/${id}`)),
 };
+
+interface ReviewHandlers {
+  onDelta: (text: string) => void;
+  onError?: (message: string) => void;
+  signal?: AbortSignal;
+}
+
+/** AI 回测点评（SSE 流式，delta/[DONE]）。 */
+export async function streamBacktestReview(
+  id: string,
+  { onDelta, onError, signal }: ReviewHandlers,
+): Promise<void> {
+  const token = useAuthStore.getState().token;
+  const res = await fetch(`${API_BASE_URL}/backtest/${id}/review`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    signal,
+  });
+  if (!res.ok || !res.body) {
+    onError?.(`请求失败（${res.status}）`);
+    return;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  const parser = createSSEParser();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    for (const payload of parser.push(decoder.decode(value, { stream: true }))) {
+      if (payload === '[DONE]') return;
+      try {
+        const obj = JSON.parse(payload) as { delta?: string; error?: string };
+        if (obj.error) {
+          onError?.(obj.error);
+          return;
+        }
+        if (obj.delta) onDelta(obj.delta);
+      } catch {
+        /* skip */
+      }
+    }
+  }
+}

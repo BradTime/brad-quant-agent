@@ -7,10 +7,16 @@
 from __future__ import annotations
 
 from app.backtest.base import Strategy
+from app.backtest.strategies.boll import Boll
 from app.backtest.strategies.dual_ma import DualMA
+from app.backtest.strategies.momentum import Momentum
+from app.backtest.strategies.rsi import RSI
 
 STRATEGY_REGISTRY: dict[str, type[Strategy]] = {
     "dual_ma": DualMA,
+    "rsi": RSI,
+    "boll": Boll,
+    "momentum": Momentum,
 }
 
 
