@@ -1,5 +1,6 @@
 """ORM models and schemas (include point-in-time fields for backtest correctness)."""
 
+from app.models.backtest import BacktestRun
 from app.models.brief import MorningBrief
 from app.models.document import Document
 from app.models.extra import CapitalFlow, DragonTiger, FinancialSummary, NewsItem
@@ -23,6 +24,7 @@ __all__ = [
     "MorningBrief",
     "Document",
     "ResearchReport",
+    "BacktestRun",
     "SimAccount",
     "SimOrder",
     "SimPosition",

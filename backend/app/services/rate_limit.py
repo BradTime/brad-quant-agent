@@ -50,6 +50,7 @@ def _bucket_quota(bucket: str) -> int:
         "chat": settings.ai_daily_quota_chat,
         "research": settings.ai_daily_quota_research,
         "brief": settings.ai_daily_quota_brief,
+        "backtest": settings.ai_daily_quota_backtest,
     }.get(bucket, 0)
 
 

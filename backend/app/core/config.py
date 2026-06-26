@@ -81,6 +81,8 @@ class Settings(BaseSettings):
     ai_daily_quota_brief: int = 20
     # 重型生成（research/brief）两次之间的最小间隔秒（防连点；<=0 不限）
     ai_heavy_min_interval_sec: int = 5
+    # 回测每用户每日配额（计算密集；<=0 不限）
+    ai_daily_quota_backtest: int = 50
 
     # 可观测（Sentry）：仅当 sentry_dsn 非空时启用；默认关、零开销、不外联
     sentry_dsn: str = ""
