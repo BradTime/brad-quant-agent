@@ -21,14 +21,11 @@ from sqlalchemy import select
 from app.db.session import SessionLocal
 from app.models.trading import SimAccount, SimOrder, SimPosition, SimTrade
 from app.services import market
+from app.services.trading_rules import INITIAL_CASH, LOT, STAMP_TAX_RATE
+from app.services.trading_rules import commission as _commission
+from app.services.trading_rules import round_money as _r
 
 logger = logging.getLogger(__name__)
-
-INITIAL_CASH = 1_000_000.0
-LOT = 100
-COMMISSION_RATE = 0.00025
-COMMISSION_MIN = 5.0
-STAMP_TAX_RATE = 0.001  # 卖出印花税
 
 
 def _canon(code: str) -> str:
@@ -43,14 +40,6 @@ def _price(code: str) -> float | None:
         return None
     px = q.get("price")
     return float(px) if px else None
-
-
-def _commission(amount: float) -> float:
-    return round(max(amount * COMMISSION_RATE, COMMISSION_MIN), 2)
-
-
-def _r(x: float) -> float:
-    return round(float(x), 2)
 
 
 # ---------- 内部状态读写 ----------
