@@ -41,13 +41,6 @@ def test_get_engine_unknown_raises():
         get_engine("nope")
 
 
-def test_native_run_not_implemented_in_m1():
-    from app.backtest.engines.native import NativeEngine
-
-    with pytest.raises(NotImplementedError):
-        NativeEngine().run(_cfg(), None, {})
-
-
 def test_backtrader_engine_reserved():
     """预留引擎可被选择，但 run() 在未安装/未实现时报错（不静默）。"""
     from app.backtest.registry import get_engine

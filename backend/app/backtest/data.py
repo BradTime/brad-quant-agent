@@ -57,9 +57,15 @@ def _adjust_points(session, code: str) -> list[tuple[date, float]]:
 
 
 def _factor_at(points: list[tuple[date, float]], days: list[date], on: date) -> float:
-    """取 ex_date <= on 的最近后复权因子；若早于首个 ex_date 则用 1.0。"""
+    """取 ex_date <= on 的最近后复权因子。
+
+    早于首个已知除权点时**沿用首个因子**（而非 1.0）：baostock 的 backAdjustFactor 是自上市
+    累积的非归一化系数，回测区间起点之前的除权点未必回填；若回退到 1.0，会在首个除权点
+    造成数十倍的虚假跳变（伪造涨停级别的假收益）。沿用首个因子保证区间内后复权价连续，
+    真实除权日仍按相邻因子比值产生正常的小幅补偿。
+    """
     i = bisect.bisect_right(days, on) - 1
-    return points[i][1] if i >= 0 else 1.0
+    return points[i][1] if i >= 0 else points[0][1]
 
 
 def load_hfq_bars(code: str, start: str, end: str) -> tuple[list[Bar], str]:
@@ -80,9 +86,12 @@ def load_hfq_bars(code: str, start: str, end: str) -> tuple[list[Bar], str]:
 
     point_days = [d for d, _ in points]
     coverage = "full" if points else "none"
+    # 归一化基准：以区间首个 bar 适用的因子为基准，使后复权价从原始价量级起算
+    # （整体缩放不影响收益率/信号，但更直观、与原始价可比，并避免巨大数值）。
+    base = (_factor_at(points, point_days, rows[0].trade_date) if (points and rows) else 1.0) or 1.0
     bars: list[Bar] = []
     for r in rows:
-        factor = _factor_at(points, point_days, r.trade_date) if points else 1.0
+        factor = (_factor_at(points, point_days, r.trade_date) / base) if points else 1.0
         bars.append(
             Bar(
                 code=code,
