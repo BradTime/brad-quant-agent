@@ -146,16 +146,16 @@ brad-quant-agent/
 ## 7. 路线图与任务拆解（Phase 0 + Phase 1）
 
 ### Phase 0 — 地基
-- [ ] 仓库结构 `frontend/` + `backend/` 分离（✅ 本次落地骨架）
-- [ ] FastAPI 骨架：入口、配置（env）、统一响应、CORS、错误处理、健康检查（✅ 本次落地骨架）
-- [ ] `DataProvider` 抽象接口 + AkShare / BaoStock / efinance 三个实现
-- [ ] Postgres schema：标的、日 K、分钟 K、复权因子、停复牌 / 退市、资金流、财务摘要、龙虎榜、新闻公告（**含 PIT 字段**）
-- [ ] 行情拉取调度器（定时任务）+ 落库 + 缓存
-- [ ] DeepSeek 工具层：工具注册表（查行情 / K线 / 财务 / 资金流 / 选股 …）、function calling 编排、流式输出、免责与"不杜撰 / 不荐股"红线守卫
-- [ ] WebSocket 基座：连接管理 / 心跳 / 重连 / 订阅退订 / 鉴权 + 行情广播
-- [ ] 前端：全局布局 / 导航壳；数据层指向 FastAPI；WS 客户端封装
-- [ ] 认证迁移：JWT 登录注册到 FastAPI；`user_id` 隔离；`role` 字段预留
-- [ ] 部署：Docker Compose（postgres + backend + frontend）
+- [x] 仓库结构 `frontend/` + `backend/` 分离
+- [x] FastAPI 骨架：入口、配置（env）、统一响应、CORS、错误处理、健康检查
+- [x] `DataProvider` 抽象接口 + AkShare / BaoStock / efinance 三个实现
+- [x] Postgres schema：标的、日 K、分钟 K、复权因子、停复牌 / 退市、资金流、财务摘要、龙虎榜、新闻公告（**含 PIT 字段**）
+- [x] 行情拉取调度器（定时任务）+ 落库 + 缓存
+- [x] DeepSeek 工具层：工具注册表（查行情 / K线 / 财务 / 资金流 / 选股 …）、function calling 编排、流式输出、免责与"不杜撰 / 不荐股"红线守卫
+- [x] WebSocket 基座：连接管理 / 心跳 / 重连 / 订阅退订 / 鉴权 + 行情广播
+- [x] 前端：全局布局 / 导航壳；数据层指向 FastAPI；WS 客户端封装
+- [x] 认证迁移：JWT 登录注册到 FastAPI；`user_id` 隔离；`role` 字段预留
+- [x] 部署：Docker Compose（postgres + backend + frontend）
 
 ### Phase 1 — MVP（看盘 + AI 看盘问答）
 - [x] 自选股：增删 / 分组（持久化，`user_id` 隔离）
@@ -224,7 +224,8 @@ brad-quant-agent/
 - [x] **M3 API + 落库 + 前端**：`BacktestRun` 落库 + 回测配额闸；`/backtest` 路由（run 同步 / list / get / metrics / strategies 目录）；前端回测页（配置 → 跑 → 权益曲线/指标/成交/历史）；真实浏览器 E2E
 - [x] **M4 策略库 + 基准 + AI 点评**：RSI / 布林带 / 动量（注册表 + 参数 schema）；沪深300 基准对比 + 超额（降级买入持有）；`POST /backtest/{id}/review` AI 诊断（SSE，只喂真实结果、不荐股）
 - [x] 单测 `test_trading_rules` / `test_backtest` / `test_backtest_engine`（费用口径 / 后复权阶梯 / 前视偏差 / 涨跌停 / 引擎注册 / 策略全跑）
-- [ ] 后续：分钟级回测、参数寻优（网格）、把 backtrader 预留补成真实现并与自研对拍、策略持久化（strategies CRUD 页）
+- [x] **参数网格寻优**：参数笛卡尔积、行情/基准单次加载复用、按指标排名、组合数上限 64；`POST /backtest/grid` + 前端候选值/排名/一键应用
+- [ ] 后续：分钟级回测、把 backtrader 预留补成真实现并与自研对拍、策略持久化（strategies CRUD 页）
 
 ---
 
