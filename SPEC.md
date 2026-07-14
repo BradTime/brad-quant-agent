@@ -1,8 +1,9 @@
 # AI 原生 A 股个人投研平台 — SPEC v1（定稿）
 
 - 状态：定稿（Approved）
-- 日期：2026-05-29
+- 日期：2026-05-29（进度更新 2026-07-14）
 - 适用范围：本仓库后续所有开发的总纲；与 `前端开发需求文档.md`（旧版纯前端需求）冲突时，以本 SPEC 为准。
+- **实现进度**：Phase 0–4 + AI 增强（RAG 含 HNSW/混合检索、多智能体、MCP）+ 工程化基线**均已完成**。剩余小项：多智能体轨迹下钻、首屏 <2s 正式测量、记忆 / 微调；「产品化扩展期」（RBAC / 多市场 / i18n / 真实时）按规划后置。
 
 ---
 
@@ -41,9 +42,9 @@
 | **Phase 0（地基）** | 仓库结构 frontend/backend 分离；FastAPI 骨架；数据源三件套 + `DataProvider` 抽象 + Postgres 落库（含 PIT 字段）；行情拉取调度器；DeepSeek 工具层；WebSocket 基座；前端全局导航壳；认证迁移到 FastAPI |
 | **Phase 1（MVP）** | 看盘"进阶版" + AI 看盘问答（含选股工具）✅ |
 | **Phase 2** | AI 盘前早报 / 对话问答 ✅ |
-| **AI 增强（增量）** | RAG 检索增强（pgvector + 本地 bge）✅；多智能体早报（LangGraph）+ 可观测 ✅；后续 记忆 / MCP / 微调 |
-| **Phase 3** | 模拟交易（T+1 撮合 / 持仓 / 订单 + WS 回报 + AI 复盘） |
-| **Phase 4** | 量化研究 + 真回测引擎（backtrader/qlib，策略 API 向 RQAlpha/JoinQuant 对齐） |
+| **AI 增强（增量）** | RAG 检索增强（pgvector + 本地 bge，含 HNSW + 混合检索）✅；多智能体早报（LangGraph）+ 可观测 ✅；MCP（LLMQuant Data）✅；后续 记忆 / 微调 |
+| **Phase 3** | 模拟交易（T+1 撮合 / 持仓 / 订单 + WS 回报 + AI 复盘）✅ |
+| **Phase 4** | 量化研究 + 真回测引擎（自研事件驱动引擎，backtrader 预留；策略 API 向 RQAlpha/JoinQuant 对齐）✅ |
 | **产品化扩展期** | 完整 RBAC + 商业化；其他市场（期货 / 港股 / 美股 / 加密）；i18n；（接付费源后）真实时 / Level-2 |
 
 ---
@@ -183,7 +184,7 @@ brad-quant-agent/
 - [x] `services/rag`：切块 → 向量化 → upsert → 语义检索 `retrieve`；`cli rag-backfill` 把已落库新闻/历史早报灌入（回填 135 块）
 - [x] 暴露 AI 工具 `search_knowledge`（问答可自动调用）；早报数据包接入 RAG 背景检索（更早新闻 / 历史早报，提供延续性）
 - [x] 验证：语义检索相关性达标（白酒→茅台、半导体→封测/光通信）；39 项单测通过
-- [ ] 后续：HNSW 索引（语料增大后）、混合检索（BM25+向量）
+- [x] HNSW 索引（`documents.embedding` + `vector_cosine_ops`）+ 混合检索（关键词 ILIKE + 向量，RRF 融合；`rag_hybrid_enabled` 可回退纯向量）
 
 ### AI 增强 — 多智能体早报 + 可观测（LangGraph，增量）
 - [x] LangGraph 状态图：规划者 → [市场结构 / 资金面 / 消息面(RAG) / 海外宏观] 四分析师**并行** → 主编汇总 → 质量评审官 →（不达标且未修订过）主编修订 → 再评审 → 合规反思（代码化红线校验）
@@ -204,6 +205,26 @@ brad-quant-agent/
 - [x] **批量数据回填**：`cli backfill`（日K+复权因子+资金流+财务+新闻，逐项降级）；已扩 daily_bars→6776、adjust_factors 0→44、news→181、RAG documents→253
 - [x] **CI（GitHub Actions）**：后端 `ruff check`+`pytest`（含 pgvector 服务容器、RAG 关闭确定性运行）；前端 `eslint`+`next build`
 - [x] **Sentry（后端，DSN 可选）**：配置 `SENTRY_DSN` 才启用、默认零开销不外联；`ruff` 纳入质量基线
+- [x] **AI 成本闸**：`ai_cost_gate` 每用户每日配额（chat/research/brief/backtest）+ 重型生成最小间隔，SSE 超额优雅拒
+- [x] **自动化 E2E（Playwright）**：注册/鉴权门/各页渲染冒烟（确定性、无 LLM）
+
+### Phase 3 — 模拟交易（play-money）
+- [x] ORM `SimAccount/SimPosition/SimOrder/SimTrade`（现金/冻结/可用、成本、状态）；初始资金 100 万、100 股整手
+- [x] 撮合 `services/trading`：市价即时成交（缓存/最近收盘价，取不到拒单不杜撰）、限价可成交即成交否则挂单；佣金万2.5(最低5) + 卖出印花税千1
+- [x] **T+1**：当日买入计 `qty` 不计 `available_qty`，跨日 `_settle` 解冻并自动撤销上一日未成交挂单；挂买冻结现金 / 挂卖冻结可用股
+- [x] 调度器 `try_match_pending` 用最新快照价撮合挂单；成交/拒单经 **WS 私有通道** `trade.fill` 推送（不走广播）
+- [x] API `/sim`：account / positions / orders(GET/POST/DELETE) / trades；**AI 复盘** `POST /sim/review`（SSE，走成本闸，只喂真实账户数据）
+- [x] 前端 `/sim`：账户概览 + 下单 + 持仓 + 委托/成交 + AI 复盘；侧栏导航
+- [x] 单测 `test_trading`（市价买 / T+1 阻卖 / 限价挂撤 / 费税 / 整手校验）
+
+### Phase 4 — 量化研究 + 回测引擎
+- [x] 设计 `docs/phase4-backtest-design.md`：引擎可插拔 + backtrader 预留 + 4 里程碑
+- [x] **M1 地基**：`trading_rules` 共享层（费用/整手/涨跌停，与模拟交易同口径）；`backtest/data` 后复权(HFQ) + 交易日历（PIT）；`BacktestEngine` 抽象 + `ENGINE_REGISTRY`；native 骨架 + **backtrader 预留适配器**
+- [x] **M2 引擎闭环**：native 完整事件循环（T+1 解冻 → 次日开盘撮合 → handle_bar → 收盘记权益，防前视）；双均线 + `Context`；绩效（年化/夏普/索提诺/最大回撤/胜率/盈亏比 + FIFO round-trip）；**修复后复权因子跳变致虚假收益的经典 bug**
+- [x] **M3 API + 落库 + 前端**：`BacktestRun` 落库 + 回测配额闸；`/backtest` 路由（run 同步 / list / get / metrics / strategies 目录）；前端回测页（配置 → 跑 → 权益曲线/指标/成交/历史）；真实浏览器 E2E
+- [x] **M4 策略库 + 基准 + AI 点评**：RSI / 布林带 / 动量（注册表 + 参数 schema）；沪深300 基准对比 + 超额（降级买入持有）；`POST /backtest/{id}/review` AI 诊断（SSE，只喂真实结果、不荐股）
+- [x] 单测 `test_trading_rules` / `test_backtest` / `test_backtest_engine`（费用口径 / 后复权阶梯 / 前视偏差 / 涨跌停 / 引擎注册 / 策略全跑）
+- [ ] 后续：分钟级回测、参数寻优（网格）、把 backtrader 预留补成真实现并与自研对拍、策略持久化（strategies CRUD 页）
 
 ---
 
