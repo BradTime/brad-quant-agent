@@ -9,6 +9,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
+    "e2e:perf": "playwright test e2e/performance.e2e.ts",
     "e2e:ui": "playwright test --ui",
     "lint": "eslint .",
     "prettier": "prettier --write .",

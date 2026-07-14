@@ -218,7 +218,10 @@ export default function StockDetailPage() {
                 )}
               </div>
               <div className="mt-3 flex items-baseline gap-3">
-                <span className={cn('tnum text-4xl font-semibold', changeClass(q?.change))}>
+                <span
+                  data-testid="stock-quote-price"
+                  className={cn('tnum text-4xl font-semibold', changeClass(q?.change))}
+                >
                   {q?.price != null ? q.price.toFixed(2) : '—'}
                 </span>
                 <span className={cn('tnum text-lg font-medium', changeClass(q?.change))}>
@@ -312,7 +315,9 @@ export default function StockDetailPage() {
                     加载 K 线…
                   </div>
                 ) : kline.length > 0 ? (
-                  <CandlestickChart data={kline} overlay={overlay} sub={sub} height={460} />
+                  <div data-testid="stock-kline-chart">
+                    <CandlestickChart data={kline} overlay={overlay} sub={sub} height={460} />
+                  </div>
                 ) : (
                   <div className="flex h-[460px] flex-col items-center justify-center gap-3 text-muted-foreground">
                     <p className="text-sm">
