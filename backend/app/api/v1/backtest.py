@@ -15,10 +15,11 @@ from fastapi.responses import StreamingResponse
 from app.ai.orchestrator import run_completion_stream
 from app.ai.prompts import BACKTEST_REVIEW_PROMPT
 from app.api.deps import get_current_user
+from app.backtest.base import BacktestConfig
 from app.core.cors import apply_cors_headers
 from app.core.response import error, success
 from app.models.user import User
-from app.schemas.backtest import RunBacktestRequest
+from app.schemas.backtest import GridSearchRequest, RunBacktestRequest
 from app.services import backtest_run, rate_limit
 
 router = APIRouter()
@@ -39,6 +40,24 @@ def run_backtest_endpoint(req: RunBacktestRequest, user: User = Depends(get_curr
     if blocked:
         return error(blocked, code=429, http_status=429)
     return success(backtest_run.run_and_save(str(user.id), req))
+
+
+@router.post("/grid")
+def grid(req: GridSearchRequest, user: User = Depends(get_current_user)):
+    """参数网格寻优：对参数笛卡尔积逐组回测并排名（只加载一次行情）。走回测配额闸。"""
+    codes = [c for c in (req.codes or []) if c and c.strip()]
+    if not codes:
+        return error("请至少选择一个标的（如 600000.SH）", code=400, http_status=400)
+    if not req.paramGrid or not any(req.paramGrid.values()):
+        return error("请至少提供一个参数的候选值网格", code=400, http_status=400)
+    blocked = rate_limit.ai_cost_gate(str(user.id), "backtest")
+    if blocked:
+        return error(blocked, code=429, http_status=429)
+    cfg = BacktestConfig(
+        strategy_type=req.strategyType, params={}, codes=codes,
+        start=req.start, end=req.end, initial_capital=req.initialCapital, slippage=req.slippage,
+    )
+    return success(backtest_run.grid_search(cfg, req.paramGrid, req.sortBy))
 
 
 @router.get("")

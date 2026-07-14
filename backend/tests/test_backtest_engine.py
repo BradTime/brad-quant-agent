@@ -147,3 +147,25 @@ def test_all_catalog_strategies_run():
     for stype in STRATEGY_REGISTRY:
         res = NativeEngine().run(_cfg(strategy_type=stype), get_strategy(stype), {"X": bars})
         assert len(res.equity_curve) == len(bars)
+
+
+def test_grid_search_smoke():
+    """网格寻优：2×2 笛卡尔积 → 4 组结果、按 sharpe 降序、best 非空；无数据/DB 则跳过。"""
+    from app.backtest.base import BacktestConfig
+    from app.services.backtest_run import grid_search
+
+    cfg = BacktestConfig(
+        strategy_type="dual_ma", params={}, codes=["600000.SH"],
+        start="2024-01-01", end="2026-12-31", initial_capital=1_000_000.0,
+    )
+    try:
+        out = grid_search(cfg, {"fast": [3, 5], "slow": [20, 30]}, sort_by="sharpeRatio")
+    except Exception:
+        pytest.skip("DB 不可用")
+    if out.get("error"):
+        pytest.skip("无回填数据")
+    assert len(out["results"]) == 4  # 2×2 笛卡尔积
+    assert out["best"] is not None
+    sharpes = [r["metrics"]["sharpeRatio"] for r in out["results"]]
+    assert sharpes == sorted(sharpes, reverse=True)  # 按夏普降序
+    assert all("params" in r for r in out["results"])

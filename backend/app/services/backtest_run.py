@@ -6,16 +6,24 @@
 
 from __future__ import annotations
 
+import itertools
 import json
+from dataclasses import replace
 from uuid import uuid4
 
 from sqlalchemy import select
 
+from app.backtest import runner
 from app.backtest.base import BacktestConfig
 from app.backtest.runner import run_backtest
 from app.backtest.strategies import STRATEGY_REGISTRY
 from app.db.session import SessionLocal
 from app.models.backtest import BacktestRun
+
+# 网格寻优组合数上限（防参数爆炸导致长时间占用；超出则截断并标注）
+_MAX_GRID_COMBOS = 64
+# 排名：回撤越小越好（升序），其余指标越大越好（降序）
+_ASC_METRICS = {"maxDrawdownPercent"}
 
 # 内置策略目录：type / 名称 / 说明 / 参数 schema（前端按 schema 渲染表单）
 _TARGET_PARAM = {"key": "target", "label": "目标仓位", "type": "float", "default": 0.95, "min": 0.1, "max": 1.0}
@@ -189,3 +197,55 @@ def build_review_input(user_id: str, run_id: str) -> str | None:
             )
     lines.append("\n请基于以上真实回测数据做诊断。")
     return "\n".join(lines)
+
+
+def grid_search(
+    base_config: BacktestConfig,
+    param_grid: dict[str, list],
+    sort_by: str = "sharpeRatio",
+) -> dict:
+    """参数网格搜索：对参数笛卡尔积逐组回测，按 ``sort_by`` 排名。
+
+    **只加载一次行情与基准**，对每组参数复用（``runner.run_on_bars``）。组合数超上限则截断。
+    """
+    keys = [k for k in param_grid if param_grid[k]]
+    combos = list(itertools.product(*[param_grid[k] for k in keys])) if keys else []
+    truncated = len(combos) > _MAX_GRID_COMBOS
+    combos = combos[:_MAX_GRID_COMBOS]
+
+    bars_by_code, data_quality = runner.load_bars(base_config)
+    if not bars_by_code:
+        return {"results": [], "best": None, "error": "无可用行情数据（请先 backfill 对应标的与区间）"}
+    benchmark_bars = runner.load_benchmark(base_config.start, base_config.end)
+
+    results: list[dict] = []
+    for combo in combos:
+        params = {**base_config.params, **dict(zip(keys, combo, strict=True))}
+        cfg = replace(base_config, params=params)
+        out = runner.run_on_bars(cfg, bars_by_code, data_quality, benchmark_bars)
+        m = out.get("metrics", {})
+        results.append(
+            {
+                "params": dict(zip(keys, combo, strict=True)),
+                "metrics": {
+                    "totalReturnPercent": m.get("totalReturnPercent"),
+                    "annualReturnPercent": m.get("annualReturnPercent"),
+                    "sharpeRatio": m.get("sharpeRatio"),
+                    "maxDrawdownPercent": m.get("maxDrawdownPercent"),
+                    "winRate": m.get("winRate"),
+                    "totalTrades": m.get("totalTrades"),
+                    "excessReturnPercent": m.get("excessReturnPercent"),
+                },
+            }
+        )
+
+    reverse = sort_by not in _ASC_METRICS
+    inf = float("-inf") if reverse else float("inf")
+    results.sort(key=lambda r: r["metrics"].get(sort_by) if r["metrics"].get(sort_by) is not None else inf, reverse=reverse)
+    return {
+        "results": results,
+        "best": results[0] if results else None,
+        "sortBy": sort_by,
+        "truncated": truncated,
+        "dataQuality": data_quality,
+    }

@@ -14,3 +14,14 @@ class RunBacktestRequest(BaseModel):
     initialCapital: float = 1_000_000.0
     slippage: float = 0.0
     engine: str = "native"
+
+
+class GridSearchRequest(BaseModel):
+    strategyType: str = "dual_ma"
+    paramGrid: dict[str, list[float]] = Field(default_factory=dict)  # {参数: [候选值...]}
+    codes: list[str] = Field(default_factory=list)
+    start: str
+    end: str
+    initialCapital: float = 1_000_000.0
+    slippage: float = 0.0
+    sortBy: str = "sharpeRatio"

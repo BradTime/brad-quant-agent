@@ -57,6 +57,30 @@ export interface BacktestRunResult {
   dataQuality?: Record<string, string>;
 }
 
+export interface GridResultRow {
+  params: Record<string, number>;
+  metrics: BacktestMetricsExt;
+}
+
+export interface GridSearchResult {
+  results: GridResultRow[];
+  best: GridResultRow | null;
+  sortBy: string;
+  truncated: boolean;
+  error?: string;
+}
+
+export interface GridSearchRequestBody {
+  strategyType: string;
+  paramGrid: Record<string, number[]>;
+  codes: string[];
+  start: string;
+  end: string;
+  initialCapital: number;
+  slippage: number;
+  sortBy: string;
+}
+
 // apiClient 的响应拦截器返回整个信封 { code, message, data }，业务数据在 .data
 async function unwrap<T>(p: Promise<unknown>): Promise<T> {
   const env = (await p) as ApiResponse<T>;
@@ -71,6 +95,8 @@ export const backtestApi = {
   list: () =>
     unwrap<{ items: BacktestRunResult[]; total: number }>(apiClient.get('/backtest')),
   get: (id: string) => unwrap<BacktestRunResult>(apiClient.get(`/backtest/${id}`)),
+  gridSearch: (req: GridSearchRequestBody) =>
+    unwrap<GridSearchResult>(apiClient.post('/backtest/grid', req)),
 };
 
 interface ReviewHandlers {

@@ -8,6 +8,8 @@ import {
   backtestApi,
   streamBacktestReview,
   type BacktestRunResult,
+  type GridResultRow,
+  type GridSearchResult,
   type StrategyCatalogItem,
 } from '@/lib/api/backtest';
 
@@ -47,6 +49,11 @@ export default function BacktestPage() {
   const [history, setHistory] = useState<BacktestRunResult[]>([]);
   const [reviewText, setReviewText] = useState('');
   const [reviewing, setReviewing] = useState(false);
+  const [gridMode, setGridMode] = useState(false);
+  const [gridCand, setGridCand] = useState<Record<string, string>>({});
+  const [sortBy, setSortBy] = useState('sharpeRatio');
+  const [gridResult, setGridResult] = useState<GridSearchResult | null>(null);
+  const [gridRunning, setGridRunning] = useState(false);
 
   const current = useMemo(
     () => catalog.find((c) => c.type === strategyType),
@@ -128,6 +135,45 @@ export default function BacktestPage() {
     }
   }, [result]);
 
+  const runGrid = useCallback(async () => {
+    setGridRunning(true);
+    setError('');
+    setGridResult(null);
+    try {
+      const paramGrid: Record<string, number[]> = {};
+      (current?.params || []).forEach((p) => {
+        const raw = gridCand[p.key] ?? String(params[p.key] ?? p.default);
+        const vals = raw
+          .split(',')
+          .map((s) => Number(s.trim()))
+          .filter((n) => !Number.isNaN(n));
+        if (vals.length) paramGrid[p.key] = vals;
+      });
+      const res = await backtestApi.gridSearch({
+        strategyType,
+        paramGrid,
+        codes: codes.split(',').map((s) => s.trim()).filter(Boolean),
+        start,
+        end,
+        initialCapital: capital,
+        slippage,
+        sortBy,
+      });
+      setGridResult(res);
+      setError(res.error || '');
+    } catch (e) {
+      setError((e as { message?: string })?.message || '寻优失败，请稍后重试');
+    } finally {
+      setGridRunning(false);
+    }
+  }, [current, gridCand, params, strategyType, codes, start, end, capital, slippage, sortBy]);
+
+  const applyRow = useCallback((row: GridResultRow) => {
+    setParams((prev) => ({ ...prev, ...row.params }));
+    setGridMode(false);
+    setGridResult(null);
+  }, []);
+
   const equityData = useMemo(
     () =>
       (result?.equityCurve || []).map((p) => ({
@@ -181,22 +227,43 @@ export default function BacktestPage() {
               <p className="text-xs text-muted-foreground">{current.description}</p>
             )}
 
-            {current?.params.map((p) => (
-              <label key={p.key} className="block text-sm">
-                <span className="text-muted-foreground">{p.label}</span>
-                <input
-                  type="number"
-                  value={params[p.key] ?? p.default}
-                  min={p.min}
-                  max={p.max}
-                  step={p.type === 'float' ? 0.01 : 1}
-                  onChange={(e) =>
-                    setParams((prev) => ({ ...prev, [p.key]: Number(e.target.value) }))
-                  }
-                  className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm tabular-nums"
-                />
-              </label>
-            ))}
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={gridMode}
+                onChange={(e) => setGridMode(e.target.checked)}
+              />
+              <span className="text-muted-foreground">参数寻优（网格搜索）</span>
+            </label>
+
+            {current?.params.map((p) =>
+              gridMode ? (
+                <label key={p.key} className="block text-sm">
+                  <span className="text-muted-foreground">{p.label}（候选值，逗号分隔）</span>
+                  <input
+                    value={gridCand[p.key] ?? String(params[p.key] ?? p.default)}
+                    onChange={(e) => setGridCand((prev) => ({ ...prev, [p.key]: e.target.value }))}
+                    placeholder={`如 ${p.default},${p.default * 2}`}
+                    className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm tabular-nums"
+                  />
+                </label>
+              ) : (
+                <label key={p.key} className="block text-sm">
+                  <span className="text-muted-foreground">{p.label}</span>
+                  <input
+                    type="number"
+                    value={params[p.key] ?? p.default}
+                    min={p.min}
+                    max={p.max}
+                    step={p.type === 'float' ? 0.01 : 1}
+                    onChange={(e) =>
+                      setParams((prev) => ({ ...prev, [p.key]: Number(e.target.value) }))
+                    }
+                    className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm tabular-nums"
+                  />
+                </label>
+              ),
+            )}
 
             <label className="block text-sm">
               <span className="text-muted-foreground">标的（逗号分隔）</span>
@@ -251,13 +318,39 @@ export default function BacktestPage() {
               </label>
             </div>
 
+            {gridMode && (
+              <label className="block text-sm">
+                <span className="text-muted-foreground">排序指标</span>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                >
+                  <option value="sharpeRatio">夏普比率</option>
+                  <option value="totalReturnPercent">总收益</option>
+                  <option value="annualReturnPercent">年化收益</option>
+                  <option value="maxDrawdownPercent">最大回撤（小优先）</option>
+                  <option value="excessReturnPercent">超额收益</option>
+                </select>
+              </label>
+            )}
             <button
-              onClick={run}
-              disabled={running}
+              onClick={gridMode ? runGrid : run}
+              disabled={gridMode ? gridRunning : running}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-2.5 text-sm font-medium text-brand-foreground disabled:opacity-60"
             >
-              {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <FlaskConical className="h-4 w-4" />}
-              {running ? '回测中…' : '运行回测'}
+              {(gridMode ? gridRunning : running) ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <FlaskConical className="h-4 w-4" />
+              )}
+              {gridMode
+                ? gridRunning
+                  ? '寻优中…'
+                  : '网格寻优'
+                : running
+                  ? '回测中…'
+                  : '运行回测'}
             </button>
             {error && <p className="text-xs text-red-600">{error}</p>}
           </div>
@@ -291,13 +384,71 @@ export default function BacktestPage() {
 
         {/* 结果 */}
         <div className="space-y-4">
-          {!result && (
+          {!gridMode && !result && (
             <div className="grid min-h-[300px] place-items-center rounded-2xl border border-dashed border-border text-sm text-muted-foreground">
               配置左侧参数后点「运行回测」查看权益曲线与绩效
             </div>
           )}
 
-          {result && !result.error && (
+          {gridMode && (
+            <div className="rounded-2xl border border-border bg-card p-4">
+              <p className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">
+                参数寻优结果{gridResult?.truncated ? '（超上限，已截断至 64 组）' : ''}
+              </p>
+              {gridResult && gridResult.results.length > 0 ? (
+                <div className="max-h-[520px] overflow-auto">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-card text-muted-foreground">
+                      <tr className="border-b border-border text-left">
+                        <th className="py-1.5">参数</th>
+                        <th className="text-right">总收益</th>
+                        <th className="text-right">夏普</th>
+                        <th className="text-right">回撤</th>
+                        <th className="text-right">胜率</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody className="tabular-nums">
+                      {gridResult.results.map((r, i) => (
+                        <tr
+                          key={i}
+                          className={`border-b border-border/50 ${i === 0 ? 'bg-brand-soft/50' : ''}`}
+                        >
+                          <td className="py-1.5">
+                            {Object.entries(r.params)
+                              .map(([k, v]) => `${k}=${v}`)
+                              .join('  ')}
+                          </td>
+                          <td className={`text-right ${pctClass(r.metrics.totalReturnPercent)}`}>
+                            {r.metrics.totalReturnPercent}%
+                          </td>
+                          <td className="text-right">{r.metrics.sharpeRatio}</td>
+                          <td className="text-right text-red-600">
+                            {r.metrics.maxDrawdownPercent}%
+                          </td>
+                          <td className="text-right">{r.metrics.winRate}%</td>
+                          <td className="text-right">
+                            <button
+                              onClick={() => applyRow(r)}
+                              className="rounded border border-border px-2 py-0.5 text-[11px] hover:border-brand/50"
+                            >
+                              用此参数
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="py-10 text-center text-sm text-muted-foreground">
+                  为参数填候选值（逗号分隔）后点「网格寻优」，查看参数 × 绩效排名。
+                </p>
+              )}
+            </div>
+          )}
+
+          {!gridMode && result && !result.error && (
             <>
               {partialData && (
                 <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
