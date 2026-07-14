@@ -47,6 +47,9 @@ export interface AgentTraceEntry {
   total?: number | null;
   scores?: Record<string, number>;
   issues?: string[];
+  /** 节点输入/输出原文（后端持久化时各截断至 1500 字），用于观测下钻。 */
+  input?: string;
+  output?: string;
 }
 
 /** 早报落库的依据数据快照（前端只用部分字段做可视化卡片） */

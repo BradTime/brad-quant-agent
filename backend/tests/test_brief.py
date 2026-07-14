@@ -55,3 +55,19 @@ def test_build_data_pack_scopes_news_to_watchlist_codes():
         brief.build_data_pack("user-1")
 
     news.assert_called_once_with(["600000.SH", "000001.SZ"])
+
+
+def test_bounded_trace_details_keeps_every_node_within_total_budget():
+    trace = [
+        {
+            "node": f"node-{i}",
+            "input": "输入" * 1500,
+            "output": "输出" * 1500,
+        }
+        for i in range(14)
+    ]
+
+    bounded = brief._bounded_trace_details(trace)
+
+    assert all(row["input"] and row["output"] for row in bounded)
+    assert sum(len(row["input"]) + len(row["output"]) for row in bounded) <= 18_000

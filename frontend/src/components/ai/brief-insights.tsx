@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   ShieldAlert,
   PencilLine,
+  ChevronDown,
 } from 'lucide-react';
 import type { AgentTraceEntry, BriefDataPack } from '@/lib/api/brief';
 import { cn } from '@/lib/utils';
@@ -74,6 +75,43 @@ function fmtNum(v: number | null | undefined): string {
   return typeof v === 'number' ? v.toLocaleString('en-US', { maximumFractionDigits: 4 }) : String(v);
 }
 
+/** 节点输入/输出下钻；旧轨迹没有 I/O 字段时保持不渲染。 */
+export function TraceDetails({
+  entry,
+  defaultOpen = false,
+}: {
+  entry: AgentTraceEntry;
+  defaultOpen?: boolean;
+}) {
+  if (!entry.input && !entry.output) return null;
+  return (
+    <details open={defaultOpen} className="group mt-2 border-t border-border/70 pt-2">
+      <summary className="flex cursor-pointer list-none items-center gap-1 text-[10px] text-muted-foreground">
+        <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
+        查看节点输入 / 输出
+      </summary>
+      <div className="mt-2 space-y-2">
+        {entry.input && (
+          <div>
+            <div className="mb-1 text-[10px] font-medium text-muted-foreground">节点输入</div>
+            <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background p-2 text-[10px] leading-relaxed text-foreground/80">
+              {entry.input}
+            </pre>
+          </div>
+        )}
+        {entry.output && (
+          <div>
+            <div className="mb-1 text-[10px] font-medium text-muted-foreground">节点输出</div>
+            <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background p-2 text-[10px] leading-relaxed text-foreground/80">
+              {entry.output}
+            </pre>
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
 /** 质量评审官节点：展示自评分数与问题 */
 function EvalRow({ entry }: { entry: AgentTraceEntry }) {
   const passed = entry.pass !== false;
@@ -119,6 +157,7 @@ function EvalRow({ entry }: { entry: AgentTraceEntry }) {
           ))}
         </ul>
       )}
+      <TraceDetails entry={entry} />
     </div>
   );
 }
@@ -127,21 +166,24 @@ function EvalRow({ entry }: { entry: AgentTraceEntry }) {
 function NodeRow({ entry }: { entry: AgentTraceEntry }) {
   const revise = entry.node === 'editor_revise';
   return (
-    <div className="flex items-center gap-2 px-0.5 py-1 text-xs">
-      {revise ? (
-        <PencilLine className="h-3.5 w-3.5 shrink-0 text-brand" />
-      ) : (
-        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-down" />
-      )}
-      <span className={cn(revise && 'text-brand')}>{entry.label ?? entry.node}</span>
-      {entry.tools && entry.tools.length > 0 && (
-        <span className="inline-flex items-center gap-1 rounded border border-brand/30 bg-brand-soft px-1.5 py-0.5 text-[10px] text-brand">
-          <Wrench className="h-2.5 w-2.5" /> {entry.tools.join(', ')}
+    <div className="rounded-lg px-0.5 py-1">
+      <div className="flex items-center gap-2 text-xs">
+        {revise ? (
+          <PencilLine className="h-3.5 w-3.5 shrink-0 text-brand" />
+        ) : (
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-down" />
+        )}
+        <span className={cn(revise && 'text-brand')}>{entry.label ?? entry.node}</span>
+        {entry.tools && entry.tools.length > 0 && (
+          <span className="inline-flex items-center gap-1 rounded border border-brand/30 bg-brand-soft px-1.5 py-0.5 text-[10px] text-brand">
+            <Wrench className="h-2.5 w-2.5" /> {entry.tools.join(', ')}
+          </span>
+        )}
+        <span className="ml-auto tnum text-[10px] text-muted-foreground">
+          {typeof entry.ms === 'number' ? `${entry.ms}ms` : ''}
         </span>
-      )}
-      <span className="ml-auto tnum text-[10px] text-muted-foreground">
-        {typeof entry.ms === 'number' ? `${entry.ms}ms` : ''}
-      </span>
+      </div>
+      <TraceDetails entry={entry} />
     </div>
   );
 }

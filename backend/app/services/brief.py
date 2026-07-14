@@ -274,6 +274,24 @@ def render_data_pack_text(pack: dict) -> str:
 
 # ---------- 生成 / 落库 / 读取 ----------
 
+_TRACE_DETAIL_BUDGET = 18_000
+
+
+def _bounded_trace_details(trace: list[dict]) -> list[dict]:
+    """Keep every node drillable while bounding aggregate persisted I/O text."""
+    rows = [dict(item) for item in trace]
+    fields = [(row, key) for row in rows for key in ("input", "output") if row.get(key)]
+    if not fields:
+        return rows
+    per_field = max(1, _TRACE_DETAIL_BUDGET // len(fields))
+    for row, key in fields:
+        value = str(row[key])
+        if len(value) <= per_field:
+            continue
+        head = (per_field - 1) // 2
+        row[key] = value[:head] + "…" + value[-(per_field - head - 1) :]
+    return rows
+
 
 def _persist(
     brief_id: str,
@@ -289,7 +307,11 @@ def _persist(
     title = f"A股盘前早报 · {trade_date.isoformat()}"
     note = "数据来源：本平台已落库公开免费数据（指数/自选股/资金流/龙虎榜/新闻）；隔夜外盘与宏观政策暂未接入"
     # data_pack_json 同时保存依据数据快照与多智能体逐步轨迹，便于复盘 / 可观测 / PIT。
-    snapshot = {"engine": engine, "pack": pack, "agentTrace": trace or []}
+    snapshot = {
+        "engine": engine,
+        "pack": pack,
+        "agentTrace": _bounded_trace_details(trace or []),
+    }
     with SessionLocal() as session:
         row = session.get(MorningBrief, brief_id)
         if row is None:

@@ -197,7 +197,7 @@ brad-quant-agent/
 - [x] **评审轮数可配**：`brief_max_revisions`（默认 1，`brief_graph` 封顶 3，防失控）
 - [x] **分析师按域暴露更多工具**：市场结构→`get_market_overview`/`get_kline`、资金面→`get_capital_flow`/`get_dragon_tiger`、消息面→`search_knowledge`/`get_news`（均有界 1 轮、复用同一能力层）
 - [x] **轨迹时序甘特图**：每节点记录 `start/end`（epoch ms），前端按真实起止绘制条带，直观呈现四分析师**并行重叠**与各段耗时
-- [ ] 后续：轨迹下钻查看各节点输入输出
+- [x] **轨迹下钻**：节点 trace 持久化合规清洗后的输入/输出（单字段截断 + 总预算），前端可展开查看；保留甘特图、评分与工具调用
 
 ### 工程化与 Phase 3 预备（增量）
 - [x] **WS 私有定向推送通道**：连接按 `user_id` 建反向索引，`send_to_user`/`notify_user`(async)+`notify_user_threadsafe`(同步撮合/调度器用)，私有事件信封；Phase 3 成交回报/持仓变动复用（私有数据绝不走广播）
