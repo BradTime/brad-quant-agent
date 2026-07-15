@@ -2,6 +2,7 @@
  * 回测分析相关类型定义
  */
 export type BacktestFrequency = '1d' | '5m' | '15m' | '30m' | '60m';
+export type BacktestEngine = 'native' | 'backtrader';
 
 export interface BacktestConfig {
   strategyId: string;
@@ -10,6 +11,7 @@ export interface BacktestConfig {
   initialCapital: number;
   commission: number;
   slippage: number;
+  engine: BacktestEngine;
   frequency: BacktestFrequency;
   dataSource?: string;
 }

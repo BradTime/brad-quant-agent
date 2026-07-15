@@ -16,6 +16,7 @@ from sqlalchemy import distinct, select
 
 from app.db.session import SessionLocal
 from app.models.market import AdjustFactor, DailyBar, MinuteBar
+from app.services import trading_rules as rules
 
 
 @dataclass
@@ -29,6 +30,7 @@ class Bar:
     volume: int
     amount: float
     previous_close: float | None = None
+    limit_ratio: float | None = None
 
 
 def _f(x) -> float:
@@ -85,6 +87,10 @@ def load_hfq_bars(code: str, start: str, end: str) -> tuple[list[Bar], str]:
             ).scalars().all()
         )
         points = _adjust_points(session, code)
+        # Historical ST status is not present in the current PIT schema. Never
+        # apply today's name backwards; use board rules unless a future loader
+        # supplies a per-bar PIT limit_ratio.
+        limit_ratio = rules.price_limit_ratio(code)
 
     point_days = [d for d, _ in points]
     coverage = "full" if points else "none"
@@ -104,6 +110,7 @@ def load_hfq_bars(code: str, start: str, end: str) -> tuple[list[Bar], str]:
                 close=round(_f(r.close) * factor, 4),
                 volume=r.volume or 0,
                 amount=_f(r.amount),
+                limit_ratio=limit_ratio,
             )
         )
     return bars, coverage
@@ -143,6 +150,7 @@ def load_minute_bars(
             ).scalars().all()
         )
         points = _adjust_points(session, code)
+        limit_ratio = rules.price_limit_ratio(code)
         previous_row = (
             session.execute(
                 select(DailyBar)
@@ -183,6 +191,7 @@ def load_minute_bars(
                 volume=row.volume or 0,
                 amount=_f(row.amount),
                 previous_close=previous_close if index == 0 else None,
+                limit_ratio=limit_ratio,
             )
         )
     return bars, coverage

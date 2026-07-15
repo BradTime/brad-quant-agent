@@ -8,6 +8,7 @@ python-dotenv
 # HTTP / data utils
 httpx
 pandas
+backtrader==1.9.78.123
 
 # Database
 SQLAlchemy

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from app.backtest.base import BacktestFrequency
+from app.backtest.base import BacktestEngineName, BacktestFrequency
 
 
 class RunBacktestRequest(BaseModel):
@@ -15,7 +15,7 @@ class RunBacktestRequest(BaseModel):
     end: str
     initialCapital: float = 1_000_000.0
     slippage: float = 0.0
-    engine: str = "native"
+    engine: BacktestEngineName = "native"
     frequency: BacktestFrequency = "1d"
 
 
@@ -27,5 +27,6 @@ class GridSearchRequest(BaseModel):
     end: str
     initialCapital: float = 1_000_000.0
     slippage: float = 0.0
+    engine: BacktestEngineName = "native"
     sortBy: str = "sharpeRatio"
     frequency: BacktestFrequency = "1d"

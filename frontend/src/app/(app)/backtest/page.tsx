@@ -14,11 +14,15 @@ import {
 } from '@/lib/api/backtest';
 import { strategiesApi } from '@/lib/api/strategies';
 import { formatBacktestTime } from '@/lib/utils/format';
-import type { BacktestFrequency } from '@/types/backtest';
+import type { BacktestEngine, BacktestFrequency } from '@/types/backtest';
 import type { Strategy } from '@/types/strategy';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
+const ENGINES: Array<{ value: BacktestEngine; label: string }> = [
+  { value: 'native', label: 'Native（自研）' },
+  { value: 'backtrader', label: 'Backtrader' },
+];
 const FREQUENCIES: Array<{ value: BacktestFrequency; label: string }> = [
   { value: '1d', label: '日线' },
   { value: '5m', label: '5 分钟' },
@@ -29,6 +33,10 @@ const FREQUENCIES: Array<{ value: BacktestFrequency; label: string }> = [
 
 function frequencyLabel(value: unknown): string {
   return FREQUENCIES.find((item) => item.value === value)?.label ?? '日线';
+}
+
+function engineLabel(value: unknown): string {
+  return ENGINES.find((item) => item.value === value)?.label ?? 'Native（自研）';
 }
 
 function pctClass(v: number | undefined): string {
@@ -60,6 +68,7 @@ export default function BacktestPage() {
   const [end, setEnd] = useState(today());
   const [capital, setCapital] = useState(1_000_000);
   const [slippage, setSlippage] = useState(0.001);
+  const [engine, setEngine] = useState<BacktestEngine>('native');
   const [frequency, setFrequency] = useState<BacktestFrequency>('1d');
   const [running, setRunning] = useState(false);
   const [error, setError] = useState('');
@@ -128,6 +137,7 @@ export default function BacktestPage() {
         end,
         initialCapital: capital,
         slippage,
+        engine,
         frequency,
       });
       setResult(res);
@@ -138,7 +148,18 @@ export default function BacktestPage() {
     } finally {
       setRunning(false);
     }
-  }, [strategyType, params, codes, start, end, capital, slippage, frequency, refreshHistory]);
+  }, [
+    strategyType,
+    params,
+    codes,
+    start,
+    end,
+    capital,
+    slippage,
+    engine,
+    frequency,
+    refreshHistory,
+  ]);
 
   const loadReport = useCallback(async (id: string) => {
     try {
@@ -187,6 +208,7 @@ export default function BacktestPage() {
         end,
         initialCapital: capital,
         slippage,
+        engine,
         sortBy,
         frequency,
       });
@@ -207,6 +229,7 @@ export default function BacktestPage() {
     end,
     capital,
     slippage,
+    engine,
     sortBy,
     frequency,
   ]);
@@ -350,6 +373,32 @@ export default function BacktestPage() {
             </label>
 
             <label className="block text-sm">
+              <span className="text-muted-foreground">回测引擎</span>
+              <select
+                value={engine}
+                onChange={(e) => {
+                  setEngine(e.target.value as BacktestEngine);
+                  setGridResult(null);
+                  setResult(null);
+                  setReviewText('');
+                  setError('');
+                }}
+                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+              >
+                {ENGINES.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+              {engine === 'backtrader' && (
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  Cerebro 数据调度；A 股 T+1、费税与涨跌停沿用统一撮合口径
+                </span>
+              )}
+            </label>
+
+            <label className="block text-sm">
               <span className="text-muted-foreground">回测周期</span>
               <select
                 value={frequency}
@@ -466,6 +515,7 @@ export default function BacktestPage() {
                           : h.status}
                       </span>
                       <span className="ml-2 text-muted-foreground">
+                        {engineLabel(h.config?.engine ?? h.engine)} ·{' '}
                         {frequencyLabel(h.config?.frequency)} · {h.createdAt?.slice(0, 10)}
                       </span>
                     </button>
@@ -487,12 +537,18 @@ export default function BacktestPage() {
           {gridMode && (
             <div className="rounded-2xl border border-border bg-card p-4">
               <p className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">
-                参数寻优结果{gridResult?.truncated ? '（超上限，已截断至 64 组）' : ''}
+                参数寻优结果 · {engineLabel(gridResult?.engine ?? engine)}
+                {gridResult?.truncated ? '（超上限，已截断至 64 组）' : ''}
               </p>
               {gridResult?.actualRange && (
                 <p className="mb-3 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
                   实际共同数据区间：{gridResult.actualRange.start.slice(0, 16)} 至{' '}
                   {gridResult.actualRange.end.slice(0, 16)}
+                </p>
+              )}
+              {gridResult?.ruleQuality?.historicalST === 'unavailable' && (
+                <p className="mb-3 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
+                  历史 ST 状态暂无 PIT 数据；涨跌停按板块规则计算，未将当前名称倒灌到历史。
                 </p>
               )}
               {gridResult && gridResult.results.length > 0 ? (
@@ -551,7 +607,8 @@ export default function BacktestPage() {
           {!gridMode && result && !result.error && (
             <>
               <p className="rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
-                回测周期：{frequencyLabel(result.config?.frequency)}
+                回测引擎：{engineLabel(result.config?.engine ?? result.engine)} · 回测周期：
+                {frequencyLabel(result.config?.frequency)}
                 {actualRange
                   ? ` · 实际数据区间 ${actualRange.start.slice(0, 16)} 至 ${actualRange.end.slice(0, 16)}`
                   : ''}
@@ -559,6 +616,11 @@ export default function BacktestPage() {
               {partialData && (
                 <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
                   部分标的缺少复权因子（数据质量降级），建议先 backfill 补全后再回测。
+                </p>
+              )}
+              {result.ruleQuality?.historicalST === 'unavailable' && (
+                <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
+                  历史 ST 状态暂无 PIT 数据；涨跌停按板块规则计算，未将当前名称倒灌到历史。
                 </p>
               )}
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

@@ -97,6 +97,7 @@ def _to_dict(row: BacktestRun, with_detail: bool = False) -> dict:
         "config": config,
         "metrics": _loads(row.metrics_json, {}),
         "actualRange": config.get("actualRange"),
+        "ruleQuality": config.get("ruleQuality"),
     }
     if with_detail:
         out["equityCurve"] = _loads(row.equity_json, [])
@@ -131,6 +132,7 @@ def run_and_save(user_id: str, req) -> dict:
         "engine": cfg.engine,
         "frequency": cfg.frequency,
         "actualRange": out.get("actualRange"),
+        "ruleQuality": out.get("ruleQuality"),
     }
     with SessionLocal() as session:
         row = BacktestRun(
@@ -227,6 +229,7 @@ def grid_search(
         return {
             "results": [],
             "best": None,
+            "engine": base_config.engine,
             "dataQuality": data_quality,
             "error": runner.missing_data_error(base_config, missing),
         }
@@ -234,6 +237,7 @@ def grid_search(
 
     results: list[dict] = []
     actual_range = None
+    rule_quality = None
     for combo in combos:
         params = {**base_config.params, **dict(zip(keys, combo, strict=True))}
         cfg = replace(base_config, params=params)
@@ -242,10 +246,12 @@ def grid_search(
             return {
                 "results": [],
                 "best": None,
+                "engine": base_config.engine,
                 "dataQuality": data_quality,
                 "error": out["error"],
             }
         actual_range = out.get("actualRange")
+        rule_quality = out.get("ruleQuality")
         m = out.get("metrics", {})
         results.append(
             {
@@ -268,8 +274,10 @@ def grid_search(
     return {
         "results": results,
         "best": results[0] if results else None,
+        "engine": base_config.engine,
         "sortBy": sort_by,
         "truncated": truncated,
         "dataQuality": data_quality,
         "actualRange": actual_range,
+        "ruleQuality": rule_quality,
     }

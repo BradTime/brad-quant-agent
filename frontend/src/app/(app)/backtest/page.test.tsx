@@ -32,4 +32,12 @@ describe('BacktestPage', () => {
       expect(html).toContain(`value="${frequency}"`);
     }
   });
+
+  it('offers native and backtrader engines', () => {
+    const html = renderToStaticMarkup(<BacktestPage />);
+
+    expect(html).toContain('回测引擎');
+    expect(html).toContain('value="native"');
+    expect(html).toContain('value="backtrader"');
+  });
 });

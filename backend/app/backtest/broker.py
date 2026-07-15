@@ -1,4 +1,4 @@
-"""native 引擎的撮合账户。
+"""native / Backtrader 引擎共享的 A 股撮合账户。
 
 复用 ``trading_rules`` 的 A 股口径：100 股整手、佣金万2.5(最低5)、卖出印花税千1、
 T+1（当日买入次日可卖）、涨跌停（开盘越限则该方向不成交）、滑点（买抬卖压）。
@@ -94,7 +94,7 @@ class Broker:
         open_px = {c: b.open for c, b in bars_today.items()}
         self._last_price.update(open_px)
         total = self._value(open_px)
-        orders: list[tuple[str, int, float]] = []
+        orders: list[tuple[str, int, float, float | None]] = []
         pending: list[tuple[str, str, float]] = []
         for kind, code, val in self._pending:
             bar = bars_today.get(code)
@@ -109,20 +109,26 @@ class Broker:
             else:
                 delta = rules.round_lot(int(val)) if val >= 0 else -rules.round_lot(int(-val))
             if delta != 0:
-                orders.append((code, delta, px))
+                orders.append((code, delta, px, bar.limit_ratio))
         orders.sort(key=lambda o: o[1])  # 负(卖)在前
-        for code, delta, px in orders:
-            self._fill(code, delta, px, trade_date)
+        for code, delta, px, limit_ratio in orders:
+            self._fill(code, delta, px, trade_date, limit_ratio)
         self._pending = pending
         for c, b in bars_today.items():
             self._current_day_close[c] = b.close
             self._last_price[c] = b.close
 
-    def _limit_blocked(self, code: str, side: str, px: float) -> bool:
+    def _limit_blocked(
+        self,
+        code: str,
+        side: str,
+        px: float,
+        limit_ratio: float | None = None,
+    ) -> bool:
         prev = self._prev_close.get(code)
         if not prev or prev <= 0:
             return False
-        ratio = rules.price_limit_ratio(code)
+        ratio = limit_ratio if limit_ratio is not None else rules.price_limit_ratio(code)
         if side == "buy" and px >= round(prev * (1 + ratio), 2):
             return True  # 开盘涨停，买不进
         if side == "sell" and px <= round(prev * (1 - ratio), 2):
@@ -135,9 +141,10 @@ class Broker:
         delta: int,
         px: float,
         trade_date: date | datetime,
+        limit_ratio: float | None = None,
     ) -> None:
         side = "buy" if delta > 0 else "sell"
-        if self._limit_blocked(code, side, px):
+        if self._limit_blocked(code, side, px, limit_ratio):
             return
         fill_px = round(px * (1 + self.slippage), 4) if side == "buy" else round(px * (1 - self.slippage), 4)
         pos = self.positions.setdefault(code, Position())

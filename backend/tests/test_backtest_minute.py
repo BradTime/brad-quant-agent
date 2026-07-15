@@ -23,7 +23,7 @@ from app.backtest.data import Bar
 from app.backtest.engines.native import NativeEngine
 from app.backtest.metrics import compute_metrics
 from app.main import app
-from app.models.market import AdjustFactor, DailyBar, MinuteBar
+from app.models.market import AdjustFactor, DailyBar, Instrument, MinuteBar
 from app.services import backtest_run, rate_limit
 
 
@@ -75,6 +75,7 @@ def minute_db(monkeypatch):
     MinuteBar.__table__.create(bind=engine)
     AdjustFactor.__table__.create(bind=engine)
     DailyBar.__table__.create(bind=engine)
+    Instrument.__table__.create(bind=engine)
     monkeypatch.setattr(data_module, "SessionLocal", test_session)
     try:
         yield test_session
@@ -156,6 +157,72 @@ def test_load_minute_bars_seeds_first_day_previous_close(minute_db):
     bars, _ = data_module.load_minute_bars("X", "5m", "2023-01-01", "2024-01-02")
 
     assert bars[0].previous_close == 10
+
+
+def test_current_st_name_does_not_rewrite_historical_price_limits(minute_db):
+    with minute_db() as session:
+        session.add_all(
+            [
+                Instrument(
+                    code="X",
+                    name="*ST测试",
+                    exchange="SH",
+                    fetched_at=datetime(2024, 1, 1),
+                ),
+                MinuteBar(
+                    code="X",
+                    dt=datetime(2024, 1, 2, 9, 35),
+                    period="5",
+                    open=10,
+                    high=10,
+                    low=10,
+                    close=10,
+                    volume=100,
+                    amount=1_000,
+                ),
+            ]
+        )
+        session.commit()
+
+    bars, _ = data_module.load_minute_bars("X", "5m", "2024-01-02", "2024-01-02")
+
+    assert bars[0].limit_ratio == 0.10
+
+
+def test_load_minute_bars_does_not_apply_future_st_name_to_history(minute_db):
+    with minute_db() as session:
+        session.add_all(
+            [
+                Instrument(
+                    code="X",
+                    name="*ST测试",
+                    exchange="SH",
+                    fetched_at=datetime(2024, 1, 3),
+                ),
+                MinuteBar(
+                    code="X",
+                    dt=datetime(2024, 1, 2, 9, 35),
+                    period="5",
+                    open=10,
+                    high=10,
+                    low=10,
+                    close=10,
+                    volume=100,
+                    amount=1_000,
+                ),
+            ]
+        )
+        session.commit()
+
+    bars, coverage = data_module.load_minute_bars(
+        "X",
+        "5m",
+        "2024-01-02",
+        "2024-01-02",
+    )
+
+    assert bars[0].limit_ratio == 0.10
+    assert coverage == "none"
 
 
 def test_runner_dispatches_minute_frequency_without_daily_fetch(monkeypatch):
@@ -429,6 +496,24 @@ def test_minute_risk_metrics_include_first_day_return_from_initial_capital():
     )["metrics"]
 
     assert metrics["sharpeRatio"] == pytest.approx(0.5345, abs=0.001)
+
+
+def test_backtest_discloses_missing_historical_st_status():
+    bars = {
+        "X": [
+            _minute_bar(datetime(2024, 1, 2, 9, 35), 10, 10),
+            _minute_bar(datetime(2024, 1, 2, 9, 40), 10.1, 10.1),
+        ]
+    }
+
+    result = runner.run_on_bars(
+        _cfg(frequency="5m"),
+        bars,
+        {"X": "full"},
+        benchmark_bars=[],
+    )
+
+    assert result["ruleQuality"]["historicalST"] == "unavailable"
 
 
 def test_common_data_range_uses_multisymbol_overlap():

@@ -1,6 +1,7 @@
 import { API_BASE_URL } from '@/lib/constants';
 import type { ApiResponse } from '@/types';
 import type {
+  BacktestEngine,
   BacktestFrequency,
   BacktestMetrics,
   EquityPoint,
@@ -35,7 +36,7 @@ export interface BacktestRunRequest {
   end: string;
   initialCapital: number;
   slippage: number;
-  engine?: string;
+  engine: BacktestEngine;
   frequency: BacktestFrequency;
 }
 
@@ -56,12 +57,16 @@ export interface BacktestRunResult {
   engine: string;
   error?: string | null;
   createdAt: string;
-  config: Record<string, unknown> & { frequency?: BacktestFrequency };
+  config: Record<string, unknown> & {
+    engine?: BacktestEngine;
+    frequency?: BacktestFrequency;
+  };
   metrics: BacktestMetricsExt;
   equityCurve?: EquityPointWithBenchmark[];
   trades?: TradeRecord[];
   dataQuality?: Record<string, string>;
   actualRange?: { start: string; end: string } | null;
+  ruleQuality?: Record<string, string> | null;
 }
 
 export interface GridResultRow {
@@ -72,10 +77,12 @@ export interface GridResultRow {
 export interface GridSearchResult {
   results: GridResultRow[];
   best: GridResultRow | null;
+  engine: BacktestEngine;
   sortBy: string;
   truncated: boolean;
   dataQuality?: Record<string, string>;
   actualRange?: { start: string; end: string } | null;
+  ruleQuality?: Record<string, string> | null;
   error?: string;
 }
 
@@ -87,6 +94,7 @@ export interface GridSearchRequestBody {
   end: string;
   initialCapital: number;
   slippage: number;
+  engine: BacktestEngine;
   sortBy: string;
   frequency: BacktestFrequency;
 }

@@ -17,6 +17,10 @@ from app.backtest.registry import get_engine
 from app.backtest.strategies import get_strategy
 
 _BENCHMARK_INDEX = "000300.SH"
+_RULE_QUALITY = {
+    "historicalST": "unavailable",
+    "priceLimit": "board-rules; ST 5% only when a per-bar PIT limit ratio is supplied",
+}
 
 
 def load_bars(config: BacktestConfig) -> tuple[dict[str, list[Bar]], dict[str, str]]:
@@ -65,7 +69,27 @@ def run_on_bars(
     range_start, range_end = actual_range
     strategy = get_strategy(config.strategy_type)
     engine = get_engine(config.engine)
-    result = engine.run(config, strategy, aligned_bars)
+    try:
+        result = engine.run(config, strategy, aligned_bars)
+    except RuntimeError as exc:
+        message = str(exc)
+        dependency_missing = engine.name == "backtrader" and (
+            "未安装" in message or "pip install backtrader" in message
+        )
+        if not dependency_missing:
+            raise
+        return {
+            "metrics": {},
+            "equityCurve": [],
+            "trades": [],
+            "dataQuality": data_quality,
+            "engine": engine.name,
+            "actualRange": {
+                "start": range_start.isoformat(),
+                "end": range_end.isoformat(),
+            },
+            "error": message,
+        }
     return_curve = (
         _daily_close_equity(result.equity_curve)
         if config.frequency != "1d"
@@ -79,6 +103,7 @@ def run_on_bars(
     )
     _attach_benchmark(computed, aligned_bars, config.start, config.end, benchmark_bars)
     computed["dataQuality"] = data_quality
+    computed["ruleQuality"] = dict(_RULE_QUALITY)
     computed["engine"] = engine.name
     computed["actualRange"] = {
         "start": range_start.isoformat(),
