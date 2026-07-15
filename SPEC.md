@@ -3,7 +3,7 @@
 - 状态：定稿（Approved）
 - 日期：2026-05-29（进度更新 2026-07-15）
 - 适用范围：本仓库后续所有开发的总纲；与 `前端开发需求文档.md`（旧版纯前端需求）冲突时，以本 SPEC 为准。
-- **实现进度**：Phase 0–4 + AI 增强（RAG 含 HNSW/混合检索、多智能体、MCP）+ 工程化基线**均已完成**。剩余小项：记忆 / 微调；「产品化扩展期」（RBAC / 多市场 / i18n / 真实时）按规划后置。
+- **实现进度**：Phase 0–4 + AI 增强（RAG 含 HNSW/混合检索、多智能体、MCP、可删除会话/偏好记忆 MVP）+ 工程化基线**均已完成**。剩余小项：微调（明确后置）；「产品化扩展期」（RBAC / 多市场 / i18n / 真实时）按规划后置。
 
 ---
 
@@ -42,7 +42,7 @@
 | **Phase 0（地基）** | 仓库结构 frontend/backend 分离；FastAPI 骨架；数据源三件套 + `DataProvider` 抽象 + Postgres 落库（含 PIT 字段）；行情拉取调度器；DeepSeek 工具层；WebSocket 基座；前端全局导航壳；认证迁移到 FastAPI |
 | **Phase 1（MVP）** | 看盘"进阶版" + AI 看盘问答（含选股工具）✅ |
 | **Phase 2** | AI 盘前早报 / 对话问答 ✅ |
-| **AI 增强（增量）** | RAG 检索增强（pgvector + 本地 bge，含 HNSW + 混合检索）✅；多智能体早报（LangGraph）+ 可观测 ✅；MCP（LLMQuant Data）✅；后续 记忆 / 微调 |
+| **AI 增强（增量）** | RAG 检索增强（pgvector + 本地 bge，含 HNSW + 混合检索）✅；多智能体早报（LangGraph）+ 可观测 ✅；MCP（LLMQuant Data）✅；可删除、按用户隔离的会话/偏好记忆 MVP ✅；微调后置 |
 | **Phase 3** | 模拟交易（T+1 撮合 / 持仓 / 订单 + WS 回报 + AI 复盘）✅ |
 | **Phase 4** | 量化研究 + 真回测引擎（自研事件驱动 + Backtrader Cerebro 双引擎与对拍；策略 API 向 RQAlpha/JoinQuant 对齐）✅ |
 | **产品化扩展期** | 完整 RBAC + 商业化；其他市场（期货 / 港股 / 美股 / 加密）；i18n；（接付费源后）真实时 / Level-2 |
@@ -58,7 +58,7 @@
 - **数据正确性（PIT, point-in-time）**：落库时记录数据获取 / 发布时间、复权因子、停复牌 / 退市标记，为 Phase 4 回测严谨性预留，避免未来函数与幸存者偏差。
 - **实时**：**WebSocket**（心跳 / 重连 / 订阅退订 / 鉴权 + 后端行情拉取调度与广播）；定位为"可复用基座"（看盘先用，Phase 3 交易回报、AI 流式、风险告警共用）。
   - ⚠️ 明确预期：**上 WS ≠ 真实时**。免费快照的刷新粒度是上限；每个数据面板**标题需标注数据来源 / 新鲜度**，拿不到或延迟的明确标注（如「快照·可能延迟」「来源有限」「免费源数据有限 / 缺失」）。
-- **AI**：DeepSeek，经 function calling 驱动工具层；**强制附免责声明、禁止输出确定性买卖指令、数据缺失必须显式声明不得杜撰**。
+- **AI**：DeepSeek，经 function calling 驱动工具层；**强制附免责声明、禁止输出确定性买卖指令、数据缺失必须显式声明不得杜撰**。用户偏好只是不可信个性化元数据；行情与数值事实继续只能来自工具返回，偏好和界面上下文均不得替代工具取数或系统规则。
 - **部署**：本地 **Docker Compose** 起步（Postgres + backend + frontend）；代码"云就绪"（配置走环境变量、不硬编码 localhost、数据可备份），云部署留后期。
 - **多用户预留**：所有数据按 `user_id` 隔离；认证体系可平滑长成 RBAC（**MVP 仍单用户**，不实现完整权限矩阵）。
 - **工程**：统一响应格式 `{ code, message, data, timestamp }`；关键模块测试；Sentry 等可后置。
@@ -198,6 +198,13 @@ brad-quant-agent/
 - [x] **分析师按域暴露更多工具**：市场结构→`get_market_overview`/`get_kline`、资金面→`get_capital_flow`/`get_dragon_tiger`、消息面→`search_knowledge`/`get_news`（均有界 1 轮、复用同一能力层）
 - [x] **轨迹时序甘特图**：每节点记录 `start/end`（epoch ms），前端按真实起止绘制条带，直观呈现四分析师**并行重叠**与各段耗时
 - [x] **轨迹下钻**：节点 trace 持久化合规清洗后的输入/输出（单字段截断 + 总预算），前端可展开查看；保留甘特图、评分与工具调用
+
+### AI 增强 — 可删除会话 / 偏好记忆 MVP（增量）
+- [x] `chat_sessions` / `chat_messages` / `user_memories` 按 `user_id` 严格隔离；会话及其消息可级联删除，越权读取/删除统一返回 404
+- [x] 普通问答由服务端保存用户显式对话历史并恢复有限最近消息；SSE 先返回 `sessionId`，只在完整生成结束后保存 assistant 正文，不存 system prompt / tool result
+- [x] 用户主动保存的偏好支持同 key upsert、数量/长度上限、列表与删除；不从模型输出自动抽取事实
+- [x] 偏好与界面上下文均作为普通 user 层的“不可信元数据”包裹，仅可个性化表达；行情/数值事实继续只能来自工具，`SYSTEM_PROMPT` 工具取数红线不变
+- [ ] 微调 / 训练数据闭环继续后置；本 MVP 不包含微调、RBAC、计费或多市场扩展
 
 ### 工程化与 Phase 3 预备（增量）
 - [x] **WS 私有定向推送通道**：连接按 `user_id` 建反向索引，`send_to_user`/`notify_user`(async)+`notify_user_threadsafe`(同步撮合/调度器用)，私有事件信封；Phase 3 成交回报/持仓变动复用（私有数据绝不走广播）

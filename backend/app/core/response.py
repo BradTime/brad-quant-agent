@@ -23,7 +23,7 @@ def success(data: Any = None, message: str = "success", code: int = 200) -> dict
 
 def error(
     message: str,
-    code: int = 500,
+    code: int | str = 500,
     http_status: int = 500,
     request: Request | None = None,
 ) -> JSONResponse:
