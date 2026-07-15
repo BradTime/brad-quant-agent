@@ -1,32 +1,34 @@
-"""回测数据加载：后复权(HFQ)日线 + 交易日历。
+"""回测数据加载：后复权(HFQ)日线/分钟线 + 交易日历。
 
 回测必须用**后复权**价才能正确跨除权日（后复权不改变历史相对收益，适合回测）。
-读 ``daily_bars``（不复权 OHLC）+ ``adjust_factors``（后复权因子，按 ex_date 阶梯），
-输出复权后的 ``Bar`` 序列。缺因子的标的标注 ``coverage``（延续"不杜撰、显式标缺口"原则）。
+读 ``daily_bars`` / ``minute_bars``（不复权 OHLC）+ ``adjust_factors``
+（后复权因子，按 ex_date 阶梯），输出复权后的 ``Bar`` 序列。缺因子的标的标注
+``coverage``（延续"不杜撰、显式标缺口"原则）。
 """
 
 from __future__ import annotations
 
 import bisect
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, time
 
 from sqlalchemy import distinct, select
 
 from app.db.session import SessionLocal
-from app.models.market import AdjustFactor, DailyBar
+from app.models.market import AdjustFactor, DailyBar, MinuteBar
 
 
 @dataclass
 class Bar:
     code: str
-    date: date
+    date: date | datetime
     open: float
     high: float
     low: float
     close: float
     volume: int
     amount: float
+    previous_close: float | None = None
 
 
 def _f(x) -> float:
@@ -102,6 +104,85 @@ def load_hfq_bars(code: str, start: str, end: str) -> tuple[list[Bar], str]:
                 close=round(_f(r.close) * factor, 4),
                 volume=r.volume or 0,
                 amount=_f(r.amount),
+            )
+        )
+    return bars, coverage
+
+
+_MINUTE_PERIODS = {"5m": "5", "15m": "15", "30m": "30", "60m": "60"}
+
+
+def load_minute_bars(
+    code: str,
+    frequency: str,
+    start: str,
+    end: str,
+) -> tuple[list[Bar], str]:
+    """加载指定周期的后复权分钟线，不触发任何实时数据抓取。
+
+    分钟 OHLC 使用该分钟所属自然交易日适用的后复权因子；成交量与成交额保持原值。
+    返回 ``coverage`` 为 ``full``（有复权因子）、``none``（无因子）或
+    ``missing``（指定标的/周期/区间没有分钟数据）。
+    """
+    period = _MINUTE_PERIODS.get(frequency)
+    if period is None:
+        raise ValueError(f"不支持的分钟回测周期: {frequency}")
+    start_dt = datetime.combine(date.fromisoformat(start[:10]), time.min)
+    end_dt = datetime.combine(date.fromisoformat(end[:10]), time.max)
+    with SessionLocal() as session:
+        rows = list(
+            session.execute(
+                select(MinuteBar)
+                .where(
+                    MinuteBar.code == code,
+                    MinuteBar.period == period,
+                    MinuteBar.dt >= start_dt,
+                    MinuteBar.dt <= end_dt,
+                )
+                .order_by(MinuteBar.dt)
+            ).scalars().all()
+        )
+        points = _adjust_points(session, code)
+        previous_row = (
+            session.execute(
+                select(DailyBar)
+                .where(
+                    DailyBar.code == code,
+                    DailyBar.trade_date < rows[0].dt.date(),
+                )
+                .order_by(DailyBar.trade_date.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+            if rows
+            else None
+        )
+
+    if not rows:
+        return [], "missing"
+    point_days = [d for d, _ in points]
+    coverage = "full" if points else "none"
+    first_day = rows[0].dt.date()
+    base = (_factor_at(points, point_days, first_day) if points else 1.0) or 1.0
+    previous_close = None
+    if previous_row is not None and previous_row.close is not None:
+        previous_factor = (
+            _factor_at(points, point_days, previous_row.trade_date) / base if points else 1.0
+        )
+        previous_close = round(_f(previous_row.close) * previous_factor, 4)
+    bars: list[Bar] = []
+    for index, row in enumerate(rows):
+        factor = (_factor_at(points, point_days, row.dt.date()) / base) if points else 1.0
+        bars.append(
+            Bar(
+                code=code,
+                date=row.dt,
+                open=round(_f(row.open) * factor, 4),
+                high=round(_f(row.high) * factor, 4),
+                low=round(_f(row.low) * factor, 4),
+                close=round(_f(row.close) * factor, 4),
+                volume=row.volume or 0,
+                amount=_f(row.amount),
+                previous_close=previous_close if index == 0 else None,
             )
         )
     return bars, coverage

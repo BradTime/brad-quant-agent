@@ -13,10 +13,23 @@ import {
   type StrategyCatalogItem,
 } from '@/lib/api/backtest';
 import { strategiesApi } from '@/lib/api/strategies';
+import { formatBacktestTime } from '@/lib/utils/format';
+import type { BacktestFrequency } from '@/types/backtest';
 import type { Strategy } from '@/types/strategy';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
+const FREQUENCIES: Array<{ value: BacktestFrequency; label: string }> = [
+  { value: '1d', label: '日线' },
+  { value: '5m', label: '5 分钟' },
+  { value: '15m', label: '15 分钟' },
+  { value: '30m', label: '30 分钟' },
+  { value: '60m', label: '60 分钟' },
+];
+
+function frequencyLabel(value: unknown): string {
+  return FREQUENCIES.find((item) => item.value === value)?.label ?? '日线';
+}
 
 function pctClass(v: number | undefined): string {
   if (v === undefined || v === 0) return 'text-foreground';
@@ -47,6 +60,7 @@ export default function BacktestPage() {
   const [end, setEnd] = useState(today());
   const [capital, setCapital] = useState(1_000_000);
   const [slippage, setSlippage] = useState(0.001);
+  const [frequency, setFrequency] = useState<BacktestFrequency>('1d');
   const [running, setRunning] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<BacktestRunResult | null>(null);
@@ -114,6 +128,7 @@ export default function BacktestPage() {
         end,
         initialCapital: capital,
         slippage,
+        frequency,
       });
       setResult(res);
       setError(res.error || '');
@@ -123,7 +138,7 @@ export default function BacktestPage() {
     } finally {
       setRunning(false);
     }
-  }, [strategyType, params, codes, start, end, capital, slippage, refreshHistory]);
+  }, [strategyType, params, codes, start, end, capital, slippage, frequency, refreshHistory]);
 
   const loadReport = useCallback(async (id: string) => {
     try {
@@ -173,6 +188,7 @@ export default function BacktestPage() {
         initialCapital: capital,
         slippage,
         sortBy,
+        frequency,
       });
       setGridResult(res);
       setError(res.error || '');
@@ -181,7 +197,19 @@ export default function BacktestPage() {
     } finally {
       setGridRunning(false);
     }
-  }, [current, gridCand, params, strategyType, codes, start, end, capital, slippage, sortBy]);
+  }, [
+    current,
+    gridCand,
+    params,
+    strategyType,
+    codes,
+    start,
+    end,
+    capital,
+    slippage,
+    sortBy,
+    frequency,
+  ]);
 
   const applyRow = useCallback((row: GridResultRow) => {
     setParams((prev) => ({ ...prev, ...row.params }));
@@ -200,6 +228,7 @@ export default function BacktestPage() {
   );
   const m = result?.metrics || {};
   const partialData = Object.values(result?.dataQuality || {}).includes('none');
+  const actualRange = result?.actualRange;
 
   return (
     <div className="container mx-auto max-w-6xl p-6">
@@ -210,7 +239,7 @@ export default function BacktestPage() {
         <div>
           <h1 className="font-display text-xl tracking-tight">策略回测</h1>
           <p className="text-xs text-muted-foreground">
-            后复权 · T+1 · 涨跌停 · 佣金/印花税/滑点 · 次日开盘成交（防前视）
+            后复权 · T+1 · 涨跌停 · 佣金/印花税/滑点 · 下一根开盘成交（防前视）
           </p>
         </div>
       </header>
@@ -320,6 +349,26 @@ export default function BacktestPage() {
               />
             </label>
 
+            <label className="block text-sm">
+              <span className="text-muted-foreground">回测周期</span>
+              <select
+                value={frequency}
+                onChange={(e) => setFrequency(e.target.value as BacktestFrequency)}
+                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+              >
+                {FREQUENCIES.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+              {frequency !== '1d' && (
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  分钟数据仅使用已回填记录，缺失时不会触发实时抓取
+                </span>
+              )}
+            </label>
+
             <div className="grid grid-cols-2 gap-2">
               <label className="block text-sm">
                 <span className="text-muted-foreground">开始</span>
@@ -417,7 +466,7 @@ export default function BacktestPage() {
                           : h.status}
                       </span>
                       <span className="ml-2 text-muted-foreground">
-                        {h.createdAt?.slice(0, 10)}
+                        {frequencyLabel(h.config?.frequency)} · {h.createdAt?.slice(0, 10)}
                       </span>
                     </button>
                   </li>
@@ -440,6 +489,12 @@ export default function BacktestPage() {
               <p className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">
                 参数寻优结果{gridResult?.truncated ? '（超上限，已截断至 64 组）' : ''}
               </p>
+              {gridResult?.actualRange && (
+                <p className="mb-3 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
+                  实际共同数据区间：{gridResult.actualRange.start.slice(0, 16)} 至{' '}
+                  {gridResult.actualRange.end.slice(0, 16)}
+                </p>
+              )}
               {gridResult && gridResult.results.length > 0 ? (
                 <div className="max-h-[520px] overflow-auto">
                   <table className="w-full text-xs">
@@ -495,6 +550,12 @@ export default function BacktestPage() {
 
           {!gridMode && result && !result.error && (
             <>
+              <p className="rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
+                回测周期：{frequencyLabel(result.config?.frequency)}
+                {actualRange
+                  ? ` · 实际数据区间 ${actualRange.start.slice(0, 16)} 至 ${actualRange.end.slice(0, 16)}`
+                  : ''}
+              </p>
               {partialData && (
                 <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
                   部分标的缺少复权因子（数据质量降级），建议先 backfill 补全后再回测。
@@ -559,10 +620,12 @@ export default function BacktestPage() {
                           <tr key={t.id} className="border-b border-border/50">
                             <td className="py-1.5">{t.symbol}</td>
                             <td>
-                              {t.entryTime?.slice(0, 10)} @ {t.entryPrice}
+                              {formatBacktestTime(t.entryTime, result.config?.frequency)} @{' '}
+                              {t.entryPrice}
                             </td>
                             <td>
-                              {t.exitTime?.slice(0, 10)} @ {t.exitPrice}
+                              {formatBacktestTime(t.exitTime, result.config?.frequency)} @{' '}
+                              {t.exitPrice}
                             </td>
                             <td className={`text-right ${pctClass(t.return)}`}>{t.return}</td>
                             <td className={`text-right ${pctClass(t.returnPercent)}`}>

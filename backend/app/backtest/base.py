@@ -8,10 +8,13 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
+from typing import Literal, TypeAlias
 
 from app.backtest.data import Bar
 from app.services import trading_rules
+
+BacktestFrequency: TypeAlias = Literal["1d", "5m", "15m", "30m", "60m"]
 
 
 @dataclass
@@ -27,6 +30,7 @@ class BacktestConfig:
     slippage: float = 0.0
     benchmark: str = "000300.SH"
     engine: str = "native"
+    frequency: BacktestFrequency = "1d"
 
 
 @dataclass
@@ -34,7 +38,7 @@ class Fill:
     """单笔成交。"""
 
     code: str
-    date: date
+    date: date | datetime
     side: str  # buy / sell
     price: float
     qty: int
@@ -53,7 +57,7 @@ class EngineResult:
 
 
 class Strategy(ABC):
-    """策略基类（聚宽 / RQAlpha 风格）：initialize 设置，handle_bar 每交易日出信号。"""
+    """策略基类（聚宽 / RQAlpha 风格）：initialize 设置，handle_bar 每根 bar 出信号。"""
 
     @abstractmethod
     def initialize(self, ctx) -> None: ...

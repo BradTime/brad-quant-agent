@@ -7,8 +7,11 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from datetime import date, timedelta
+
 from app.backtest.base import BacktestConfig
-from app.backtest.data import Bar, load_hfq_bars
+from app.backtest.data import Bar, load_hfq_bars, load_minute_bars
 from app.backtest.metrics import compute_metrics
 from app.backtest.registry import get_engine
 from app.backtest.strategies import get_strategy
@@ -17,11 +20,19 @@ _BENCHMARK_INDEX = "000300.SH"
 
 
 def load_bars(config: BacktestConfig) -> tuple[dict[str, list[Bar]], dict[str, str]]:
-    """加载各标的后复权日线（含数据质量标注）。"""
+    """按配置加载各标的后复权日线或分钟线（含数据质量标注）。"""
     bars_by_code: dict[str, list[Bar]] = {}
     data_quality: dict[str, str] = {}
     for code in config.codes:
-        bars, coverage = load_hfq_bars(code, config.start, config.end)
+        if config.frequency == "1d":
+            bars, coverage = load_hfq_bars(code, config.start, config.end)
+        else:
+            bars, coverage = load_minute_bars(
+                code,
+                config.frequency,
+                config.start,
+                config.end,
+            )
         data_quality[code] = coverage
         if bars:
             bars_by_code[code] = bars
@@ -30,7 +41,8 @@ def load_bars(config: BacktestConfig) -> tuple[dict[str, list[Bar]], dict[str, s
 
 def load_benchmark(start: str, end: str) -> list[Bar]:
     """预加载基准指数日线（供 run_on_bars 复用；网格寻优避免重复加载）。"""
-    bars, _ = load_hfq_bars(_BENCHMARK_INDEX, start, end)
+    warm_start = (date.fromisoformat(start[:10]) - timedelta(days=14)).isoformat()
+    bars, _ = load_hfq_bars(_BENCHMARK_INDEX, warm_start, end)
     return bars
 
 
@@ -41,27 +53,108 @@ def run_on_bars(
     benchmark_bars: list[Bar] | None = None,
 ) -> dict:
     """在**已加载**的行情上跑单次回测（网格寻优对每组参数复用同一份数据）。"""
-    strategy = get_strategy(config.strategy_type)
-    engine = get_engine(config.engine)
-    result = engine.run(config, strategy, bars_by_code)
-    computed = compute_metrics(result.equity_curve, result.fills, config.initial_capital)
-    _attach_benchmark(computed, bars_by_code, config.start, config.end, benchmark_bars)
-    computed["dataQuality"] = data_quality
-    computed["engine"] = engine.name
-    return computed
-
-
-def run_backtest(config: BacktestConfig) -> dict:
-    bars_by_code, data_quality = load_bars(config)
-    if not bars_by_code:
+    aligned_bars, actual_range = _align_bars_to_common_range(bars_by_code)
+    if aligned_bars is None or actual_range is None:
         return {
             "metrics": {},
             "equityCurve": [],
             "trades": [],
             "dataQuality": data_quality,
-            "error": "无可用行情数据（请先 backfill 对应标的与区间）",
+            "error": "所选标的没有共同可回测区间",
+        }
+    range_start, range_end = actual_range
+    strategy = get_strategy(config.strategy_type)
+    engine = get_engine(config.engine)
+    result = engine.run(config, strategy, aligned_bars)
+    return_curve = (
+        _daily_close_equity(result.equity_curve)
+        if config.frequency != "1d"
+        else result.equity_curve
+    )
+    computed = compute_metrics(
+        result.equity_curve,
+        result.fills,
+        config.initial_capital,
+        return_curve=return_curve,
+    )
+    _attach_benchmark(computed, aligned_bars, config.start, config.end, benchmark_bars)
+    computed["dataQuality"] = data_quality
+    computed["engine"] = engine.name
+    computed["actualRange"] = {
+        "start": range_start.isoformat(),
+        "end": range_end.isoformat(),
+    }
+    return computed
+
+
+def _daily_close_equity(equity_curve: list[dict]) -> list[dict]:
+    """Collapse intraday marks to the final equity point of each trading day."""
+    by_day: dict[str, dict] = {}
+    for point in equity_curve:
+        by_day[str(point["date"])[:10]] = point
+    return list(by_day.values())
+
+
+def _common_data_range(bars_by_code: dict[str, list[Bar]]):
+    """Return the overlapping first/last bar range shared by every symbol."""
+    populated = [bars for bars in bars_by_code.values() if bars]
+    if not populated or len(populated) != len(bars_by_code):
+        return None
+    start = max(bars[0].date for bars in populated)
+    end = min(bars[-1].date for bars in populated)
+    return (start, end) if start <= end else None
+
+
+def _align_bars_to_common_range(
+    bars_by_code: dict[str, list[Bar]],
+) -> tuple[dict[str, list[Bar]] | None, tuple | None]:
+    """Align all symbols to a non-empty common range and preserve limit seeds."""
+    actual_range = _common_data_range(bars_by_code)
+    if actual_range is None:
+        return None, None
+    range_start, range_end = actual_range
+    aligned: dict[str, list[Bar]] = {}
+    target_day = range_start.date() if hasattr(range_start, "date") else range_start
+    for code, bars in bars_by_code.items():
+        selected = [bar for bar in bars if range_start <= bar.date <= range_end]
+        if not selected:
+            return None, actual_range
+        seed = bars[0].previous_close
+        prior_sessions = [
+            bar
+            for bar in bars
+            if (bar.date.date() if hasattr(bar.date, "date") else bar.date) < target_day
+        ]
+        if prior_sessions:
+            seed = prior_sessions[-1].close
+        selected[0] = replace(selected[0], previous_close=seed)
+        aligned[code] = selected
+    return aligned, actual_range
+
+
+def run_backtest(config: BacktestConfig) -> dict:
+    bars_by_code, data_quality = load_bars(config)
+    missing = [code for code in config.codes if code not in bars_by_code]
+    if missing:
+        return {
+            "metrics": {},
+            "equityCurve": [],
+            "trades": [],
+            "dataQuality": data_quality,
+            "error": missing_data_error(config, missing),
         }
     return run_on_bars(config, bars_by_code, data_quality)
+
+
+def missing_data_error(config: BacktestConfig, codes: list[str] | None = None) -> str:
+    suffix = f"；缺失标的: {', '.join(codes)}" if codes else ""
+    if config.frequency == "1d":
+        return f"无可用行情数据（请先 backfill 对应标的与区间）{suffix}"
+    return (
+        f"无可用 {config.frequency} 分钟行情数据"
+        "（请先 backfill minute 对应标的、周期与区间；不会自动实时抓取）"
+        f"{suffix}"
+    )
 
 
 def _attach_benchmark(
@@ -76,19 +169,43 @@ def _attach_benchmark(
     ``benchmark_bars`` 传入则复用（网格寻优预加载）；否则内部加载。
     基准/超额写入 ``metrics``，权益点追加 ``benchmark`` 字段供前端叠加。
     """
+    equity = computed.get("equityCurve", [])
+    if not equity:
+        return
+    actual_start = str(equity[0]["date"])[:10]
+    actual_end = str(equity[-1]["date"])[:10]
     curve: dict[str, float] = {}
     label: str | None = None
     idx_bars = benchmark_bars if benchmark_bars is not None else load_benchmark(start, end)
-    if idx_bars and idx_bars[0].close > 0:
-        base = idx_bars[0].close
-        curve = {b.date.isoformat(): (b.close / base - 1) * 100 for b in idx_bars}
+    prior_index = [
+        bar for bar in idx_bars if bar.date.isoformat()[:10] < actual_start
+    ]
+    aligned_index = [
+        bar
+        for bar in idx_bars
+        if actual_start <= bar.date.isoformat()[:10] <= actual_end
+    ]
+    if aligned_index and aligned_index[0].close > 0:
+        base = prior_index[-1].close if prior_index and prior_index[-1].close > 0 else aligned_index[0].close
+        curve = {
+            b.date.isoformat()[:10]: (b.close / base - 1) * 100
+            for b in aligned_index
+        }
         label = "沪深300"
     else:  # 降级：标的等权买入持有（衡量策略是否跑赢"躺平持有"）
         norm: dict[str, dict[str, float]] = {}
         for code, bars in bars_by_code.items():
-            if bars and bars[0].close > 0:
-                base = bars[0].close
-                norm[code] = {b.date.isoformat(): (b.close / base - 1) * 100 for b in bars}
+            aligned = [
+                bar
+                for bar in bars
+                if actual_start <= bar.date.isoformat()[:10] <= actual_end
+            ]
+            if aligned and aligned[0].close > 0:
+                base = aligned[0].close
+                norm[code] = {
+                    b.date.isoformat()[:10]: (b.close / base - 1) * 100
+                    for b in aligned
+                }
         for d in {dd for mm in norm.values() for dd in mm}:
             vals = [norm[c][d] for c in norm if d in norm[c]]
             if vals:
@@ -97,12 +214,16 @@ def _attach_benchmark(
             label = "买入持有"
     if not curve:
         return
+    last_index_by_day: dict[str, int] = {}
+    for index, point in enumerate(equity):
+        last_index_by_day[str(point["date"])[:10]] = index
     last = 0.0
-    for pt in computed.get("equityCurve", []):
-        b = curve.get(pt["date"])
-        if b is not None:
-            pt["benchmark"] = round(b, 2)
-            last = b
+    for index, point in enumerate(equity):
+        day = str(point["date"])[:10]
+        # Daily benchmark closes are only known after that session closes.
+        if index == last_index_by_day[day] and day in curve:
+            last = curve[day]
+        point["benchmark"] = round(last, 2)
     m = computed.get("metrics", {})
     m["benchmarkLabel"] = label
     m["benchmarkReturnPercent"] = round(last, 2)

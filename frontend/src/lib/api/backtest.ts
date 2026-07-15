@@ -1,6 +1,11 @@
 import { API_BASE_URL } from '@/lib/constants';
 import type { ApiResponse } from '@/types';
-import type { BacktestMetrics, EquityPoint, TradeRecord } from '@/types/backtest';
+import type {
+  BacktestFrequency,
+  BacktestMetrics,
+  EquityPoint,
+  TradeRecord,
+} from '@/types/backtest';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { apiClient } from './client';
 import { createSSEParser } from './sse';
@@ -31,6 +36,7 @@ export interface BacktestRunRequest {
   initialCapital: number;
   slippage: number;
   engine?: string;
+  frequency: BacktestFrequency;
 }
 
 export interface EquityPointWithBenchmark extends EquityPoint {
@@ -50,11 +56,12 @@ export interface BacktestRunResult {
   engine: string;
   error?: string | null;
   createdAt: string;
-  config: Record<string, unknown>;
+  config: Record<string, unknown> & { frequency?: BacktestFrequency };
   metrics: BacktestMetricsExt;
   equityCurve?: EquityPointWithBenchmark[];
   trades?: TradeRecord[];
   dataQuality?: Record<string, string>;
+  actualRange?: { start: string; end: string } | null;
 }
 
 export interface GridResultRow {
@@ -67,6 +74,8 @@ export interface GridSearchResult {
   best: GridResultRow | null;
   sortBy: string;
   truncated: boolean;
+  dataQuality?: Record<string, string>;
+  actualRange?: { start: string; end: string } | null;
   error?: string;
 }
 
@@ -79,6 +88,7 @@ export interface GridSearchRequestBody {
   initialCapital: number;
   slippage: number;
   sortBy: string;
+  frequency: BacktestFrequency;
 }
 
 // apiClient 的响应拦截器返回整个信封 { code, message, data }，业务数据在 .data

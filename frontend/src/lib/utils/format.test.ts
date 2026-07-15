@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatPercent, formatAmount, formatVolume } from './format';
+import { formatPercent, formatAmount, formatVolume, formatBacktestTime } from './format';
 
 describe('formatPercent', () => {
   it('adds + for non-negative and fixes 2 decimals', () => {
@@ -26,5 +26,15 @@ describe('formatVolume', () => {
     expect(formatVolume(1_000_000, '股')).toBe('1.00万手');
     expect(formatVolume(50, '手')).toBe('50手');
     expect(formatVolume(null)).toBe('—');
+  });
+});
+
+describe('formatBacktestTime', () => {
+  it('keeps minute precision for intraday backtests', () => {
+    expect(formatBacktestTime('2024-01-02T09:40:00', '5m')).toBe('2024-01-02 09:40');
+  });
+
+  it('keeps date-only display for daily backtests', () => {
+    expect(formatBacktestTime('2024-01-02T00:00:00', '1d')).toBe('2024-01-02');
   });
 });

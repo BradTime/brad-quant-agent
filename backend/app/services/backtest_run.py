@@ -86,6 +86,7 @@ def _loads(s: str | None, default):
 
 
 def _to_dict(row: BacktestRun, with_detail: bool = False) -> dict:
+    config = _loads(row.config_json, {})
     out = {
         "id": row.id,
         "strategyType": row.strategy_type,
@@ -93,8 +94,9 @@ def _to_dict(row: BacktestRun, with_detail: bool = False) -> dict:
         "engine": row.engine,
         "error": row.error,
         "createdAt": row.created_at.isoformat() if row.created_at else None,
-        "config": _loads(row.config_json, {}),
+        "config": config,
         "metrics": _loads(row.metrics_json, {}),
+        "actualRange": config.get("actualRange"),
     }
     if with_detail:
         out["equityCurve"] = _loads(row.equity_json, [])
@@ -113,6 +115,7 @@ def run_and_save(user_id: str, req) -> dict:
         initial_capital=req.initialCapital,
         slippage=req.slippage,
         engine=req.engine or "native",
+        frequency=getattr(req, "frequency", "1d"),
     )
     out = run_backtest(cfg)
     run_id = uuid4().hex
@@ -126,6 +129,8 @@ def run_and_save(user_id: str, req) -> dict:
         "initialCapital": cfg.initial_capital,
         "slippage": cfg.slippage,
         "engine": cfg.engine,
+        "frequency": cfg.frequency,
+        "actualRange": out.get("actualRange"),
     }
     with SessionLocal() as session:
         row = BacktestRun(
@@ -174,10 +179,13 @@ def build_review_input(user_id: str, run_id: str) -> str | None:
         return None
     m = run.get("metrics", {})
     cfg = run.get("config", {})
+    actual = run.get("actualRange") or cfg.get("actualRange") or {}
     lines = ["【回测结果汇总】"]
     lines.append(
         f"策略 {cfg.get('strategyType')}｜参数 {cfg.get('params')}｜标的 {cfg.get('codes')}｜"
-        f"区间 {cfg.get('start')}~{cfg.get('end')}｜初始资金 {cfg.get('initialCapital')}｜滑点 {cfg.get('slippage')}"
+        f"周期 {cfg.get('frequency', '1d')}｜请求区间 {cfg.get('start')}~{cfg.get('end')}｜"
+        f"实际区间 {actual.get('start', '暂无')}~{actual.get('end', '暂无')}｜"
+        f"初始资金 {cfg.get('initialCapital')}｜滑点 {cfg.get('slippage')}"
     )
     lines.append(
         f"总收益 {m.get('totalReturnPercent')}%｜年化 {m.get('annualReturnPercent')}%｜"
@@ -214,15 +222,30 @@ def grid_search(
     combos = combos[:_MAX_GRID_COMBOS]
 
     bars_by_code, data_quality = runner.load_bars(base_config)
-    if not bars_by_code:
-        return {"results": [], "best": None, "error": "无可用行情数据（请先 backfill 对应标的与区间）"}
+    missing = [code for code in base_config.codes if code not in bars_by_code]
+    if missing:
+        return {
+            "results": [],
+            "best": None,
+            "dataQuality": data_quality,
+            "error": runner.missing_data_error(base_config, missing),
+        }
     benchmark_bars = runner.load_benchmark(base_config.start, base_config.end)
 
     results: list[dict] = []
+    actual_range = None
     for combo in combos:
         params = {**base_config.params, **dict(zip(keys, combo, strict=True))}
         cfg = replace(base_config, params=params)
         out = runner.run_on_bars(cfg, bars_by_code, data_quality, benchmark_bars)
+        if out.get("error"):
+            return {
+                "results": [],
+                "best": None,
+                "dataQuality": data_quality,
+                "error": out["error"],
+            }
+        actual_range = out.get("actualRange")
         m = out.get("metrics", {})
         results.append(
             {
@@ -248,4 +271,5 @@ def grid_search(
         "sortBy": sort_by,
         "truncated": truncated,
         "dataQuality": data_quality,
+        "actualRange": actual_range,
     }

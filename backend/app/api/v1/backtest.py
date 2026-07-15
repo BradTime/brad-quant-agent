@@ -56,6 +56,7 @@ def grid(req: GridSearchRequest, user: User = Depends(get_current_user)):
     cfg = BacktestConfig(
         strategy_type=req.strategyType, params={}, codes=codes,
         start=req.start, end=req.end, initial_capital=req.initialCapital, slippage=req.slippage,
+        frequency=req.frequency,
     )
     return success(backtest_run.grid_search(cfg, req.paramGrid, req.sortBy))
 

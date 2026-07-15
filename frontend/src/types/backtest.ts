@@ -1,6 +1,7 @@
 /**
  * 回测分析相关类型定义
  */
+export type BacktestFrequency = '1d' | '5m' | '15m' | '30m' | '60m';
 
 export interface BacktestConfig {
   strategyId: string;
@@ -9,6 +10,7 @@ export interface BacktestConfig {
   initialCapital: number;
   commission: number;
   slippage: number;
+  frequency: BacktestFrequency;
   dataSource?: string;
 }
 

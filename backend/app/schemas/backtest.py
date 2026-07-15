@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from app.backtest.base import BacktestFrequency
+
 
 class RunBacktestRequest(BaseModel):
     strategyType: str = "dual_ma"
@@ -14,6 +16,7 @@ class RunBacktestRequest(BaseModel):
     initialCapital: float = 1_000_000.0
     slippage: float = 0.0
     engine: str = "native"
+    frequency: BacktestFrequency = "1d"
 
 
 class GridSearchRequest(BaseModel):
@@ -25,3 +28,4 @@ class GridSearchRequest(BaseModel):
     initialCapital: float = 1_000_000.0
     slippage: float = 0.0
     sortBy: str = "sharpeRatio"
+    frequency: BacktestFrequency = "1d"
