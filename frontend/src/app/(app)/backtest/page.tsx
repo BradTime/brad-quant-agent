@@ -12,6 +12,8 @@ import {
   type GridSearchResult,
   type StrategyCatalogItem,
 } from '@/lib/api/backtest';
+import { strategiesApi } from '@/lib/api/strategies';
+import type { Strategy } from '@/types/strategy';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
@@ -36,6 +38,8 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: str
 
 export default function BacktestPage() {
   const [catalog, setCatalog] = useState<StrategyCatalogItem[]>([]);
+  const [savedStrategies, setSavedStrategies] = useState<Strategy[]>([]);
+  const [savedStrategyId, setSavedStrategyId] = useState('');
   const [strategyType, setStrategyType] = useState('dual_ma');
   const [params, setParams] = useState<Record<string, number>>({});
   const [codes, setCodes] = useState('600000.SH');
@@ -79,6 +83,17 @@ export default function BacktestPage() {
         if (found) setParams(defaultParams(found));
       } catch {
         /* 目录加载失败：仍可用默认 dual_ma */
+      }
+      try {
+        const saved = await strategiesApi.getList({
+          page: 1,
+          pageSize: 100,
+          sortBy: 'updatedAt',
+          sortOrder: 'desc',
+        });
+        setSavedStrategies(saved.items || []);
+      } catch {
+        /* 已保存策略加载失败不阻塞直接配置内置策略 */
       }
       await refreshHistory();
     })();
@@ -205,11 +220,41 @@ export default function BacktestPage() {
         <div className="space-y-4">
           <div className="space-y-3 rounded-2xl border border-border bg-card p-4">
             <label className="block text-sm">
-              <span className="text-muted-foreground">策略</span>
+              <span className="text-muted-foreground">已保存策略</span>
+              <select
+                value={savedStrategyId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  setSavedStrategyId(id);
+                  const saved = savedStrategies.find((item) => item.id === id);
+                  if (saved) {
+                    setStrategyType(saved.builtinType);
+                    setParams({ ...saved.params });
+                    setGridMode(false);
+                    setGridResult(null);
+                  }
+                }}
+                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+              >
+                <option value="">不使用已保存策略</option>
+                {savedStrategies.map((saved) => (
+                  <option key={saved.id} value={saved.id}>
+                    {saved.name} · {saved.builtinType}
+                  </option>
+                ))}
+              </select>
+              <span className="mt-1 block text-xs text-muted-foreground">
+                选择后自动预填内置策略类型与参数
+              </span>
+            </label>
+
+            <label className="block text-sm">
+              <span className="text-muted-foreground">内置策略类型</span>
               <select
                 value={strategyType}
                 onChange={(e) => {
                   const t = e.target.value;
+                  setSavedStrategyId('');
                   setStrategyType(t);
                   const found = catalog.find((x) => x.type === t);
                   if (found) setParams(defaultParams(found));
