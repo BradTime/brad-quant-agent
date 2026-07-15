@@ -35,7 +35,7 @@ cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # 填入 DEEPSEEK_API_KEY 等
-uvicorn app.main:app --reload --port 3001   # 文档 http://localhost:3001/docs
+uvicorn app.main:app --reload --port 8000   # 文档 http://localhost:8000/docs
 ```
 
 ### 数据库（本地）

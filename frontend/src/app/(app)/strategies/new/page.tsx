@@ -4,19 +4,22 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft } from 'lucide-react';
+import { strategyQueryKeys } from '@/components/strategy/query-keys';
 import { StrategyForm } from '@/components/strategy/strategy-form';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { strategiesApi } from '@/lib/api/strategies';
+import { useAuthStore } from '@/stores/useAuthStore';
 import type { StrategyCreateRequest } from '@/types/strategy';
 
 export default function NewStrategyPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const userId = useAuthStore((state) => state.user?.id);
   const create = useMutation({ mutationFn: strategiesApi.create });
 
   const save = async (data: StrategyCreateRequest) => {
     const strategy = await create.mutateAsync(data);
-    await queryClient.invalidateQueries({ queryKey: ['strategies'] });
+    await queryClient.invalidateQueries({ queryKey: strategyQueryKeys.all(userId) });
     router.push(`/strategies/${strategy.id}`);
   };
 

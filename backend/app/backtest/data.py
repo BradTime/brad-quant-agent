@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import bisect
+import math
 from dataclasses import dataclass
 from datetime import date, datetime, time
 
@@ -157,6 +158,8 @@ def load_minute_bars(
                 .where(
                     DailyBar.code == code,
                     DailyBar.trade_date < rows[0].dt.date(),
+                    DailyBar.close.is_not(None),
+                    DailyBar.close > 0,
                 )
                 .order_by(DailyBar.trade_date.desc())
                 .limit(1)
@@ -168,15 +171,24 @@ def load_minute_bars(
     if not rows:
         return [], "missing"
     point_days = [d for d, _ in points]
-    coverage = "full" if points else "none"
     first_day = rows[0].dt.date()
     base = (_factor_at(points, point_days, first_day) if points else 1.0) or 1.0
     previous_close = None
-    if previous_row is not None and previous_row.close is not None:
+    if (
+        previous_row is not None
+        and previous_row.close is not None
+        and math.isfinite(float(previous_row.close))
+        and float(previous_row.close) > 0
+    ):
         previous_factor = (
             _factor_at(points, point_days, previous_row.trade_date) / base if points else 1.0
         )
         previous_close = round(_f(previous_row.close) * previous_factor, 4)
+    coverage = (
+        "missing_previous_close"
+        if previous_close is None or previous_close <= 0
+        else ("full" if points else "none")
+    )
     bars: list[Bar] = []
     for index, row in enumerate(rows):
         factor = (_factor_at(points, point_days, row.dt.date()) / base) if points else 1.0

@@ -29,9 +29,9 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/quant_agent
       CORS_ORIGINS: http://localhost:3000
-    command: sh -c "python -m app.cli init-db && uvicorn app.main:app --host 0.0.0.0 --port 3001"
+    command: sh -c "python -m app.cli init-db && uvicorn app.main:app --host 0.0.0.0 --port 8000"
     ports:
-      - "3001:3001"
+      - "8000:8000"
     depends_on:
       postgres:
         condition: service_healthy

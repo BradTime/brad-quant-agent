@@ -224,14 +224,14 @@ def grid_search(
     combos = combos[:_MAX_GRID_COMBOS]
 
     bars_by_code, data_quality = runner.load_bars(base_config)
-    missing = [code for code in base_config.codes if code not in bars_by_code]
+    missing = runner.unusable_data_codes(base_config, bars_by_code, data_quality)
     if missing:
         return {
             "results": [],
             "best": None,
             "engine": base_config.engine,
             "dataQuality": data_quality,
-            "error": runner.missing_data_error(base_config, missing),
+            "error": runner.missing_data_error(base_config, missing, data_quality),
         }
     benchmark_bars = runner.load_benchmark(base_config.start, base_config.end)
 

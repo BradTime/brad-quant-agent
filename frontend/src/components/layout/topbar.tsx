@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, LogOut, Menu, Moon, Sun } from 'lucide-react';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useThemeStore } from '@/stores/useThemeStore';
@@ -70,6 +71,7 @@ function ThemeToggle() {
 
 function UserMenu() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { user, clearAuth } = useAuthStore();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -93,6 +95,7 @@ function UserMenu() {
     } catch {
       /* 忽略登出接口错误，仍清理本地状态 */
     }
+    queryClient.clear();
     clearAuth();
     router.push('/login');
   }

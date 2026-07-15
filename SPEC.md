@@ -44,7 +44,7 @@
 | **Phase 2** | AI 盘前早报 / 对话问答 ✅ |
 | **AI 增强（增量）** | RAG 检索增强（pgvector + 本地 bge，含 HNSW + 混合检索）✅；多智能体早报（LangGraph）+ 可观测 ✅；MCP（LLMQuant Data）✅；可删除、按用户隔离的会话/偏好记忆 MVP ✅；微调后置 |
 | **Phase 3** | 模拟交易（T+1 撮合 / 持仓 / 订单 + WS 回报 + AI 复盘）✅ |
-| **Phase 4** | 量化研究 + 真回测引擎（自研事件驱动 + Backtrader Cerebro 双引擎与对拍；策略 API 向 RQAlpha/JoinQuant 对齐）✅ |
+| **Phase 4** | 量化研究 + 真回测引擎（native 执行引擎 + Backtrader Cerebro 调度适配；策略 API 向 RQAlpha/JoinQuant 对齐）✅ |
 | **产品化扩展期** | 完整 RBAC + 商业化；其他市场（期货 / 港股 / 美股 / 加密）；i18n；（接付费源后）真实时 / Level-2 |
 
 ---
@@ -166,7 +166,7 @@ brad-quant-agent/
 - [x] AI 准确性测试集（36 题 `tests/golden_questions.json`）与回归校验脚本 `scripts/ai_eval.py`（离线/全量）
 - [x] **AI 准确性全量回归已通过**（DeepSeek `deepseek-chat` 实跑 36 题）：工具选择 100%（32/32，目标 ≥95%）、合规含免责 100%（36/36，红线）、确定性买卖指令 0 条（红线）、报价数值与落库一致 14/14（软指标 100%）、缺数据诚实性 2/2；报告留存于 `backend/tests/reports/phase1_ai_eval_*.txt`
 - [x] 健壮性：免费实时源限流时全市场快照抓取加硬超时降级（`realtime_fetch_timeout_seconds`），避免请求/调度无限挂起；实时不可用时选股/快照按 SPEC 显式标注，不杜撰
-- [x] 验收：`docker compose up` 一键起；个股详情关键首屏 Playwright 连续 3 次中位数 480ms（阈值 <2s，见 `docs/performance-baseline-2026-07-14.md`）
+- [x] 验收：`docker compose up -d --build backend frontend` 一键起；真实 Postgres/FastAPI/Next.js Docker 全栈首次导航个股关键首屏 483ms（阈值 <2s，见 `docs/performance-baseline-2026-07-14.md`）
 
 ### Phase 2 — AI 盘前早报
 - [x] 数据装配 `build_data_pack`：从已落库/缓存离线汇总（指数、自选股涨跌榜、自选股资金流、近期龙虎榜、近 48h 新闻），并显式标注覆盖缺口（隔夜外盘 / 宏观政策 / 机构研报）——只喂真实数据，绝不触发会阻塞的实时拉取
@@ -234,7 +234,7 @@ brad-quant-agent/
 - [x] **参数网格寻优**：参数笛卡尔积、行情/基准单次加载复用、按指标排名、组合数上限 64；`POST /backtest/grid` + 前端候选值/排名/一键应用
 - [x] **用户策略持久化**：内置策略参数 ORM（`user_id` 隔离）+ CRUD / 启停 / 复制 API 与页面；回测页可加载已保存策略并预填类型和参数
 - [x] **分钟级回测**：5/15/30/60 分钟后复权加载、下一根开盘撮合、自然交易日 T+1、昨收涨跌停、单次/网格/API/前端/历史配置全链路
-- [x] **Backtrader 真实适配与对拍**：Cerebro + PandasData 装载后复权日/分钟 bars，包装统一 `Context` 策略语义并保持下一 bar 开盘；默认 BackBroker 无法同时精确表达最低佣金、卖出印花税、自然日 T+1 与昨收涨跌停，因此适配器显式复用共享 A 股撮合账本（不调用 `NativeEngine`）；覆盖费用/整手/滑点/T+1/涨跌停/多标的时间轴/缺依赖，并以受控策略对拍 fills、期末权益、总收益与最大回撤
+- [x] **Backtrader Cerebro 调度适配**：Cerebro + PandasData 装载后复权日/分钟 bars，包装统一 `Context` 策略语义并保持下一 bar 开盘；默认 BackBroker 无法精确表达本项目全部 A 股规则，因此适配器显式复用共享 A 股执行账本（不调用 `NativeEngine`）。对拍验证的是 Cerebro 与 native 的调度/时间轴一致性，**不作为独立撮合正确性证明**
 
 ---
 

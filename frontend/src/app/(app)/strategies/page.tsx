@@ -18,6 +18,8 @@ import {
 import { strategiesApi } from '@/lib/api/strategies';
 import { formatDate } from '@/lib/utils/format';
 import { pageAfterDeletingItem } from '@/components/strategy/strategy-list';
+import { strategyQueryKeys } from '@/components/strategy/query-keys';
+import { useAuthStore } from '@/stores/useAuthStore';
 import type {
   BuiltinStrategyType,
   Strategy,
@@ -58,6 +60,7 @@ const STATUS_LABELS: Record<
 
 export default function StrategiesPage() {
   const queryClient = useQueryClient();
+  const userId = useAuthStore((state) => state.user?.id);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<StrategyStatus | ''>('');
@@ -74,11 +77,12 @@ export default function StrategiesPage() {
     sortOrder: 'desc',
   };
   const strategies = useQuery({
-    queryKey: ['strategies', params],
+    queryKey: strategyQueryKeys.list(userId, params),
     queryFn: () => strategiesApi.getList(params),
+    enabled: !!userId,
   });
   const refresh = () =>
-    queryClient.invalidateQueries({ queryKey: ['strategies'] });
+    queryClient.invalidateQueries({ queryKey: strategyQueryKeys.all(userId) });
 
   const statusMutation = useMutation({
     mutationFn: ({ id, enable }: { id: string; enable: boolean }) =>

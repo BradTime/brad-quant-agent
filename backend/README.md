@@ -33,11 +33,11 @@ pip install -r requirements.txt
 cp .env.example .env   # 填入 DEEPSEEK_API_KEY 等
 
 # 3. 启动
-uvicorn app.main:app --reload --port 3001
+uvicorn app.main:app --reload --port 8000
 ```
 
-- 健康检查：http://localhost:3001/health
-- 接口文档（Swagger）：http://localhost:3001/docs
+- 健康检查：http://localhost:8000/health
+- 接口文档（Swagger）：http://localhost:8000/docs
 
 > 注：`requirements.txt` 暂未锁定版本；首次安装成功后建议 `pip freeze > requirements.lock` 固定。
 
@@ -69,7 +69,7 @@ python -m app.cli quotes --codes 600000.SH,000001.SZ
 
 调度器把数据源刷新进内存缓存；一个异步推送循环每 `WS_PUSH_SECONDS`（默认 3s）把订阅主题的最新缓存推给客户端（只读缓存、不发起网络请求，故不阻塞）。
 
-- 连接：`ws://localhost:3001/ws/v1`（可选 `?token=<access JWT>`，提供且无效则关闭）
+- 连接：`ws://localhost:8000/ws/v1`（可选 `?token=<access JWT>`，提供且无效则关闭）
 - 客户端 → 服务端：`{"type":"subscribe","payload":{"topics":[...]}}` / `unsubscribe` / `{"type":"ping"}`
 - 服务端 → 客户端：`{"type":"update","topic","payload","timestamp"}` / `pong` / `subscribed` / `welcome` / `error`
 - 主题：`market.indices`（指数概览）、`market.quote.<code>`（如 `market.quote.600000.SH`）
@@ -77,7 +77,7 @@ python -m app.cli quotes --codes 600000.SH,000001.SZ
 浏览器控制台快速验证：
 
 ```js
-const ws = new WebSocket('ws://localhost:3001/ws/v1');
+const ws = new WebSocket('ws://localhost:8000/ws/v1');
 ws.onmessage = (e) => console.log(JSON.parse(e.data));
 ws.onopen = () => ws.send(JSON.stringify({ type: 'subscribe', payload: { topics: ['market.indices', 'market.quote.600000.SH'] } }));
 ```
@@ -92,7 +92,7 @@ DeepSeek 通过 function calling 调用工具（`get_market_overview` / `get_quo
 - 响应：`text/event-stream`，每帧 `data: {"delta": "..."}`，结束 `data: [DONE]`。
 
 ```bash
-curl -N -X POST localhost:3001/api/v1/ai/chat \
+curl -N -X POST localhost:8000/api/v1/ai/chat \
   -H "Authorization: Bearer <access-token>" -H 'Content-Type: application/json' \
   -d '{"messages":[{"role":"user","content":"上证指数现在多少？600000 今天表现如何？"}]}'
 ```

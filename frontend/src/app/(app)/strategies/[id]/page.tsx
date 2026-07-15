@@ -6,24 +6,27 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, Copy, FlaskConical, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { strategyQueryKeys } from '@/components/strategy/query-keys';
 import { strategiesApi } from '@/lib/api/strategies';
 import { formatDate } from '@/lib/utils/format';
+import { useAuthStore } from '@/stores/useAuthStore';
 
 export default function StrategyDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id ?? '';
   const router = useRouter();
   const queryClient = useQueryClient();
+  const userId = useAuthStore((state) => state.user?.id);
   const strategy = useQuery({
-    queryKey: ['strategy', id],
+    queryKey: strategyQueryKeys.detail(userId, id),
     queryFn: () => strategiesApi.getDetail(id),
-    enabled: Boolean(id),
+    enabled: Boolean(id && userId),
   });
 
   const updateCached = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['strategy', id] }),
-      queryClient.invalidateQueries({ queryKey: ['strategies'] }),
+      queryClient.invalidateQueries({ queryKey: strategyQueryKeys.detail(userId, id) }),
+      queryClient.invalidateQueries({ queryKey: strategyQueryKeys.all(userId) }),
     ]);
   };
   const toggle = useMutation({
@@ -34,14 +37,14 @@ export default function StrategyDetailPage() {
   const duplicate = useMutation({
     mutationFn: () => strategiesApi.duplicate(id),
     onSuccess: async (copied) => {
-      await queryClient.invalidateQueries({ queryKey: ['strategies'] });
+      await queryClient.invalidateQueries({ queryKey: strategyQueryKeys.all(userId) });
       router.push(`/strategies/${copied.id}`);
     },
   });
   const remove = useMutation({
     mutationFn: () => strategiesApi.delete(id),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['strategies'] });
+      await queryClient.invalidateQueries({ queryKey: strategyQueryKeys.all(userId) });
       router.push('/strategies');
     },
   });

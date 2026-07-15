@@ -4,10 +4,12 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft } from 'lucide-react';
+import { strategyQueryKeys } from '@/components/strategy/query-keys';
 import { StrategyForm } from '@/components/strategy/strategy-form';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { strategiesApi } from '@/lib/api/strategies';
+import { useAuthStore } from '@/stores/useAuthStore';
 import type { StrategyCreateRequest } from '@/types/strategy';
 
 export default function EditStrategyPage() {
@@ -15,10 +17,11 @@ export default function EditStrategyPage() {
   const id = params?.id ?? '';
   const router = useRouter();
   const queryClient = useQueryClient();
+  const userId = useAuthStore((state) => state.user?.id);
   const strategy = useQuery({
-    queryKey: ['strategy', id],
+    queryKey: strategyQueryKeys.detail(userId, id),
     queryFn: () => strategiesApi.getDetail(id),
-    enabled: Boolean(id),
+    enabled: Boolean(id && userId),
   });
   const update = useMutation({
     mutationFn: (data: StrategyCreateRequest) =>
@@ -28,8 +31,8 @@ export default function EditStrategyPage() {
   const save = async (data: StrategyCreateRequest) => {
     await update.mutateAsync(data);
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['strategy', id] }),
-      queryClient.invalidateQueries({ queryKey: ['strategies'] }),
+      queryClient.invalidateQueries({ queryKey: strategyQueryKeys.detail(userId, id) }),
+      queryClient.invalidateQueries({ queryKey: strategyQueryKeys.all(userId) }),
     ]);
     router.push(`/strategies/${id}`);
   };

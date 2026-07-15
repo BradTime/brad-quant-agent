@@ -94,6 +94,7 @@ def test_load_minute_bars_sorts_and_applies_factor_by_trade_date(minute_db):
     with minute_db() as session:
         session.add_all(
             [
+                DailyBar(code="X", trade_date=date(2024, 1, 1), close=10),
                 MinuteBar(
                     code="X",
                     dt=datetime(2024, 1, 3, 9, 40),
@@ -159,10 +160,43 @@ def test_load_minute_bars_seeds_first_day_previous_close(minute_db):
     assert bars[0].previous_close == 10
 
 
+def test_load_minute_bars_skips_invalid_previous_closes(minute_db):
+    with minute_db() as session:
+        session.add_all(
+            [
+                DailyBar(code="X", trade_date=date(2023, 12, 29), close=9),
+                DailyBar(code="X", trade_date=date(2024, 1, 1), close=0),
+                MinuteBar(
+                    code="X",
+                    dt=datetime(2024, 1, 2, 9, 35),
+                    period="5",
+                    open=10,
+                    high=10,
+                    low=10,
+                    close=10,
+                    volume=100,
+                    amount=1_000,
+                ),
+            ]
+        )
+        session.commit()
+
+    bars, coverage = data_module.load_minute_bars(
+        "X",
+        "5m",
+        "2024-01-02",
+        "2024-01-02",
+    )
+
+    assert bars[0].previous_close == 9
+    assert coverage != "missing_previous_close"
+
+
 def test_current_st_name_does_not_rewrite_historical_price_limits(minute_db):
     with minute_db() as session:
         session.add_all(
             [
+                DailyBar(code="X", trade_date=date(2024, 1, 1), close=10),
                 Instrument(
                     code="X",
                     name="*ST测试",
@@ -189,10 +223,39 @@ def test_current_st_name_does_not_rewrite_historical_price_limits(minute_db):
     assert bars[0].limit_ratio == 0.10
 
 
+def test_minute_loader_marks_missing_previous_close_unusable(minute_db):
+    with minute_db() as session:
+        session.add(
+            MinuteBar(
+                code="X",
+                dt=datetime(2024, 1, 2, 9, 35),
+                period="5",
+                open=10,
+                high=10,
+                low=10,
+                close=10,
+                volume=100,
+                amount=1_000,
+            )
+        )
+        session.commit()
+
+    bars, coverage = data_module.load_minute_bars(
+        "X",
+        "5m",
+        "2024-01-02",
+        "2024-01-02",
+    )
+
+    assert bars
+    assert coverage == "missing_previous_close"
+
+
 def test_load_minute_bars_does_not_apply_future_st_name_to_history(minute_db):
     with minute_db() as session:
         session.add_all(
             [
+                DailyBar(code="X", trade_date=date(2024, 1, 1), close=10),
                 Instrument(
                     code="X",
                     name="*ST测试",
@@ -437,6 +500,22 @@ def test_minute_backtest_rejects_when_any_requested_symbol_is_missing(monkeypatc
 
     assert "Y" in result["error"]
     assert result["dataQuality"]["Y"] == "missing"
+
+
+def test_minute_backtest_rejects_missing_previous_close(monkeypatch):
+    config = _cfg(frequency="5m")
+    monkeypatch.setattr(
+        runner,
+        "load_bars",
+        lambda cfg: (
+            {"X": [_minute_bar(datetime(2024, 1, 2, 9, 35), 10, 10)]},
+            {"X": "missing_previous_close"},
+        ),
+    )
+
+    result = runner.run_backtest(config)
+
+    assert "前一交易日收盘" in result["error"]
 
 
 def test_daily_benchmark_maps_to_every_minute_equity_point():

@@ -66,7 +66,7 @@ cd server
 npm run dev
 ```
 
-后端服务将在 `http://localhost:3001` 启动
+后端服务将在 `http://localhost:8000` 启动
 
 ### 2. 启动前端服务
 

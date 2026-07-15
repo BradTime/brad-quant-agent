@@ -159,20 +159,41 @@ def _align_bars_to_common_range(
 
 def run_backtest(config: BacktestConfig) -> dict:
     bars_by_code, data_quality = load_bars(config)
-    missing = [code for code in config.codes if code not in bars_by_code]
+    missing = unusable_data_codes(config, bars_by_code, data_quality)
     if missing:
         return {
             "metrics": {},
             "equityCurve": [],
             "trades": [],
             "dataQuality": data_quality,
-            "error": missing_data_error(config, missing),
+            "error": missing_data_error(config, missing, data_quality),
         }
     return run_on_bars(config, bars_by_code, data_quality)
 
 
-def missing_data_error(config: BacktestConfig, codes: list[str] | None = None) -> str:
+def unusable_data_codes(
+    config: BacktestConfig,
+    bars_by_code: dict[str, list[Bar]],
+    data_quality: dict[str, str],
+) -> list[str]:
+    unusable_quality = {"missing", "missing_previous_close"}
+    return [
+        code
+        for code in config.codes
+        if code not in bars_by_code or data_quality.get(code) in unusable_quality
+    ]
+
+
+def missing_data_error(
+    config: BacktestConfig,
+    codes: list[str] | None = None,
+    data_quality: dict[str, str] | None = None,
+) -> str:
     suffix = f"；缺失标的: {', '.join(codes)}" if codes else ""
+    if data_quality and any(
+        data_quality.get(code) == "missing_previous_close" for code in (codes or [])
+    ):
+        return f"缺少回测起点前一交易日收盘，无法可靠判断涨跌停{suffix}"
     if config.frequency == "1d":
         return f"无可用行情数据（请先 backfill 对应标的与区间）{suffix}"
     return (
