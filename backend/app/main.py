@@ -28,9 +28,11 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    role = (settings.process_role or "all").strip().lower()
+    run_background = role in {"all", "worker"}
     scheduler_started = False
     outbox_scheduler_started = False
-    if settings.enable_scheduler:
+    if settings.enable_scheduler and run_background:
         try:
             from app.services.scheduler import start_scheduler
 
@@ -38,8 +40,10 @@ async def lifespan(app: FastAPI):
             scheduler_started = True
         except Exception as exc:  # noqa: BLE001
             print(f"[warn] 行情调度器启动失败（已忽略，可手动 ingest）：{exc}")
+    elif settings.enable_scheduler and role == "api":
+        logger.info("process_role=api：跳过行情调度器（由 worker 进程负责）")
 
-    if settings.enable_auth_outbox_scheduler:
+    if settings.enable_auth_outbox_scheduler and run_background:
         try:
             from app.services.verification_outbox import start_outbox_scheduler
 
@@ -49,13 +53,15 @@ async def lifespan(app: FastAPI):
             logger.warning("认证邮件 outbox 调度器启动失败：%s", type(exc).__name__)
 
     # RAG：后台预热本地 embedding 模型（守护线程，不阻塞启动；离线/失败自动降级）
-    if settings.rag_enabled and settings.embedding_warm_on_start:
+    if settings.rag_enabled and settings.embedding_warm_on_start and run_background:
         try:
             from app.ai import embeddings
 
             embeddings.warm_in_background()
         except Exception as exc:  # noqa: BLE001
             logger.warning("embedding 预热启动失败（已忽略）：%s", exc)
+    elif settings.embedding_warm_on_start and role == "api":
+        logger.info("process_role=api：跳过 embedding 预热")
 
     from app.ws.broadcaster import push_loop
 

@@ -63,7 +63,9 @@ class BacktraderEngine(BacktestEngine):
         def history_fn(code: str, field: str, n: int, asof) -> list[float]:
             dates = code_dates.get(code, [])
             index = bisect.bisect_right(dates, asof)
-            window = ordered_bars.get(code, [])[:index][-n:]
+            bars = ordered_bars.get(code, [])
+            start = max(0, index - n)
+            window = bars[start:index]
             return [float(getattr(bar, field)) for bar in window]
 
         broker = Broker(config.initial_capital, config.slippage)

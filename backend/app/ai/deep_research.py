@@ -14,8 +14,10 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 import uuid
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from sqlalchemy import select
 
@@ -29,7 +31,9 @@ from app.models.research import ResearchReport
 
 logger = logging.getLogger(__name__)
 
-MAX_SUBQUESTIONS = 4
+
+def _max_subquestions() -> int:
+    return max(1, min(int(settings.research_max_subquestions or 4), 8))
 
 
 def _parse_list(raw: str) -> list[str]:
@@ -67,7 +71,7 @@ def _plan(question: str, context_hint: str = "") -> list[str]:
         logger.warning("研究规划失败，降级为单步：%s", exc)
         return [question]
     subs = _parse_list(raw)
-    return subs[:MAX_SUBQUESTIONS] or [question]
+    return subs[: _max_subquestions()] or [question]
 
 
 def _assemble(question: str, findings: list[tuple[str, str, list[str]]]) -> str:
@@ -153,18 +157,58 @@ def stream_deep_research(
 
         findings: list[tuple[str, str, list[str]]] = []
         total = len(plan)
-        for i, subq in enumerate(plan, 1):
+        deadline_sec = float(settings.research_deadline_seconds or 0)
+        deadline = (
+            time.monotonic() + deadline_sec if deadline_sec > 0 else None
+        )
+        concurrency = max(1, min(int(settings.research_subquestion_concurrency or 1), total))
+
+        def _one(subq: str) -> tuple[str, str, list[str]]:
             try:
-                res = run_chat_collect([{"role": "user", "content": subq}], enforce=False)
-                answer = res.get("answer", "")
-                tools = res.get("toolsCalled") or []
+                res = run_chat_collect(
+                    [{"role": "user", "content": subq}], enforce=False
+                )
+                return subq, res.get("answer", ""), list(res.get("toolsCalled") or [])
             except Exception as exc:  # noqa: BLE001
                 logger.warning("子问题调研失败：%s", exc)
-                answer, tools = f"（该子问题调研失败：{exc}）", []
-            findings.append((subq, answer, tools))
-            label = f"完成 {i}/{total}：{subq}"
-            steps.append({"label": label, "tools": tools})
-            yield {"step": label, "node": "research", "tools": tools or None}
+                return subq, f"（该子问题调研失败：{exc}）", []
+
+        # 有界并发跑子问题；按原 plan 顺序产出进度与 findings（H25）
+        ordered: list[tuple[str, str, list[str]] | None] = [None] * total
+        with ThreadPoolExecutor(max_workers=concurrency) as pool:
+            future_map = {
+                pool.submit(_one, subq): idx for idx, subq in enumerate(plan)
+            }
+            completed = 0
+            for fut in as_completed(future_map):
+                if deadline is not None and time.monotonic() > deadline:
+                    for pending in future_map:
+                        pending.cancel()
+                    yield {
+                        "step": "研究截止时间已到，使用已完成子问题综合",
+                        "node": "research",
+                    }
+                    break
+                idx = future_map[fut]
+                try:
+                    ordered[idx] = fut.result()
+                except Exception as exc:  # noqa: BLE001
+                    subq = plan[idx]
+                    ordered[idx] = (subq, f"（该子问题调研失败：{exc}）", [])
+                completed += 1
+                row = ordered[idx]
+                assert row is not None
+                subq, _answer, tools = row
+                label = f"完成 {completed}/{total}：{subq}"
+                steps.append({"label": label, "tools": tools})
+                yield {"step": label, "node": "research", "tools": tools or None}
+
+        for i, subq in enumerate(plan):
+            row = ordered[i]
+            if row is None:
+                findings.append((subq, "（未在截止时间内完成）", []))
+            else:
+                findings.append(row)
 
         yield {"step": "综合成稿", "node": "synth"}
         assembled = _assemble(question, findings)

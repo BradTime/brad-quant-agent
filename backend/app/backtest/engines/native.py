@@ -43,7 +43,9 @@ class NativeEngine(BacktestEngine):
         def history_fn(code: str, field: str, n: int, asof) -> list[float]:
             dates = code_dates.get(code, [])
             i = bisect.bisect_right(dates, asof)  # 截至 asof（含）的根数
-            window = bars_by_code[code][:i][-n:]
+            bars = bars_by_code[code]
+            start = max(0, i - n)
+            window = bars[start:i]
             return [float(getattr(b, field)) for b in window]
 
         ctx = Context(broker, config.params, history_fn, universe=config.codes)

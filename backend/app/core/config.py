@@ -138,6 +138,21 @@ class Settings(BaseSettings):
     rag_hybrid_candidates: int = 20
     # HNSW 检索精度参数 ef_search（越大越准越慢；需已建 HNSW 索引才生效）
     rag_hnsw_ef_search: int = 64
+    # embedding 分批大小（回填/长文切块）
+    embedding_batch_size: int = 64
+
+    # 进程角色：all=单体；api=只服务 HTTP/WS（不跑调度/预热）；worker=调度+预热
+    process_role: str = "all"
+    # SQLAlchemy 连接池（多 worker / 长 AI 时显式上限，避免默认池被打满）
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
+    db_pool_recycle_seconds: int = 1800
+    db_pool_timeout_seconds: int = 30
+
+    # 深度研究：子问题上限 / 并发 / 总 deadline（秒，<=0 不限）
+    research_max_subquestions: int = 4
+    research_subquestion_concurrency: int = 2
+    research_deadline_seconds: int = 180
 
     # 盘前早报生成引擎：graph（LangGraph 多智能体）/ single（单轮合成，兜底）
     brief_engine: str = "graph"
