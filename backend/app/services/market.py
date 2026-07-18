@@ -19,8 +19,8 @@ from functools import lru_cache
 from sqlalchemy import func, inspect, or_, select
 
 from app.core.config import settings
-from app.core.tz import MARKET_TZ
 from app.core.ohlc import InvalidOHLCError, validate_ohlc, validate_previous_close
+from app.core.tz import MARKET_TZ
 from app.db.session import SessionLocal
 from app.models.extra import CapitalFlow, DragonTiger, FinancialSummary, NewsItem
 from app.models.market import DailyBar, Instrument, MinuteBar

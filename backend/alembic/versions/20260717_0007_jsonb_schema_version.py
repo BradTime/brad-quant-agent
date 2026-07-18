@@ -36,7 +36,13 @@ _COLUMNS: list[tuple[str, str, bool]] = [
 
 def _wrap_legacy_rows(conn, table: str, column: str) -> None:
     """Wrap bare JSON values as {schemaVersion:1, payload:...} when missing envelope."""
-    rows = conn.execute(sa.text(f"SELECT id, {column} AS raw FROM {table}")).mappings()
+    if conn is None:
+        return
+    result = conn.execute(sa.text(f"SELECT id, {column} AS raw FROM {table}"))
+    if result is None:
+        # offline --sql：无真实连接，跳过数据回填
+        return
+    rows = result.mappings()
     for row in rows:
         raw = row["raw"]
         if raw is None:
@@ -63,8 +69,8 @@ def _wrap_legacy_rows(conn, table: str, column: str) -> None:
 
 def upgrade() -> None:
     bind = op.get_bind()
-    if bind.dialect.name != "postgresql":
-        # SQLite / others: ORM PortableJSON handles create_all; no-op for alembic
+    if bind is None or bind.dialect.name != "postgresql":
+        # offline --sql / 非 PG：DDL 由后续 online 跑；SQLite 由 ORM PortableJSON 覆盖
         return
 
     for table, column, nullable in _COLUMNS:

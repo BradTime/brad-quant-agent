@@ -19,8 +19,8 @@ from app.ai.compliance import enforce_compliance
 from app.ai.orchestrator import run_completion_stream
 from app.ai.prompts import MORNING_BRIEF_PROMPT
 from app.core.config import settings
-from app.core.tz import MARKET_TZ, market_now, market_today
 from app.core.json_payload import JsonCorruptError, dump_envelope, load_envelope
+from app.core.tz import MARKET_TZ, market_now, market_today
 from app.db.session import SessionLocal
 from app.models.brief import MorningBrief
 from app.models.extra import DragonTiger, NewsItem

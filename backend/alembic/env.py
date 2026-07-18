@@ -19,6 +19,23 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 _MANUAL_HNSW_INDEX = "ix_documents_embedding_hnsw"
+# 迁移脚本单独创建、未挂在 ORM __table_args__ 上的索引（含 trgm / 复合索引）
+_MIGRATION_MANAGED_INDEXES: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("documents", "ix_documents_chunk_trgm"),
+        ("documents", "ix_documents_title_trgm"),
+        ("documents", "ix_documents_source_ref_id"),
+        ("sim_orders", "ix_sim_orders_user_status_trade_date"),
+        ("sim_trades", "ix_sim_trades_user_traded_at"),
+        ("backtest_runs", "ix_backtest_runs_user_created_at"),
+        ("backtest_jobs", "ix_backtest_jobs_status_created"),
+        ("backtest_jobs", "ix_backtest_jobs_user_created"),
+        ("research_reports", "ix_research_reports_user_created_at"),
+        ("morning_briefs", "ix_morning_briefs_user_trade_date"),
+        ("news_items", "ix_news_items_code_published_at"),
+        ("watchlist_items", "ix_watchlist_items_user_group"),
+    }
+)
 _MIGRATION_LOCK_SUFFIX = ":brad-quant-agent:alembic"
 _valid_manual_indexes: set[tuple[str, str]] = set()
 
@@ -58,15 +75,12 @@ def include_object(
     reflected: bool,
     compare_to: Any,
 ) -> bool:
-    """Exclude only the verified hand-managed pgvector HNSW index."""
+    """Exclude hand-managed HNSW and migration-only composite/trgm indexes."""
     table_name = getattr(getattr(object_, "table", None), "name", None)
-    if (
-        type_ == "index"
-        and reflected
-        and name is not None
-        and (table_name, name) in _valid_manual_indexes
-    ):
-        return False
+    if type_ == "index" and reflected and name is not None and table_name is not None:
+        key = (table_name, name)
+        if key in _valid_manual_indexes or key in _MIGRATION_MANAGED_INDEXES:
+            return False
     return True
 
 

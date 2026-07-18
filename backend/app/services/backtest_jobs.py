@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
+from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any, Callable
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -75,7 +75,6 @@ def enqueue_grid(user_id: str, req: GridSearchRequest) -> dict[str, Any]:
     backtest_run._validated_grid_request(config, param_grid, sort_by)  # noqa: SLF001
 
     keys = [k for k in param_grid if param_grid[k]]
-    import itertools
 
     total = 1
     for k in keys:

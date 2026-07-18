@@ -809,7 +809,10 @@ def test_api_passes_frequency_to_single_run_and_grid(backtest_client, monkeypatc
         "sortBy": "sharpeRatio",
     }
     grid_payload.pop("params")
-    grid_response = backtest_client.post("/api/v1/backtest/grid", json=grid_payload)
+    # 默认异步入队；同步路径才直接调用 grid_search
+    grid_response = backtest_client.post(
+        "/api/v1/backtest/grid?sync=true", json=grid_payload
+    )
 
     assert run_response.status_code == grid_response.status_code == 200
     assert seen == [("run", "15m"), ("grid", "30m")]

@@ -5,7 +5,10 @@ export function useRafBatchedString(onUpdate: (value: string) => void) {
   const accRef = useRef('');
   const rafRef = useRef<number | null>(null);
   const onUpdateRef = useRef(onUpdate);
-  onUpdateRef.current = onUpdate;
+
+  useEffect(() => {
+    onUpdateRef.current = onUpdate;
+  }, [onUpdate]);
 
   const cancelRaf = useCallback(() => {
     if (rafRef.current != null) {

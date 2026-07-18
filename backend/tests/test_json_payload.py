@@ -115,7 +115,7 @@ def test_backtest_corrupt_metrics_not_fake_zeros(json_sqlite):
 
 
 def test_brief_legacy_bare_snapshot_still_loads(json_sqlite, monkeypatch):
-    monkeypatch.setattr(brief, "_today", lambda: date(2024, 6, 1))
+    monkeypatch.setattr(brief, "market_today", lambda: date(2024, 6, 1))
     brief_id = uuid4().hex
     bare = {
         "engine": "single",

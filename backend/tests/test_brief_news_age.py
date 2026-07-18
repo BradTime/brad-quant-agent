@@ -61,12 +61,7 @@ def _add_news(
 def test_recent_window_hit_no_fallback(news_sqlite, monkeypatch):
     now = datetime(2026, 6, 1, 10, 0, 0)
 
-    class _FakeDateTime(datetime):
-        @classmethod
-        def now(cls, tz=None):  # noqa: ANN001
-            return now.replace(tzinfo=tz) if tz is not None else now
-
-    monkeypatch.setattr(brief, "datetime", _FakeDateTime)
+    monkeypatch.setattr(brief, "market_now", lambda: now.replace(tzinfo=_TZ))
 
     _add_news(news_sqlite, title="日内新闻", published_at=now - timedelta(hours=12))
     _add_news(news_sqlite, title="过旧新闻", published_at=now - timedelta(days=30))
@@ -81,12 +76,7 @@ def test_recent_window_hit_no_fallback(news_sqlite, monkeypatch):
 def test_fallback_within_max_age(news_sqlite, monkeypatch):
     now = datetime(2026, 6, 1, 10, 0, 0)
 
-    class _FakeDateTime(datetime):
-        @classmethod
-        def now(cls, tz=None):  # noqa: ANN001
-            return now.replace(tzinfo=tz) if tz is not None else now
-
-    monkeypatch.setattr(brief, "datetime", _FakeDateTime)
+    monkeypatch.setattr(brief, "market_now", lambda: now.replace(tzinfo=_TZ))
 
     _add_news(
         news_sqlite,
@@ -108,12 +98,7 @@ def test_fallback_within_max_age(news_sqlite, monkeypatch):
 def test_too_old_marks_recent_missing(news_sqlite, monkeypatch):
     now = datetime(2026, 6, 1, 10, 0, 0)
 
-    class _FakeDateTime(datetime):
-        @classmethod
-        def now(cls, tz=None):  # noqa: ANN001
-            return now.replace(tzinfo=tz) if tz is not None else now
-
-    monkeypatch.setattr(brief, "datetime", _FakeDateTime)
+    monkeypatch.setattr(brief, "market_now", lambda: now.replace(tzinfo=_TZ))
 
     _add_news(
         news_sqlite,

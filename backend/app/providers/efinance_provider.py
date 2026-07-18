@@ -5,8 +5,6 @@ Heavy import is lazy. Realtime is a snapshot, not true tick.
 
 from __future__ import annotations
 
-from datetime import datetime
-
 from app.core.dtutil import parse_datetime
 from app.core.numeric import to_float
 from app.core.tz import market_now

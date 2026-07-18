@@ -31,7 +31,7 @@ def brief_sqlite(monkeypatch: pytest.MonkeyPatch):
     sessions = sessionmaker(bind=engine, expire_on_commit=False)
     monkeypatch.setattr(brief, "SessionLocal", sessions)
     monkeypatch.setattr(deep_research, "SessionLocal", sessions)
-    monkeypatch.setattr(brief, "_today", lambda: date(2024, 6, 1))
+    monkeypatch.setattr(brief, "market_today", lambda: date(2024, 6, 1))
     try:
         yield sessions
     finally:

@@ -45,7 +45,8 @@ BASELINE_REVISION = "20260717_0001"
 FINANCIAL_PIT_REVISION = "20260717_0002"
 AUTH_THROTTLE_REVISION = "20260717_0003"
 EMAIL_VERIFICATION_REVISION = "20260717_0004"
-HEAD_REVISION = EMAIL_VERIFICATION_REVISION
+BACKTEST_JOBS_REVISION = "20260717_0010"
+HEAD_REVISION = BACKTEST_JOBS_REVISION
 HNSW_INDEX = "ix_documents_embedding_hnsw"
 LEGACY_TABLES = frozenset(
     {
@@ -75,8 +76,35 @@ LEGACY_TABLES = frozenset(
 )
 NEW_BASELINE_TABLES = frozenset({"ingestion_runs"})
 POST_BASELINE_TABLES = frozenset(
-    {"auth_throttles", "email_verifications", "verification_email_outbox"}
+    {
+        "auth_throttles",
+        "email_verifications",
+        "verification_email_outbox",
+        "backtest_jobs",
+    }
 )
+
+# ORM 相对 baseline 冻结契约多出的列：造「升级前库」时需剥掉，否则 baseline adoption 会拒收
+_POST_BASELINE_COLUMNS: dict[str, frozenset[str]] = {
+    "users": frozenset({"token_version", "email_verified_at"}),
+    "sim_orders": frozenset({"tif", "trade_date"}),
+}
+
+# baseline 冻结为 TEXT；当前 ORM 为 JSONB，造预迁移库时降回 TEXT
+_BASELINE_TEXT_JSON_COLUMNS: dict[str, frozenset[str]] = {
+    "strategies": frozenset({"params_json"}),
+    "backtest_runs": frozenset(
+        {
+            "config_json",
+            "metrics_json",
+            "equity_json",
+            "trades_json",
+            "data_quality_json",
+        }
+    ),
+    "morning_briefs": frozenset({"data_pack_json"}),
+    "research_reports": frozenset({"plan_json", "steps_json"}),
+}
 
 
 def _alembic_environment(database_url: URL) -> dict[str, str]:
@@ -208,6 +236,25 @@ def _create_pre_alembic_schema(
             with engine.begin() as connection:
                 connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         schema_metadata.create_all(bind=engine)
+        if engine.dialect.name == "postgresql":
+            with engine.begin() as connection:
+                for table_name, columns in _POST_BASELINE_COLUMNS.items():
+                    for column in columns:
+                        connection.execute(
+                            text(
+                                f'ALTER TABLE "{table_name}" '
+                                f'DROP COLUMN IF EXISTS "{column}"'
+                            )
+                        )
+                for table_name, columns in _BASELINE_TEXT_JSON_COLUMNS.items():
+                    for column in columns:
+                        connection.execute(
+                            text(
+                                f'ALTER TABLE "{table_name}" '
+                                f'ALTER COLUMN "{column}" TYPE TEXT '
+                                f'USING "{column}"::text'
+                            )
+                        )
     finally:
         engine.dispose()
 

@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Integer, String, func
+from sqlalchemy import Boolean, DateTime, Integer, String, false, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -26,9 +26,15 @@ class BacktestJob(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
-    kind: Mapped[str] = mapped_column(String(16), default="grid")
-    status: Mapped[str] = mapped_column(String(16), default=BacktestJobStatus.QUEUED)
-    cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False)
+    kind: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=text("'grid'")
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=text("'queued'")
+    )
+    cancel_requested: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false()
+    )
     request_json: Mapped[dict[str, Any] | list[Any] | None] = mapped_column(
         PortableJSON, nullable=True
     )
@@ -36,13 +42,20 @@ class BacktestJob(Base):
         PortableJSON, nullable=True
     )
     error: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    progress_done: Mapped[int] = mapped_column(Integer, default=0)
-    progress_total: Mapped[int] = mapped_column(Integer, default=0)
+    progress_done: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    progress_total: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
     started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

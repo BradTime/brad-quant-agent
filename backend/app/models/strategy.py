@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, String, Text, func
+from sqlalchemy import DateTime, String, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -22,7 +22,7 @@ class Strategy(Base):
     category: Mapped[str] = mapped_column(String(32), nullable=False)
     builtin_type: Mapped[str] = mapped_column(String(32), nullable=False)
     params_json: Mapped[dict[str, Any] | list[Any]] = mapped_column(
-        PortableJSON, nullable=False, default=dict
+        PortableJSON, nullable=False, server_default=text("'{}'")
     )
     # draft / active / disabled / data_corrupt
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
