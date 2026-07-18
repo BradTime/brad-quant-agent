@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { RefreshCw, AlertTriangle } from 'lucide-react';
 import { RequireAuth } from '@/components/auth/require-auth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,6 +15,8 @@ import { dashboardApi } from '@/lib/api/dashboard';
 import { marketApi } from '@/lib/api/market';
 import { ageQuote, formatQuoteFreshness } from '@/lib/api/quote-selection';
 import { useFreshnessClock } from '@/hooks/useFreshnessClock';
+import { useMarketSocket } from '@/hooks/useMarketSocket';
+import type { MarketOverview } from '@/types/dashboard';
 import { cn } from '@/lib/utils';
 
 type Tab = 'all' | 'screener';
@@ -37,22 +40,47 @@ export default function MarketPage() {
   const pageSize = 20;
   const [sortBy, setSortBy] = useState<'price' | 'changePercent' | 'volume'>('changePercent');
   const freshnessNow = useFreshnessClock();
+  const { status: wsStatus, data: wsData, receivedAt: wsReceivedAt } =
+    useMarketSocket(['market.indices']);
 
-  const { data: indices = [], dataUpdatedAt: indicesReceivedAt } = useQuery({
+  const {
+    data: indices = [],
+    dataUpdatedAt: indicesReceivedAt,
+    isError: indicesError,
+    isFetching: indicesFetching,
+    refetch: refetchIndices,
+  } = useQuery({
     queryKey: ['dashboard', 'market-overview'],
     queryFn: () => dashboardApi.getMarketOverview(),
-    refetchInterval: 10000,
+    refetchInterval: wsStatus === 'open' ? false : 10000,
   });
 
-  const { data: quotesData, dataUpdatedAt: quotesReceivedAt } = useQuery({
+  const wsIndices = wsData['market.indices'] as MarketOverview[] | undefined;
+  const displayIndices = useMemo(() => {
+    if (wsStatus !== 'open' || !Array.isArray(wsIndices) || wsIndices.length === 0) {
+      return indices;
+    }
+    return wsIndices;
+  }, [indices, wsIndices, wsStatus]);
+  const indicesClock = wsStatus === 'open' && wsIndices?.length
+    ? (wsReceivedAt['market.indices'] ?? indicesReceivedAt)
+    : indicesReceivedAt;
+
+  const {
+    data: quotesData,
+    dataUpdatedAt: quotesReceivedAt,
+    isError: quotesError,
+    isFetching: quotesFetching,
+    refetch: refetchQuotes,
+  } = useQuery({
     queryKey: ['market', 'quotes', page, pageSize, sortBy],
     queryFn: () => marketApi.getQuotes(page, pageSize, sortBy, 'desc'),
     refetchInterval: 6000,
     enabled: tab === 'all',
   });
 
-  const agedIndices = indices.map((index) =>
-    ageQuote(index, indicesReceivedAt, freshnessNow)
+  const agedIndices = displayIndices.map((index) =>
+    ageQuote(index, indicesClock, freshnessNow)
   );
   const stocks = (quotesData?.stocks ?? []).map((quote) =>
     ageQuote(quote, quotesReceivedAt, freshnessNow)
@@ -60,6 +88,13 @@ export default function MarketPage() {
   const quoteSummary = stocks[0];
   const total = quotesData?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const quotesEmpty = tab === 'all' && stocks.length === 0;
+  const quotesStaleAt = quotesReceivedAt
+    ? new Date(quotesReceivedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : null;
+  const indicesStaleAt = indicesReceivedAt
+    ? new Date(indicesReceivedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : null;
 
   return (
     <RequireAuth>
@@ -92,8 +127,29 @@ export default function MarketPage() {
           })}
           {agedIndices.length === 0 && (
             <Card className="sm:col-span-3">
-              <CardContent className="p-4 text-sm text-muted-foreground">
-                指数行情暂不可用（免费源可能限流，稍后自动恢复）
+              <CardContent className="space-y-3 p-4 text-sm text-muted-foreground">
+                <div className="flex items-start gap-2">
+                  {(indicesError || indicesFetching) && (
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                  )}
+                  <div>
+                    <p>指数行情暂不可用（免费源可能限流，稍后自动恢复）</p>
+                    {indicesStaleAt && (
+                      <p className="mt-1 text-xs">上次更新 {indicesStaleAt}{indicesFetching ? ' · 刷新中…' : ''}</p>
+                    )}
+                  </div>
+                </div>
+                {(indicesError || agedIndices.length === 0) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => refetchIndices()}
+                    disabled={indicesFetching}
+                  >
+                    <RefreshCw className={cn('mr-1.5 h-3.5 w-3.5', indicesFetching && 'animate-spin')} />
+                    立即重试
+                  </Button>
+                )}
               </CardContent>
             </Card>
           )}
@@ -170,6 +226,30 @@ export default function MarketPage() {
               <CardContent>
                 {tab === 'all' ? (
                   <>
+                    {(quotesError || quotesEmpty) && (
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                          <div>
+                            <p>{quotesError ? '行情加载失败' : '暂无行情数据'}</p>
+                            {quotesStaleAt && (
+                              <p className="mt-0.5 text-[11px] opacity-80">
+                                上次更新 {quotesStaleAt}{quotesFetching ? ' · 刷新中…' : ''}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => refetchQuotes()}
+                          disabled={quotesFetching}
+                        >
+                          <RefreshCw className={cn('mr-1.5 h-3.5 w-3.5', quotesFetching && 'animate-spin')} />
+                          立即重试
+                        </Button>
+                      </div>
+                    )}
                     <QuotesTable
                       stocks={stocks}
                       emptyText="行情暂不可用（免费行情源可能限流，稍后自动恢复）"

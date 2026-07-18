@@ -65,15 +65,32 @@ async def lifespan(app: FastAPI):
 
     from app.ws.broadcaster import push_loop
 
-    push_task = asyncio.create_task(push_loop())
+    push_task = asyncio.create_task(push_loop()) if role in {"all", "api"} else None
+
+    job_worker_started = False
+    if run_background:
+        try:
+            from app.services.backtest_jobs import start_job_worker
+
+            start_job_worker()
+            job_worker_started = True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("回测任务 worker 启动失败：%s", type(exc).__name__)
+    elif role == "api":
+        logger.info("process_role=api：跳过回测任务 worker")
 
     yield
 
-    push_task.cancel()
-    try:
-        await push_task
-    except asyncio.CancelledError:
-        pass
+    if push_task is not None:
+        push_task.cancel()
+        try:
+            await push_task
+        except asyncio.CancelledError:
+            pass
+    if job_worker_started:
+        from app.services.backtest_jobs import shutdown_job_worker
+
+        shutdown_job_worker()
     if scheduler_started:
         from app.services.scheduler import shutdown_scheduler
 

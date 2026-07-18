@@ -27,10 +27,15 @@ vi.mock('@tanstack/react-query', () => ({
     mocks.mutationConfigs.push(config);
     return { mutate: vi.fn(), isPending: false };
   },
+  useQueryClient: () => ({
+    clear: vi.fn(),
+    cancelQueries: vi.fn(),
+    invalidateQueries: vi.fn(),
+  }),
 }));
 
 vi.mock('@/stores/useAuthStore', () => ({
-  useAuthStore: () => ({ setAuth: mocks.setAuth }),
+  useAuthStore: () => ({ setAuth: mocks.setAuth, isAuthenticated: false }),
 }));
 
 describe('auth validation', () => {

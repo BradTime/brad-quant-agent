@@ -51,7 +51,7 @@
 
 ## 3. Technical Constraints（技术约束）
 
-- **前端**：Next.js 15 / React 19 / shadcn/ui / ECharts / Zustand / React Query；国际化用 `next-intl` **预留**（MVP 仅中文，文案不写死）。
+- **前端**：Next.js 16 / React 19 / shadcn/ui / ECharts / Zustand / React Query；国际化用 `next-intl` **预留**（MVP 仅中文，文案不写死）。
 - **后端**：Python **FastAPI**（异步 + 原生 WebSocket）；废弃 Express。
 - **数据源**：AkShare（主力，覆盖最广）+ BaoStock（历史 K线 / 财务，最稳，用于落库与 Phase 4 回测）+ efinance（补实时快照）；统一经 **`DataProvider` 抽象**、可热插拔（预留 Tushare Pro / 付费源）。
 - **存储**：**Postgres**（业务数据 + 历史 K线，多用户就绪）；Redis **后置**（行情缓存 / 限流 / 任务队列，按需引入）；DuckDB/Parquet 列存留 **Phase 4** 回测时再引入。
@@ -89,7 +89,7 @@
 
 ```
 brad-quant-agent/
-├── frontend/                 # Next.js 15 + React 19（看盘 / AI / 交易 / 研究 UI）
+├── frontend/                 # Next.js 16 + React 19（看盘 / AI / 交易 / 研究 UI）
 │   ├── src/
 │   ├── public/
 │   ├── package.json
@@ -232,7 +232,7 @@ brad-quant-agent/
 - [x] **WS 私有定向推送通道**：连接按 `user_id` 建反向索引，`send_to_user`/`notify_user`(async)+`notify_user_threadsafe`(同步撮合/调度器用)，私有事件信封；Phase 3 成交回报/持仓变动复用（私有数据绝不走广播）
 - [x] **自主深度研究持久化**：`research_reports` 表落库（问题/计划/分步轨迹/正文/状态），`GET /ai/research`(列表)+`/ai/research/{id}`(详情)，前端「研究历史」可回看；为 Phase 3 AI 复盘复用
 - [x] **批量数据回填**：`cli backfill`（日K+复权因子+资金流+财务+新闻，逐项降级）；已扩 daily_bars→6776、adjust_factors 0→44、news→181、RAG documents→253
-- [x] **CI（GitHub Actions）**：后端 `ruff check`+`pytest`（含 pgvector 服务容器、RAG 关闭确定性运行）；前端 `eslint`+`next build`
+- [x] **CI（GitHub Actions）**：后端 `ruff check`+`pytest`（含 pgvector 服务容器、RAG 关闭确定性运行）；前端 `vitest`+`eslint`+`next build`；独立 job 跑 **Playwright** E2E 冒烟（注册/鉴权/各页渲染，无 LLM）
 - [x] **Sentry（后端，DSN 可选）**：配置 `SENTRY_DSN` 才启用、默认零开销不外联；`ruff` 纳入质量基线
 - [x] **AI 成本闸**：`ai_cost_gate` 每用户每日配额（chat/research/brief/backtest）+ 重型生成最小间隔，SSE 超额优雅拒
 - [x] **自动化 E2E（Playwright）**：注册/鉴权门/各页渲染冒烟（确定性、无 LLM）
@@ -258,6 +258,19 @@ brad-quant-agent/
 - [x] **分钟级回测**：5/15/30/60 分钟后复权加载、下一根开盘撮合、自然交易日 T+1、昨收涨跌停、单次/网格/API/前端/历史配置全链路
 - [x] **Backtrader Cerebro 调度适配**：Cerebro + PandasData 装载后复权日/分钟 bars，包装统一 `Context` 策略语义并保持下一 bar 开盘；默认 BackBroker 无法精确表达本项目全部 A 股规则，因此适配器显式复用共享 A 股执行账本（不调用 `NativeEngine`）。对拍验证的是 Cerebro 与 native 的调度/时间轴一致性，**不作为独立撮合正确性证明**
 - [x] **H2 历史费税/涨跌停**：回测按上海交易日解释 `Fill.trade_date` 后适用印花税；每根 bar 按日期 + `Instrument.list_date` 生成涨跌停比例（主板 10%、主板 ST 5%、创业板改革前 10%/后 20%、科创板 688/689 为 20%、北交所 30%，注册制板块上市前 5 个 XSHG 中国交易日无涨跌停）。存在涨跌停规则但快照缺昨收时不可成交；昨日 DAY 单在锁内上海跨日结算后先撤销。当前尚无历史 PIT ST 状态序列，缺口下不使用当前名称倒灌，保守按代码/日期制度并显式披露。
+
+### Medium audit remediation（M16–M27）
+- [x] **M16 类型契约（增量）**：前端 `BacktestJob` / `SimOrderStatus` 联合类型；`getJob` 经 zod 校验 unwrap
+- [x] **M17 MARKET_TZ**：`backend/app/core/tz.py` + 后端服务/Provider 统一引用；前端 `lib/constants/market-tz.ts` 供 quote 新鲜度/标注
+- [x] **M18 金额舍入**：模拟交易 cash/frozen 写入路径统一 `round_money`
+- [x] **M19 状态 StrEnum**：`BacktestJobStatus`（后端 StrEnum + 前端 union）；`SimOrderStatus` Literal
+- [ ] **M20 httpOnly SSR 鉴权**：**延后产品化** — MVP 仍用 localStorage JWT/refresh；完整 httpOnly cookie + SSR session 需无破坏迁移，见 `useAuthStore` 注释；`RequireAuth` 已 hydration 门控减闪烁
+- [x] **M21 ECharts tree-shake**：图表组件改 `echarts/core` + 按需 register
+- [x] **M22 流式 batching**：chat-panel / brief 生成 `requestAnimationFrame` 合并 onDelta
+- [x] **M23 WS 开时停 HTTP poll**：个股详情 quote poll；看盘页 indices 订阅 `market.indices` 后停 poll
+- [x] **M24 Next standalone**：`output: 'standalone'` + Dockerfile 复制 standalone 产物
+- [x] **M25/M26 CI 与文档**：README/SPEC 对齐 Vitest+Playwright CI；Phase 3/4 完成态；Next.js 16
+- [x] **M27 前端 Sentry**：`lib/sentry.ts` 可选 DSN + ErrorBoundary `captureException`（动态 import `@sentry/nextjs`，未安装时 console 提示）
 
 ---
 

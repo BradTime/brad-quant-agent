@@ -26,11 +26,21 @@ import { marketApi, type KlinePeriod, type StockQuote } from '@/lib/api/market';
 import { selectDisplayQuote } from '@/lib/api/quote-selection';
 import { watchlistApi } from '@/lib/api/watchlist';
 import { watchlistQueryKeys } from '@/components/market/watchlist-query-keys';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import { useFreshnessClock } from '@/hooks/useFreshnessClock';
 import { useMarketSocket } from '@/hooks/useMarketSocket';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { formatAmount } from '@/lib/utils/format';
 import { cn } from '@/lib/utils';
+import type { ApiResponse } from '@/types';
+import { ERROR_CODES } from '@/lib/constants';
 
 const PERIODS: { key: KlinePeriod; label: string }[] = [
   { key: 'day', label: '日K' },
@@ -82,23 +92,33 @@ export default function StockDetailPage() {
   const [overlay, setOverlay] = useState<MainOverlay>('ma');
   const [sub, setSub] = useState<SubIndicator>('macd');
   const [panel, setPanel] = useState<PanelKey>('overview');
+  const [watchGroup, setWatchGroup] = useState('默认分组');
+  const [newWatchGroup, setNewWatchGroup] = useState('');
   const freshnessNow = useFreshnessClock();
-
-  const { data: quote, dataUpdatedAt: quoteReceivedAt } = useQuery({
-    queryKey: ['market', 'quote', rawCode],
-    queryFn: () => marketApi.getQuote(rawCode),
-    refetchInterval: 6000,
-    retry: false,
-  });
-
-  const canonical = quote?.code ?? rawCode;
-  const quoteTopic = `market.quote.${canonical}`;
+  const quoteTopic = `market.quote.${rawCode}`;
 
   const {
     status: wsStatus,
     data: wsData,
     receivedAt: wsReceivedAt,
-  } = useMarketSocket(canonical ? [quoteTopic] : []);
+  } = useMarketSocket(rawCode ? [quoteTopic] : []);
+
+  const { data: quote, dataUpdatedAt: quoteReceivedAt, isError: quoteError, error: quoteErr } = useQuery({
+    queryKey: ['market', 'quote', rawCode],
+    queryFn: () => marketApi.getQuote(rawCode),
+    refetchInterval: (query) => {
+      const err = query.state.error as unknown as ApiResponse | undefined;
+      if (err?.code === ERROR_CODES.NOT_FOUND) return false;
+      if (wsStatus === 'open') return false;
+      return 6000;
+    },
+    retry: false,
+  });
+
+  const isQuoteNotFound =
+    quoteError && (quoteErr as unknown as ApiResponse | undefined)?.code === ERROR_CODES.NOT_FOUND;
+
+  const canonical = quote?.code ?? rawCode;
   const liveQuote = (wsData[quoteTopic] as StockQuote | undefined) ?? undefined;
   const q = selectDisplayQuote(
     quote,
@@ -159,15 +179,26 @@ export default function StockDetailPage() {
     enabled: Boolean(userId),
     retry: false,
   });
+  const { data: watchGroups = ['默认分组'] } = useQuery({
+    queryKey: watchlistQueryKeys.groups(userId),
+    queryFn: () => watchlistApi.getGroups(),
+    enabled: Boolean(userId),
+    retry: false,
+  });
   const isWatched = watchlist.some((w) => w.code === canonical);
 
   const toggleWatch = useMutation({
     mutationFn: async () => {
       if (isWatched) await watchlistApi.remove(canonical);
-      else await watchlistApi.add(canonical, { name: q?.name });
+      else {
+        const group = newWatchGroup.trim() || watchGroup || '默认分组';
+        await watchlistApi.add(canonical, { name: q?.name, group });
+      }
     },
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: watchlistQueryKeys.all(userId) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: watchlistQueryKeys.all(userId) });
+      queryClient.invalidateQueries({ queryKey: watchlistQueryKeys.groups(userId) });
+    },
   });
 
   const refresh = useMutation({
@@ -190,6 +221,20 @@ export default function StockDetailPage() {
 
   return (
     <RequireAuth>
+      {isQuoteNotFound ? (
+        <div className="container mx-auto max-w-lg p-10 text-center">
+          <h1 className="font-display text-2xl tracking-tight">未找到该标的</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            代码「{rawCode}」不存在或暂无行情数据，请检查代码格式（如 600000.SH）。
+          </p>
+          <Link
+            href="/market"
+            className="mt-6 inline-flex items-center gap-1.5 rounded-xl bg-brand px-4 py-2.5 text-sm font-medium text-brand-foreground"
+          >
+            <ArrowLeft className="h-4 w-4" /> 返回看盘工作台
+          </Link>
+        </div>
+      ) : (
       <div className="container mx-auto space-y-5 p-4 lg:p-6">
         {/* 顶部导航 */}
         <div className="flex items-center justify-between">
@@ -204,16 +249,38 @@ export default function StockDetailPage() {
               variant="outline"
               size="sm"
               onClick={() => refresh.mutate()}
-              disabled={refresh.isPending}
+              disabled={refresh.isPending || isQuoteNotFound}
             >
               <RefreshCw className={cn('mr-1.5 h-3.5 w-3.5', refresh.isPending && 'animate-spin')} />
               {refresh.isPending ? '落库中…' : '刷新数据'}
             </Button>
+            {!isWatched && (
+              <>
+                <Select value={watchGroup} onValueChange={setWatchGroup}>
+                  <SelectTrigger className="h-8 w-[120px] text-xs">
+                    <SelectValue placeholder="分组" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[...new Set([...watchGroups, '默认分组'])].sort().map((g) => (
+                      <SelectItem key={g} value={g} className="text-xs">
+                        {g}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  value={newWatchGroup}
+                  onChange={(e) => setNewWatchGroup(e.target.value)}
+                  placeholder="或新建分组"
+                  className="h-8 w-[120px] text-xs"
+                />
+              </>
+            )}
             <Button
               variant={isWatched ? 'default' : 'outline'}
               size="sm"
               onClick={() => toggleWatch.mutate()}
-              disabled={toggleWatch.isPending}
+              disabled={toggleWatch.isPending || isQuoteNotFound}
             >
               {isWatched ? (
                 <><StarOff className="mr-1.5 h-3.5 w-3.5" /> 移出自选</>
@@ -284,6 +351,8 @@ export default function StockDetailPage() {
                     {PERIODS.map((p) => (
                       <button
                         key={p.key}
+                        type="button"
+                        aria-pressed={period === p.key}
                         onClick={() => setPeriod(p.key)}
                         className={cn(
                           'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
@@ -304,6 +373,8 @@ export default function StockDetailPage() {
                     {OVERLAYS.map((o) => (
                       <button
                         key={o.key}
+                        type="button"
+                        aria-pressed={overlay === o.key}
                         onClick={() => setOverlay(o.key)}
                         className={cn(
                           'rounded px-1.5 py-0.5 transition-colors',
@@ -319,6 +390,8 @@ export default function StockDetailPage() {
                     {SUBS.map((s) => (
                       <button
                         key={s.key}
+                        type="button"
+                        aria-pressed={sub === s.key}
                         onClick={() => setSub(s.key)}
                         className={cn(
                           'rounded px-1.5 py-0.5 transition-colors',
@@ -504,6 +577,7 @@ export default function StockDetailPage() {
           </div>
         </div>
       </div>
+      )}
     </RequireAuth>
   );
 }

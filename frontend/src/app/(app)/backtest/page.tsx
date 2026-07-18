@@ -118,6 +118,9 @@ export default function BacktestPage() {
   const [sortBy, setSortBy] = useState<GridSortMetric>('sharpeRatio');
   const [gridResult, setGridResult] = useState<GridSearchResult | null>(null);
   const [gridRunning, setGridRunning] = useState(false);
+  const [gridProgress, setGridProgress] = useState('');
+  const [gridAbort, setGridAbort] = useState<AbortController | null>(null);
+  const [gridJobId, setGridJobId] = useState<string | null>(null);
 
   const current = useMemo(
     () => catalog.find((c) => c.type === strategyType),
@@ -237,6 +240,7 @@ export default function BacktestPage() {
   const runGrid = useCallback(async () => {
     setError('');
     setGridResult(null);
+    setGridProgress('');
     try {
       const paramGrid: Record<string, number[]> = {};
       (current?.params || []).forEach((p) => {
@@ -257,25 +261,45 @@ export default function BacktestPage() {
         setError(validationError);
         return;
       }
+      const ac = new AbortController();
+      setGridAbort(ac);
       setGridRunning(true);
-      const res = await backtestApi.gridSearch({
-        strategyType,
-        paramGrid,
-        codes: codes.split(',').map((s) => s.trim()).filter(Boolean),
-        start,
-        end,
-        initialCapital: capital,
-        slippage,
-        engine,
-        sortBy,
-        frequency,
-      });
+      const res = await backtestApi.gridSearch(
+        {
+          strategyType,
+          paramGrid,
+          codes: codes.split(',').map((s) => s.trim()).filter(Boolean),
+          start,
+          end,
+          initialCapital: capital,
+          slippage,
+          engine,
+          sortBy,
+          frequency,
+        },
+        {
+          signal: ac.signal,
+          onProgress: (job) => {
+            setGridJobId(job.id);
+            setGridProgress(
+              `${job.status} ${job.progressDone}/${job.progressTotal || '?'}`,
+            );
+          },
+        },
+      );
       setGridResult(res);
       setError(res.error || '');
     } catch (e) {
-      setError((e as { message?: string })?.message || '寻优失败，请稍后重试');
+      if ((e as { name?: string })?.name === 'AbortError') {
+        setError('已取消网格寻优');
+      } else {
+        setError((e as { message?: string })?.message || '寻优失败，请稍后重试');
+      }
     } finally {
       setGridRunning(false);
+      setGridAbort(null);
+      setGridJobId(null);
+      setGridProgress('');
     }
   }, [
     current,
@@ -291,6 +315,17 @@ export default function BacktestPage() {
     sortBy,
     frequency,
   ]);
+
+  const cancelGrid = useCallback(async () => {
+    if (gridJobId) {
+      try {
+        await backtestApi.cancelJob(gridJobId);
+      } catch {
+        /* ignore */
+      }
+    }
+    gridAbort?.abort();
+  }, [gridAbort, gridJobId]);
 
   const applyRow = useCallback((row: GridResultRow) => {
     setParams((prev) => ({ ...prev, ...row.params }));
@@ -309,6 +344,11 @@ export default function BacktestPage() {
   );
   const m = result?.metrics || {};
   const actualRange = result?.actualRange;
+  const formErrorId = 'backtest-form-error';
+  const invalidCodes = !!error && (error.includes('标的') || error.includes('代码'));
+  const invalidDates = !!error && error.includes('日期');
+  const invalidCapital = !!error && error.includes('初始资金');
+  const invalidSlippage = !!error && error.includes('滑点');
 
   return (
     <div className="container mx-auto max-w-6xl p-6">
@@ -425,6 +465,8 @@ export default function BacktestPage() {
                 value={codes}
                 onChange={(e) => setCodes(e.target.value)}
                 placeholder="600000.SH, 000001.SZ"
+                aria-invalid={invalidCodes || undefined}
+                aria-describedby={error ? formErrorId : undefined}
                 className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
               />
             </label>
@@ -482,6 +524,8 @@ export default function BacktestPage() {
                   type="date"
                   value={start}
                   onChange={(e) => setStart(e.target.value)}
+                  aria-invalid={invalidDates || undefined}
+                  aria-describedby={error ? formErrorId : undefined}
                   className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-2 text-sm"
                 />
               </label>
@@ -491,6 +535,8 @@ export default function BacktestPage() {
                   type="date"
                   value={end}
                   onChange={(e) => setEnd(e.target.value)}
+                  aria-invalid={invalidDates || undefined}
+                  aria-describedby={error ? formErrorId : undefined}
                   className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-2 text-sm"
                 />
               </label>
@@ -503,6 +549,8 @@ export default function BacktestPage() {
                   type="number"
                   value={capital}
                   onChange={(e) => setCapital(Number(e.target.value))}
+                  aria-invalid={invalidCapital || undefined}
+                  aria-describedby={error ? formErrorId : undefined}
                   className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm tabular-nums"
                 />
               </label>
@@ -513,6 +561,8 @@ export default function BacktestPage() {
                   step={0.001}
                   value={slippage}
                   onChange={(e) => setSlippage(Number(e.target.value))}
+                  aria-invalid={invalidSlippage || undefined}
+                  aria-describedby={error ? formErrorId : undefined}
                   className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm tabular-nums"
                 />
               </label>
@@ -546,14 +596,25 @@ export default function BacktestPage() {
               )}
               {gridMode
                 ? gridRunning
-                  ? '寻优中…'
+                  ? gridProgress
+                    ? `寻优中… ${gridProgress}`
+                    : '寻优中…'
                   : '网格寻优'
                 : running
                   ? '回测中…'
                   : '运行回测'}
             </button>
+            {gridMode && gridRunning && (
+              <button
+                type="button"
+                onClick={() => void cancelGrid()}
+                className="w-full rounded-xl border border-border px-4 py-2 text-sm text-muted-foreground hover:text-foreground"
+              >
+                取消寻优
+              </button>
+            )}
             {error && (
-              <p role="alert" className="text-xs text-red-600">
+              <p id={formErrorId} role="alert" className="text-xs text-red-600">
                 {error}
               </p>
             )}

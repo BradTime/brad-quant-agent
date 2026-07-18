@@ -15,7 +15,8 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from functools import lru_cache
-from zoneinfo import ZoneInfo
+
+from app.core.tz import MARKET_TZ
 
 # 资金 / 整手
 INITIAL_CASH = 1_000_000.0
@@ -37,7 +38,6 @@ PRICE_LIMIT_ST = 0.05
 PRICE_LIMIT_BSE = 0.30
 GEM_REFORM_DATE = date(2020, 8, 24)
 NO_LIMIT_SESSIONS = 5
-_SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 
 def round_money(x: float) -> float:
@@ -53,7 +53,7 @@ def commission(amount: float) -> float:
 def _as_date(value: date | datetime | None) -> date | None:
     if isinstance(value, datetime):
         if value.tzinfo is not None and value.utcoffset() is not None:
-            value = value.astimezone(_SHANGHAI)
+            value = value.astimezone(MARKET_TZ)
         return value.date()
     return value
 

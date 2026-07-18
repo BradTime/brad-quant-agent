@@ -1,6 +1,8 @@
 # 本地一键编排：Postgres + 后端(FastAPI) + 前端(Next.js)
 # 用法：docker compose up --build
+# 冷启动灌演示数据：docker compose --profile seed up --build
 # 说明：后端镜像构建需联网装 pip 依赖；前端镜像构建需联网拉 Google 字体。
+# 默认 backend 为单体（PROCESS_ROLE=all）；拆 api/worker 时见 backend/.env.example。
 services:
   postgres:
     # pgvector/pgvector:pg16 = PG16 + 预装 pgvector 扩展（RAG 向量检索用），与 postgres:16 数据格式兼容
@@ -24,6 +26,7 @@ services:
     build: ./backend
     container_name: quant-agent-backend
     # backend/.env 提供 DEEPSEEK_API_KEY、JWT_SECRET 等；下面的 environment 覆盖容器内连接地址。
+    # PROCESS_ROLE=all（默认）= HTTP + 调度器 + embedding 预热同进程；生产可拆 api / worker 两容器。
     env_file:
       - ./backend/.env
     environment:
@@ -45,6 +48,21 @@ services:
       - "3000:3000"
     depends_on:
       - backend
+
+  # 一次性：迁移后灌入演示行情 + 分组自选股（需 postgres 健康；profile 不随默认 up 启动）
+  seed:
+    profiles: ["seed"]
+    build: ./backend
+    container_name: quant-agent-seed
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/quant_agent
+      AUTH_AUTO_VERIFY_REGISTRATION: "true"
+    command: sh -c "alembic upgrade head && python scripts/seed_demo.py"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   pgdata:

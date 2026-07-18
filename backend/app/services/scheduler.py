@@ -22,6 +22,7 @@ def start_scheduler():
     from apscheduler.schedulers.background import BackgroundScheduler
 
     from app.core.config import settings
+    from app.core.tz import MARKET_TZ
     from app.services import job_health, market
 
     # APScheduler 自身的 INFO/WARNING（如任务跳过提示）对轮询缓存属正常现象，调高阈值降噪。
@@ -29,7 +30,7 @@ def start_scheduler():
 
     quote_secs = max(settings.quote_refresh_seconds, 1)
     index_secs = max(settings.index_refresh_seconds, 1)
-    scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
+    scheduler = BackgroundScheduler(timezone=MARKET_TZ)
 
     @job_health.tracked("refresh_quotes")
     def _refresh_quotes() -> None:
@@ -100,6 +101,34 @@ def start_scheduler():
         hour=15,
         minute=5,
         id="settle_day_orders",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=1800,
+    )
+
+    # 收盘后落库近期龙虎榜（全市场按日期范围，非逐股）
+    @job_health.tracked("ingest_dragon_tiger")
+    def _ingest_dragon_tiger_tracked() -> None:
+        from datetime import date, timedelta
+
+        from app.services import ingest
+
+        end = date.today()
+        start = end - timedelta(days=7)
+        ingest.ingest_dragon_tiger(start.isoformat(), end.isoformat())
+
+    def _ingest_dragon_tiger_job() -> None:
+        try:
+            _ingest_dragon_tiger_tracked()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("龙虎榜落库失败（忽略）：%s", exc)
+
+    scheduler.add_job(
+        _ingest_dragon_tiger_job,
+        "cron",
+        hour=16,
+        minute=5,
+        id="ingest_dragon_tiger",
         max_instances=1,
         coalesce=True,
         misfire_grace_time=1800,

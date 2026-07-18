@@ -3,6 +3,7 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { captureException } from '@/lib/sentry';
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -25,15 +26,10 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    // 在开发环境下输出错误信息
     if (process.env.NODE_ENV === 'development') {
       console.error('Error caught by boundary:', error, errorInfo);
     }
-
-    // TODO: 在生产环境下，将错误上报到 Sentry
-    // if (process.env.NODE_ENV === 'production') {
-    //   Sentry.captureException(error, { contexts: { react: errorInfo } });
-    // }
+    captureException(error, { react: errorInfo.componentStack ?? '' });
   }
 
   resetError = () => {

@@ -31,6 +31,7 @@ import {
   type ResearchReportSummary,
   type UserMemory,
 } from '@/lib/api/ai';
+import { useRafBatchedString } from '@/hooks/useRafBatchedString';
 import { cn } from '@/lib/utils';
 import { Markdown } from './markdown';
 import { ResearchPlanCard } from './research-plan';
@@ -243,6 +244,14 @@ export function ChatPanel({
     assistantMessageId: string;
   } | null>(null);
   const generationRef = useRef(0);
+  const streamTargetRef = useRef<{ id: string; gen: number }>({ id: '', gen: 0 });
+  const { append: appendStreamDelta, reset: resetStreamDelta } = useRafBatchedString(
+    (content) => {
+      const { id, gen } = streamTargetRef.current;
+      if (!id || gen !== generationRef.current) return;
+      setMessages((current) => patchDisplayMessageById(current, id, { content }));
+    },
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
   const interactedRef = useRef(false);
 
@@ -555,6 +564,8 @@ export function ChatPanel({
 
     const controller = new AbortController();
     abortRef.current = controller;
+    streamTargetRef.current = { id: assistantMessageId, gen: generation };
+    resetStreamDelta('');
 
     const patchAssistant = (patch: Partial<DisplayMessage>) => {
       if (generation !== generationRef.current) return;
@@ -563,7 +574,6 @@ export function ChatPanel({
       );
     };
 
-    let acc = '';
     let streamError = '';
     let sessionInvalid = false;
     try {
@@ -585,8 +595,7 @@ export function ChatPanel({
           },
           onDelta: (piece) => {
             if (generation !== generationRef.current) return;
-            acc += piece;
-            patchAssistant({ content: acc });
+            appendStreamDelta(piece);
           },
           onError: (msg) => {
             streamError = msg;
@@ -605,8 +614,7 @@ export function ChatPanel({
         },
         onDelta: (piece) => {
           if (generation !== generationRef.current) return;
-          acc += piece;
-          patchAssistant({ content: acc });
+          appendStreamDelta(piece);
         },
         onError: (msg) => {
           streamError = msg;

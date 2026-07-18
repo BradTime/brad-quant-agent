@@ -136,11 +136,15 @@ def logout(user: User = Depends(get_current_user)):
 
 @router.post("/refresh")
 def refresh(body: RefreshRequest):
+    """Refresh 族轮换：消费当前 refresh 并递增 token_version，旧 refresh 立即失效。"""
     payload = decode_token(body.refreshToken)
     if not payload or payload.get("type") != "refresh":
         return error("refresh token 无效或已过期", code=10003, http_status=401)
     subject = str(payload.get("sub"))
-    user = auth_service.user_matches_token_version(subject, token_version_of(payload))
+    expected = token_version_of(payload)
+    if expected is None:
+        return error("refresh token 无效或已过期", code=10003, http_status=401)
+    user = auth_service.rotate_refresh_tokens(subject, expected)
     if user is None:
         return error("用户不存在或令牌已失效", code=10003, http_status=401)
     version = int(user.token_version or 0)

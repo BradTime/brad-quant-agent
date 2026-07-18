@@ -232,3 +232,23 @@ def revoke_user_tokens(user_id: str) -> bool:
         user.token_version = int(user.token_version or 0) + 1
         session.commit()
         return True
+
+
+def rotate_refresh_tokens(user_id: str, expected_version: int) -> User | None:
+    """Refresh 族轮换：校验当前 tv 后递增，使旧 refresh 立即失效，再签发新对。
+
+    成功返回锁定后的用户（新 token_version 已提交）；版本不匹配或用户不存在返回 None。
+    """
+    with SessionLocal() as session:
+        user = session.execute(
+            select(User).where(User.id == user_id).with_for_update()
+        ).scalar_one_or_none()
+        if user is None:
+            return None
+        current = int(user.token_version or 0)
+        if current != int(expected_version):
+            return None
+        user.token_version = current + 1
+        session.commit()
+        session.refresh(user)
+        return user

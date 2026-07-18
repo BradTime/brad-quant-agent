@@ -1,11 +1,20 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, Copy, FlaskConical, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { strategyQueryKeys } from '@/components/strategy/query-keys';
 import { strategiesApi } from '@/lib/api/strategies';
 import { formatDate } from '@/lib/utils/format';
@@ -17,6 +26,7 @@ export default function StrategyDetailPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const userId = useAuthStore((state) => state.user?.id);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const strategy = useQuery({
     queryKey: strategyQueryKeys.detail(userId, id),
     queryFn: () => strategiesApi.getDetail(id),
@@ -179,18 +189,33 @@ export default function StrategyDetailPage() {
       </Card>
 
       <div className="flex justify-end">
-        <Button
-          variant="destructive"
-          onClick={() => {
-            if (window.confirm('确定删除这个策略吗？此操作不可撤销。')) {
-              remove.mutate();
-            }
-          }}
-          disabled={remove.isPending}
-        >
+        <Button variant="destructive" onClick={() => setDeleteOpen(true)} disabled={remove.isPending}>
           删除策略
         </Button>
       </div>
+
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认删除策略</DialogTitle>
+            <DialogDescription>
+              确定删除策略「{item.name}」吗？此操作不可撤销。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteOpen(false)}>
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={remove.isPending}
+              onClick={() => remove.mutate()}
+            >
+              删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

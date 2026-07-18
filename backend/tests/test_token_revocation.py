@@ -108,6 +108,38 @@ def test_logout_endpoint_revokes_access_and_refresh(token_env) -> None:
     )
 
 
+def test_refresh_rotates_version_and_invalidates_old_refresh(token_env) -> None:
+    """H6：refresh 族轮换 —— 成功刷新后旧 refresh 立即失效。"""
+    data = _register_and_login("rotate@example.com")
+    client = TestClient(app)
+    first = client.post(
+        "/api/v1/auth/refresh",
+        json={"refreshToken": data["refreshToken"]},
+    )
+    assert first.status_code == 200
+    body = first.json()["data"]
+    assert body["refreshToken"] != data["refreshToken"]
+    new_payload = security.decode_token(body["refreshToken"])
+    assert new_payload is not None
+    assert new_payload["tv"] == 1
+
+    # 旧 refresh 不可再用
+    assert (
+        client.post(
+            "/api/v1/auth/refresh",
+            json={"refreshToken": data["refreshToken"]},
+        ).status_code
+        == 401
+    )
+    # 新 refresh 可用并再次轮换
+    second = client.post(
+        "/api/v1/auth/refresh",
+        json={"refreshToken": body["refreshToken"]},
+    )
+    assert second.status_code == 200
+    assert security.decode_token(second.json()["data"]["refreshToken"])["tv"] == 2
+
+
 def test_ws_rejects_revoked_token_on_next_message(token_env) -> None:
     data = _register_and_login("ws-revoke@example.com")
     client = TestClient(app)

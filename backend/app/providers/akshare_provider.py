@@ -8,10 +8,10 @@ is lazy. Realtime is a snapshot (seconds-level), not true tick.
 from __future__ import annotations
 
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from app.core.dtutil import parse_date, parse_datetime
 from app.core.numeric import parse_cn_decimal, to_float
+from app.core.tz import market_now
 from app.providers import symbols
 from app.providers.base import (
     BarDTO,
@@ -25,7 +25,6 @@ from app.providers.base import (
     QuoteDTO,
 )
 
-_SHANGHAI = ZoneInfo("Asia/Shanghai")
 _log = __import__("logging").getLogger(__name__)
 
 
@@ -89,7 +88,7 @@ class AkShareProvider(DataProvider):
         wanted = {symbols.to_six(c) for c in codes} if codes else None
         # Eastmoney spot rows do not consistently expose exchange event time.
         # Record the actual snapshot observation time here; WS send time is separate.
-        now = datetime.now(_SHANGHAI)
+        now = market_now()
         out: list[QuoteDTO] = []
         for _, row in df.iterrows():
             six = str(_pick(row, "代码", "code") or "").zfill(6)
@@ -163,7 +162,7 @@ class AkShareProvider(DataProvider):
             _raise_unavailable("get_index_quotes", last_exc or RuntimeError("empty response"))
             return []  # pragma: no cover
         code_map = {symbols.to_six(c): c for c in codes}
-        now = datetime.now(_SHANGHAI)
+        now = market_now()
         out: list[QuoteDTO] = []
         for _, row in df.iterrows():
             six = str(_pick(row, "代码", "code") or "").zfill(6)

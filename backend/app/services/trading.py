@@ -14,15 +14,15 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from datetime import date
 from threading import RLock
 from uuid import uuid4
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
+from app.core.tz import market_today
 from app.db.session import SessionLocal
 from app.models.trading import SimAccount, SimOrder, SimPosition, SimTrade
 from app.services import market
@@ -31,7 +31,6 @@ from app.services.trading_rules import commission as _commission
 from app.services.trading_rules import round_money as _r
 
 logger = logging.getLogger(__name__)
-_SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 # SQLite 不支持行级 ``FOR UPDATE``，固定分片锁保证单进程测试/开发环境同用户串行。
 # PostgreSQL 正确性仍由下方数据库行锁保证，不能依赖此进程内锁跨 worker 生效。
@@ -65,11 +64,6 @@ def _price(code: str) -> float | None:
     """Compatibility helper for callers that only need an executable price."""
     snapshot = _execution_snapshot(code)
     return snapshot["price"] if snapshot is not None else None
-
-
-def market_today() -> date:
-    """Return the current A-share market date in Asia/Shanghai."""
-    return datetime.now(_SHANGHAI).date()
 
 
 def _price_limit_reason(
@@ -120,9 +114,9 @@ def _get_or_create_account(session, user_id: str, *, for_update: bool = False) -
     """原子创建账户后读取；写事务通过 ``for_update`` 锁定账户行。"""
     values = {
         "user_id": user_id,
-        "cash": INITIAL_CASH,
-        "frozen_cash": 0.0,
-        "initial_cash": INITIAL_CASH,
+        "cash": _r(INITIAL_CASH),
+        "frozen_cash": _r(0.0),
+        "initial_cash": _r(INITIAL_CASH),
         "last_settle_date": None,
     }
     dialect = session.get_bind().dialect.name
@@ -182,7 +176,7 @@ def _settle(session, acct: SimAccount) -> None:
         if o.side == "buy" and o.frozen:
             acct.cash = _r(acct.cash + o.frozen)
             acct.frozen_cash = _r(acct.frozen_cash - o.frozen)
-            o.frozen = 0.0
+            o.frozen = _r(0.0)
         o.status = "cancelled"
         o.reason = "日终未成交，自动撤销"
     for pos in session.execute(
@@ -403,7 +397,7 @@ def cancel_order(user_id: str, order_id: str) -> dict | None:
             if order.frozen:
                 acct.cash = _r(acct.cash + order.frozen)
                 acct.frozen_cash = _r(acct.frozen_cash - order.frozen)
-                order.frozen = 0.0
+                order.frozen = _r(0.0)
         else:
             pos = _get_position(session, user_id, order.code, for_update=True)
             if pos is not None:
@@ -460,7 +454,7 @@ def _try_match_pending_order(order_id: str, user_id: str) -> bool:
             if order.frozen:
                 acct.cash = _r(acct.cash + order.frozen)
                 acct.frozen_cash = _r(acct.frozen_cash - order.frozen)
-                order.frozen = 0.0
+                order.frozen = _r(0.0)
             reason = _fill(session, acct, order, min(px, limit))
         else:
             if px < limit:

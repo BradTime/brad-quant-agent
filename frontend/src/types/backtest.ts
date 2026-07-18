@@ -77,4 +77,27 @@ export interface TradeRecord {
   commission: number;
 }
 
+export type BacktestJobStatus =
+  | 'queued'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export interface BacktestJob {
+  id: string;
+  userId: string;
+  kind: string;
+  status: BacktestJobStatus;
+  cancelRequested: boolean;
+  progressDone: number;
+  progressTotal: number;
+  error?: string | null;
+  request?: Record<string, unknown>;
+  result?: Record<string, unknown> | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+}
 

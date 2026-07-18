@@ -21,7 +21,6 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from functools import partial
 from threading import Lock, RLock
 from uuid import uuid4
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import case, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -30,6 +29,7 @@ from sqlalchemy.orm import Session
 
 from app.core.numeric import to_decimal, to_int
 from app.core.ohlc import validate_ohlc
+from app.core.tz import MARKET_TZ
 from app.db.session import SessionLocal
 from app.models.extra import CapitalFlow, DragonTiger, FinancialSummary, NewsItem
 from app.models.ingestion import IngestionRun
@@ -39,7 +39,6 @@ from app.providers.registry import get_provider, get_provider_for
 
 logger = logging.getLogger(__name__)
 
-_SHANGHAI = ZoneInfo("Asia/Shanghai")
 _FINANCIAL_METRICS = (
     "eps",
     "bps",
@@ -98,7 +97,7 @@ def _resolve(provider_name: str | None, capability: str):
 def _utc_datetime(value: datetime) -> datetime:
     """Treat source-naive financial timestamps as Asia/Shanghai, then store UTC."""
     if value.tzinfo is None:
-        value = value.replace(tzinfo=_SHANGHAI)
+        value = value.replace(tzinfo=MARKET_TZ)
     return value.astimezone(UTC)
 
 
@@ -168,14 +167,14 @@ def _financial_availability(
     announced_at = _utc_datetime(item.announced_at)
     if item.announced_at_precision == "date":
         source_date = (
-            item.announced_at.astimezone(_SHANGHAI).date()
+            item.announced_at.astimezone(MARKET_TZ).date()
             if item.announced_at.tzinfo is not None
             else item.announced_at.date()
         )
         conservative_close = datetime.combine(
             source_date,
             dt_time(15, 0),
-            tzinfo=_SHANGHAI,
+            tzinfo=MARKET_TZ,
         ).astimezone(UTC)
         return announced_at, conservative_close
     return announced_at, announced_at
@@ -954,6 +953,7 @@ def backfill_codes(
     provider_name: str | None = None,
     minute_periods: list[str] | None = None,
     minute_start: str | None = None,
+    include_dragon_tiger: bool = False,
 ) -> dict[str, object]:
     """批量回填一组标的的 日K + 复权因子 + 资金流 + 财务 + 新闻（+ 可选分钟K）。
 
@@ -961,11 +961,13 @@ def backfill_codes(
 
     ``minute_periods``：如 ``["5","30"]`` 时额外回填对应分钟周期；缺省不回填（分钟数据量大、
     免费源易限流）。分钟起始日用 ``minute_start``（缺省复用 ``start``，建议传更短窗口）。
+
+    ``include_dragon_tiger``：为 True 时在批量结束后额外落库全市场龙虎榜（按 ``start``/``end``）。
     """
     runs: list[dict[str, object]] = []
     stats: dict[str, object] = {
         "daily": 0, "adjust": 0, "capital_flow": 0,
-        "financials": 0, "news": 0, "minute": 0, "errors": 0,
+        "financials": 0, "news": 0, "minute": 0, "dragon_tiger": 0, "errors": 0,
         "runs": runs,
     }
     m_start = minute_start or start
@@ -1084,6 +1086,14 @@ def backfill_codes(
                     "failedDatasets": list(errors),
                 }
             )
+    if include_dragon_tiger:
+        try:
+            stats["dragon_tiger"] = int(
+                ingest_dragon_tiger(start, end, provider_name)
+            )
+        except Exception as exc:  # noqa: BLE001
+            stats["errors"] = int(stats["errors"]) + 1
+            logger.warning("回填龙虎榜失败: %s", _sanitize_error(exc))
     return stats
 
 

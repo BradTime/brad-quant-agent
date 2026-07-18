@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import itertools
+from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
 from uuid import uuid4
@@ -327,11 +328,15 @@ def grid_search(
     base_config: BacktestConfig,
     param_grid: dict[str, list],
     sort_by: str = "sharpeRatio",
+    *,
+    cancel_check: Callable[[], bool] | None = None,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> dict:
     """参数网格搜索：对参数笛卡尔积逐组回测，按 ``sort_by`` 排名。
 
     **只加载一次行情与基准**，对每组参数复用（``runner.run_on_bars``）。
     所有组合会在加载行情前整体校验，非法或超限网格不会部分执行。
+    ``cancel_check`` 为真时中止并返回 ``cancelled=True``（H21）。
     """
     validated, base_params = _validated_grid_request(
         base_config,
@@ -361,6 +366,9 @@ def grid_search(
     sort_by = validated.sortBy
     keys = [k for k in param_grid if param_grid[k]]
     combos = list(itertools.product(*[param_grid[k] for k in keys])) if keys else []
+    total = len(combos)
+    if on_progress:
+        on_progress(0, total)
 
     bars_by_code, data_quality = runner.load_bars(base_config)
     missing = runner.unusable_data_codes(base_config, bars_by_code, data_quality)
@@ -390,7 +398,21 @@ def grid_search(
     results: list[dict] = []
     actual_range = None
     rule_quality = None
-    for combo in combos:
+    for i, combo in enumerate(combos):
+        if cancel_check and cancel_check():
+            return {
+                "results": results,
+                "best": None,
+                "engine": base_config.engine,
+                "sortBy": sort_by,
+                "truncated": True,
+                "cancelled": True,
+                "dataQuality": result_quality,
+                "actualRange": actual_range,
+                "ruleQuality": rule_quality,
+                "progressDone": i,
+                "progressTotal": total,
+            }
         params = {**base_config.params, **dict(zip(keys, combo, strict=True))}
         cfg = replace(base_config, params=params)
         out = runner.run_on_bars(
@@ -425,6 +447,8 @@ def grid_search(
                 },
             }
         )
+        if on_progress:
+            on_progress(i + 1, total)
 
     reverse = sort_by not in _ASC_METRICS
     inf = float("-inf") if reverse else float("inf")

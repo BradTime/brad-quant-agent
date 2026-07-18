@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, time
-from zoneinfo import ZoneInfo
 
-_SHANGHAI = ZoneInfo("Asia/Shanghai")
+from app.core.tz import MARKET_TZ
 
 
 def parse_as_of(value: str | None) -> datetime | None:
@@ -14,9 +13,9 @@ def parse_as_of(value: str | None) -> datetime | None:
         return None
     if len(value) == 10:
         local_date = date.fromisoformat(value)
-        parsed = datetime.combine(local_date, time.max, tzinfo=_SHANGHAI)
+        parsed = datetime.combine(local_date, time.max, tzinfo=MARKET_TZ)
     else:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=_SHANGHAI)
+            parsed = parsed.replace(tzinfo=MARKET_TZ)
     return parsed.astimezone(UTC)

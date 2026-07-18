@@ -3,12 +3,15 @@ import type { ApiResponse } from '@/types';
 import type {
   BacktestEngine,
   BacktestFrequency,
+  BacktestJob,
+  BacktestJobStatus,
   BacktestMetrics,
   BacktestStrategyType,
   EquityPoint,
   GridSortMetric,
   TradeRecord,
 } from '@/types/backtest';
+import { z } from 'zod';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { apiClient } from './client';
 import { createSSEParser, StreamInterruptedError } from './sse';
@@ -86,7 +89,10 @@ export interface GridSearchResult {
   actualRange?: { start: string; end: string } | null;
   ruleQuality?: Record<string, string> | null;
   error?: string;
+  cancelled?: boolean;
 }
+
+export type { BacktestJob, BacktestJobStatus } from '@/types/backtest';
 
 export interface GridSearchRequestBody {
   strategyType: BacktestStrategyType;
@@ -107,6 +113,52 @@ async function unwrap<T>(p: Promise<unknown>): Promise<T> {
   return env.data as T;
 }
 
+const backtestJobSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  kind: z.string(),
+  status: z.enum(['queued', 'running', 'completed', 'failed', 'cancelled']),
+  cancelRequested: z.boolean(),
+  progressDone: z.number(),
+  progressTotal: z.number(),
+  error: z.string().nullable().optional(),
+  request: z.record(z.unknown()).optional(),
+  result: z.record(z.unknown()).nullable().optional(),
+  createdAt: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
+  startedAt: z.string().nullable().optional(),
+  finishedAt: z.string().nullable().optional(),
+});
+
+function parseBacktestJob(data: unknown): BacktestJob {
+  return backtestJobSchema.parse(data) as BacktestJob;
+}
+
+async function unwrapJob(p: Promise<unknown>): Promise<BacktestJob> {
+  return parseBacktestJob(await unwrap<unknown>(p));
+}
+
+const TERMINAL_JOB: ReadonlySet<BacktestJobStatus> = new Set([
+  'completed',
+  'failed',
+  'cancelled',
+]);
+
+async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+  await new Promise<void>((resolve, reject) => {
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(t);
+        reject(new DOMException('Aborted', 'AbortError'));
+      },
+      { once: true },
+    );
+  });
+}
+
 export const backtestApi = {
   strategyCatalog: () =>
     unwrap<{ items: StrategyCatalogItem[] }>(apiClient.get('/backtest/strategies')),
@@ -115,8 +167,63 @@ export const backtestApi = {
   list: () =>
     unwrap<{ items: BacktestRunResult[]; total: number }>(apiClient.get('/backtest')),
   get: (id: string) => unwrap<BacktestRunResult>(apiClient.get(`/backtest/${id}`)),
-  gridSearch: (req: GridSearchRequestBody) =>
-    unwrap<GridSearchResult>(apiClient.post('/backtest/grid', req)),
+  /** 默认异步入队；返回 job。同步结果请用 gridSearchSync。 */
+  gridSearchEnqueue: (req: GridSearchRequestBody) =>
+    unwrapJob(apiClient.post('/backtest/grid', req)),
+  gridSearchSync: (req: GridSearchRequestBody) =>
+    unwrap<GridSearchResult>(apiClient.post('/backtest/grid?sync=true', req)),
+  getJob: (jobId: string) => unwrapJob(apiClient.get(`/backtest/jobs/${jobId}`)),
+  cancelJob: (jobId: string) =>
+    unwrapJob(apiClient.post(`/backtest/jobs/${jobId}/cancel`)),
+  /**
+   * 入队网格并轮询至终态。可用 signal 中止轮询；中止时会请求 cancel。
+   */
+  gridSearch: async (
+    req: GridSearchRequestBody,
+    opts?: { signal?: AbortSignal; onProgress?: (job: BacktestJob) => void },
+  ): Promise<GridSearchResult> => {
+    const job = await unwrapJob(apiClient.post('/backtest/grid', req));
+    opts?.onProgress?.(job);
+    let current = job;
+    try {
+      while (!TERMINAL_JOB.has(current.status)) {
+        await sleep(800, opts?.signal);
+        current = await unwrapJob(apiClient.get(`/backtest/jobs/${job.id}`));
+        opts?.onProgress?.(current);
+      }
+    } catch (err) {
+      if ((err as { name?: string })?.name === 'AbortError') {
+        try {
+          await unwrapJob(apiClient.post(`/backtest/jobs/${job.id}/cancel`));
+        } catch {
+          /* ignore */
+        }
+      }
+      throw err;
+    }
+    if (current.status === 'cancelled') {
+      return (
+        (current.result as GridSearchResult | undefined) ?? {
+          results: [],
+          best: null,
+          engine: req.engine,
+          sortBy: req.sortBy,
+          truncated: true,
+          cancelled: true,
+          error: '已取消',
+        }
+      );
+    }
+    if (current.status === 'failed') {
+      const result = current.result as GridSearchResult | undefined;
+      throw new Error(current.error || result?.error || '网格寻优失败');
+    }
+    const result = current.result as GridSearchResult | undefined;
+    if (!result) {
+      throw new Error('任务完成但无结果');
+    }
+    return result;
+  },
 };
 
 interface ReviewHandlers {

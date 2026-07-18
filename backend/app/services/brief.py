@@ -11,7 +11,6 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import date, datetime, timedelta
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
@@ -20,6 +19,7 @@ from app.ai.compliance import enforce_compliance
 from app.ai.orchestrator import run_completion_stream
 from app.ai.prompts import MORNING_BRIEF_PROMPT
 from app.core.config import settings
+from app.core.tz import MARKET_TZ, market_now, market_today
 from app.core.json_payload import JsonCorruptError, dump_envelope, load_envelope
 from app.db.session import SessionLocal
 from app.models.brief import MorningBrief
@@ -29,22 +29,14 @@ from app.services import market, rag, watchlist
 
 logger = logging.getLogger(__name__)
 
-_TZ = ZoneInfo("Asia/Shanghai")
 # 海外宏观已由 LLMQuant 快照补上；仍缺：隔夜外盘盘面行情、国内宏观政策、机构研报
 _MISSING = ["隔夜全球股指/汇率/商品的盘面行情", "国内宏观与政策", "机构研报观点"]
-
-
-def _today() -> date:
-    return datetime.now(_TZ).date()
-
-
-# ---------- 数据装配（全部读已落库/缓存，绝不触发会阻塞的实时拉取） ----------
 
 
 def _as_naive(dt: datetime) -> datetime:
     """Normalize aware/naive datetimes for age comparisons (DB mixes both)."""
     if dt.tzinfo is not None:
-        return dt.astimezone(_TZ).replace(tzinfo=None)
+        return dt.astimezone(MARKET_TZ).replace(tzinfo=None)
     return dt
 
 
@@ -98,7 +90,7 @@ def _recent_news(
     # 回退窗口不得窄于主窗口
     max_fallback_age_hours = max(max_fallback_age_hours, window_hours)
 
-    now = _as_naive(datetime.now(_TZ))
+    now = _as_naive(market_now())
     recent_since = now - timedelta(hours=window_hours)
     fallback_since = now - timedelta(hours=max_fallback_age_hours)
 
@@ -158,7 +150,7 @@ def _recent_news(
 
 
 def _recent_dragon_tiger(days: int = 5, limit: int = 12) -> list[dict]:
-    since = _today() - timedelta(days=days)
+    since = market_today() - timedelta(days=days)
     with SessionLocal() as session:
         stmt = (
             select(DragonTiger)
@@ -235,8 +227,8 @@ def build_data_pack(user_id: str | None) -> dict:
     }
 
     pack = {
-        "tradeDate": _today().isoformat(),
-        "generatedAt": datetime.now(_TZ).isoformat(),
+        "tradeDate": market_today().isoformat(),
+        "generatedAt": market_now().isoformat(),
         "scope": "user" if user_id else "global",
         "indices": indices,
         "watchlist": {
@@ -457,7 +449,7 @@ def stream_generate(user_id: str | None):
     ``persisted_ok`` 仅在事务成功后置位，避免落库失败却被当成已成功。
     """
     brief_id = uuid.uuid4().hex
-    trade_date = _today()
+    trade_date = market_today()
     engine = settings.brief_engine
     yield {"briefId": brief_id}
 

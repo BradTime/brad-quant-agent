@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { MARKET_TZ } from '@/lib/constants/market-tz';
 import type { QuoteStaleReason } from '@/lib/api/market';
 
 const REASON_LABELS: Record<QuoteStaleReason, string> = {
@@ -45,7 +46,7 @@ export function SourceNote({
   const formattedAsOf =
     asOf != null
       ? new Intl.DateTimeFormat('zh-CN', {
-          timeZone: 'Asia/Shanghai',
+          timeZone: MARKET_TZ,
           month: '2-digit',
           day: '2-digit',
           hour: '2-digit',

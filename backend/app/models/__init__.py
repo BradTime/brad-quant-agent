@@ -7,6 +7,7 @@ from app.models.chat import ChatMessage, ChatSession, UserMemory
 from app.models.document import Document
 from app.models.extra import CapitalFlow, DragonTiger, FinancialSummary, NewsItem
 from app.models.ingestion import IngestionRun
+from app.models.job import BacktestJob
 from app.models.market import AdjustFactor, DailyBar, Instrument, MinuteBar
 from app.models.research import ResearchReport
 from app.models.strategy import Strategy
@@ -36,6 +37,7 @@ __all__ = [
     "Document",
     "ResearchReport",
     "BacktestRun",
+    "BacktestJob",
     "Strategy",
     "SimAccount",
     "SimOrder",

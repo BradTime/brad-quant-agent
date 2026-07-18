@@ -15,11 +15,11 @@ import time
 from datetime import UTC, date, datetime
 from datetime import time as dt_time
 from functools import lru_cache
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, inspect, or_, select
 
 from app.core.config import settings
+from app.core.tz import MARKET_TZ
 from app.core.ohlc import InvalidOHLCError, validate_ohlc, validate_previous_close
 from app.db.session import SessionLocal
 from app.models.extra import CapitalFlow, DragonTiger, FinancialSummary, NewsItem
@@ -33,7 +33,6 @@ logger = logging.getLogger(__name__)
 
 _SORT_KEY = {"price": "price", "changePercent": "change_percent", "volume": "volume"}
 _PERIOD_MIN = {"1min": "1", "5min": "5", "15min": "15", "30min": "30", "hour": "60"}
-_SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 
 def _f(value: object) -> float | None:
@@ -80,14 +79,14 @@ def _warn_invalid_bar(context: str, exc: InvalidOHLCError) -> None:
 
 
 def _now() -> datetime:
-    return datetime.now(_SHANGHAI)
+    return datetime.now(MARKET_TZ)
 
 
 def _as_shanghai(value: datetime) -> datetime:
     if value.tzinfo is None:
         # 现有免费源返回无时区时间，按其 A 股语义解释为上海本地时间。
-        return value.replace(tzinfo=_SHANGHAI)
-    return value.astimezone(_SHANGHAI)
+        return value.replace(tzinfo=MARKET_TZ)
+    return value.astimezone(MARKET_TZ)
 
 
 @lru_cache(maxsize=1)
@@ -140,7 +139,7 @@ def _snapshot_state(
     current = _as_shanghai(now or _now())
     as_of = _as_shanghai(data_as_of) if data_as_of is not None else None
     cache_as_of = (
-        datetime.fromtimestamp(cache_refreshed_at, tz=_SHANGHAI)
+        datetime.fromtimestamp(cache_refreshed_at, tz=MARKET_TZ)
         if cache_refreshed_at and cache_refreshed_at > 0
         else None
     )
@@ -397,7 +396,7 @@ def _last_close_quote(code: str) -> dict | None:
     change = checked.close - prev_close if prev_close is not None else None
     change_pct = change / prev_close * 100 if prev_close is not None else None
     close = float(checked.close)
-    as_of = datetime.combine(last.trade_date, dt_time(15, 0), tzinfo=_SHANGHAI)
+    as_of = datetime.combine(last.trade_date, dt_time(15, 0), tzinfo=MARKET_TZ)
     state = _snapshot_state(
         price=close,
         data_as_of=as_of,
@@ -892,6 +891,7 @@ def refresh_stock(code: str, daily_days: int = 400) -> dict:
         [canonical],
         start.isoformat(),
         end.isoformat(),
+        include_dragon_tiger=True,
     )
     run = (stats.get("runs") or [{}])[0]
     return {
@@ -901,6 +901,7 @@ def refresh_stock(code: str, daily_days: int = 400) -> dict:
         "capitalFlow": stats["capital_flow"],
         "financials": stats["financials"],
         "news": stats["news"],
+        "dragonTiger": stats.get("dragon_tiger", 0),
         "errors": stats["errors"],
         "runId": run.get("id"),
         "runStatus": run.get("status"),

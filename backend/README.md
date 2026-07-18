@@ -92,7 +92,12 @@ python -m app.cli ingest-minute --code 600000.SH --period 5 --start 2024-12-01 -
 
 # 实时快照（不落库，验证连通性）
 python -m app.cli quotes --codes 600000.SH,000001.SZ
+
+# 龙虎榜（全市场，按日期范围）
+python -m app.cli ingest-dragon-tiger --start 2025-01-01 --end 2025-12-31
 ```
+
+调度器每日 16:05（Asia/Shanghai）也会自动落库近 7 日龙虎榜；个股详情「刷新数据」会顺带回填同期龙虎榜。
 
 数据说明：日/分钟K线落库为**不复权**原始价，复权由 `adjust_factors` 表按需计算，以保证回测的时点正确性（PIT）。
 

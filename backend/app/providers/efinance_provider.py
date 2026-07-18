@@ -6,14 +6,12 @@ Heavy import is lazy. Realtime is a snapshot, not true tick.
 from __future__ import annotations
 
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from app.core.dtutil import parse_datetime
 from app.core.numeric import to_float
+from app.core.tz import market_now
 from app.providers import symbols
 from app.providers.base import BarDTO, DataProvider, QuoteDTO
-
-_SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 
 def _pick(row, *keys):
@@ -34,7 +32,7 @@ class EfinanceProvider(DataProvider):
         wanted = {symbols.to_six(c) for c in codes} if codes else None
         # The free snapshot has no reliable per-row exchange event timestamp.
         # Use the actual observation time, never the later WS delivery time.
-        now = datetime.now(_SHANGHAI)
+        now = market_now()
         out: list[QuoteDTO] = []
         for _, row in df.iterrows():
             six = str(_pick(row, "股票代码", "代码") or "").zfill(6)

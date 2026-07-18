@@ -1,4 +1,5 @@
 import type { WsStatus } from '@/lib/ws/marketSocket';
+import { MARKET_TZ } from '@/lib/constants/market-tz';
 import type { QuoteStaleReason, StockQuote } from './market';
 
 export interface QuoteFreshnessState {
@@ -46,7 +47,7 @@ export function ageQuote<T extends QuoteFreshnessState>(
 function formatAsOf(asOf: number | null): string | null {
   if (asOf == null) return null;
   return new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
+    timeZone: MARKET_TZ,
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',

@@ -141,8 +141,10 @@ class Settings(BaseSettings):
     # embedding 分批大小（回填/长文切块）
     embedding_batch_size: int = 64
 
-    # 进程角色：all=单体；api=只服务 HTTP/WS（不跑调度/预热）；worker=调度+预热
+    # 进程角色：all=单体；api=只服务 HTTP/WS（不跑调度/预热/任务消费）；worker=后台
     process_role: str = "all"
+    # 回测任务队列轮询间隔（秒）；PROCESS_ROLE=all|worker 时启用消费线程
+    backtest_job_poll_seconds: float = 1.0
     # SQLAlchemy 连接池（多 worker / 长 AI 时显式上限，避免默认池被打满）
     db_pool_size: int = 5
     db_max_overflow: int = 10

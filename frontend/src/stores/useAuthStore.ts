@@ -2,6 +2,10 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { User } from '@/types';
 
+/**
+ * Auth tokens persist in localStorage for MVP. Full httpOnly refresh + SSR session
+ * (M20 productization) is deferred — see SPEC.md medium audit M20 note.
+ */
 interface AuthState {
   user: User | null;
   token: string | null;

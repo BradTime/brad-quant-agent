@@ -200,10 +200,12 @@ export function BriefInsights({
   const macro = dataPack?.usMacro ?? [];
   const knowledge = dataPack?.quantKnowledge ?? [];
   const trace = agentTrace ?? [];
+  const evalEntries = trace.filter((entry) => entry.scores || entry.node === 'evaluator');
+  const nodeEntries = trace.filter((entry) => !(entry.scores || entry.node === 'evaluator'));
   if (!macro.length && !knowledge.length && !trace.length) return null;
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4">
       {/* 多智能体观测面板 */}
       {trace.length > 0 && (
         <section className="rounded-2xl border border-border bg-card p-4">
@@ -215,14 +217,23 @@ export function BriefInsights({
           </div>
           <Gantt trace={trace} />
           <div className="space-y-1">
-            {trace.map((entry, i) =>
-              entry.scores || entry.node === 'evaluator' ? (
-                <EvalRow key={`${entry.node}-${i}`} entry={entry} />
-              ) : (
-                <NodeRow key={`${entry.node}-${i}`} entry={entry} />
-              )
-            )}
+            {nodeEntries.map((entry, i) => (
+              <NodeRow key={`${entry.node}-${i}`} entry={entry} />
+            ))}
           </div>
+          {evalEntries.length > 0 && (
+            <details className="group mt-2 rounded-lg border border-border bg-muted/20">
+              <summary className="flex cursor-pointer list-none items-center gap-1.5 px-3 py-2 text-xs font-medium text-muted-foreground">
+                <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+                质量评审（内部）
+              </summary>
+              <div className="space-y-1 border-t border-border/70 px-2 pb-2 pt-1">
+                {evalEntries.map((entry, i) => (
+                  <EvalRow key={`${entry.node}-${i}`} entry={entry} />
+                ))}
+              </div>
+            </details>
+          )}
         </section>
       )}
 

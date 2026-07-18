@@ -25,6 +25,8 @@ export interface SimPosition {
   pnlPct: number;
 }
 
+export type SimOrderStatus = 'pending' | 'filled' | 'cancelled' | 'rejected';
+
 export interface SimOrder {
   id: string;
   code: string;
@@ -35,7 +37,7 @@ export interface SimOrder {
   qty: number;
   filledQty: number;
   avgFillPrice: number | null;
-  status: string;
+  status: SimOrderStatus;
   reason: string;
   createdAt: string | null;
 }

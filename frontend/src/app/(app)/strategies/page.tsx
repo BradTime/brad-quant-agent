@@ -8,6 +8,14 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   Table,
   TableBody,
   TableCell,
@@ -65,6 +73,7 @@ export default function StrategiesPage() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<StrategyStatus | ''>('');
   const [builtinType, setBuiltinType] = useState<BuiltinStrategyType | ''>('');
+  const [deleteTarget, setDeleteTarget] = useState<Strategy | null>(null);
   const pageSize = 10;
 
   const params: StrategyListParams = {
@@ -107,10 +116,8 @@ export default function StrategiesPage() {
   const total = strategies.data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  const remove = (id: string) => {
-    if (window.confirm('确定删除这个策略吗？此操作不可撤销。')) {
-      deleteMutation.mutate(id);
-    }
+  const remove = (item: Strategy) => {
+    setDeleteTarget(item);
   };
 
   return (
@@ -266,7 +273,7 @@ export default function StrategiesPage() {
                             <Button
                               variant="destructive"
                               size="sm"
-                              onClick={() => remove(item.id)}
+                              onClick={() => remove(item)}
                             >
                               删除
                             </Button>
@@ -303,6 +310,35 @@ export default function StrategiesPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={deleteTarget != null} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认删除策略</DialogTitle>
+            <DialogDescription>
+              确定删除策略「{deleteTarget?.name}」吗？此操作不可撤销。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleteMutation.isPending}
+              onClick={() => {
+                if (deleteTarget) {
+                  deleteMutation.mutate(deleteTarget.id, {
+                    onSuccess: () => setDeleteTarget(null),
+                  });
+                }
+              }}
+            >
+              删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

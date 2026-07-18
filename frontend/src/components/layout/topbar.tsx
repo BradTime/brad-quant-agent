@@ -24,22 +24,33 @@ function titleFor(pathname: string): [string, string] {
   return key ? TITLES[key] : ['量化投资 Agent', ''];
 }
 
-export function Topbar({ onMenu }: { onMenu: () => void }) {
+export function Topbar({
+  onMenu,
+  menuButtonRef,
+  mobileOpen = false,
+}: {
+  onMenu: () => void;
+  menuButtonRef?: React.RefObject<HTMLButtonElement | null>;
+  mobileOpen?: boolean;
+}) {
   const pathname = usePathname() ?? '';
   const [title, subtitle] = titleFor(pathname);
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-border bg-background/80 px-5 backdrop-blur-md sm:px-8 lg:px-10">
       <button
+        ref={menuButtonRef}
         onClick={onMenu}
         className="grid h-9 w-9 place-items-center rounded-md border border-border text-muted-foreground transition-colors hover:text-foreground lg:hidden"
         aria-label="打开菜单"
+        aria-expanded={mobileOpen}
+        aria-controls="app-sidebar"
       >
         <Menu className="h-5 w-5" />
       </button>
 
       <div className="min-w-0">
-        <h1 className="font-display text-xl leading-none tracking-tight">{title}</h1>
+        <p className="font-display text-xl leading-none tracking-tight">{title}</p>
         {subtitle && <p className="mt-1 truncate text-xs text-muted-foreground">{subtitle}</p>}
       </div>
 
