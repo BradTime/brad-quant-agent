@@ -59,14 +59,20 @@
 
 ## 🚀 使用方法
 
-### 1. 启动后端服务
+### 1. 迁移数据库并启动后端服务
 
 ```bash
-cd server
-npm run dev
+docker compose up -d postgres
+cd backend
+alembic upgrade head
+alembic check
+uvicorn app.main:app --reload --port 8000
 ```
 
 后端服务将在 `http://localhost:8000` 启动
+
+> `python -m app.cli migrate` 等价于 `alembic upgrade head`。旧的
+> `python -m app.cli init-db` 仅供临时开发库兼容，不用于持久库或部署。
 
 ### 2. 启动前端服务
 

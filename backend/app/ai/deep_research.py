@@ -23,6 +23,7 @@ from app.ai.deepseek import get_client
 from app.ai.orchestrator import run_chat_collect, run_completion_stream
 from app.ai.prompts import RESEARCH_PLANNER_PROMPT, RESEARCH_SYNTHESIS_PROMPT
 from app.core.config import settings
+from app.core.json_payload import JsonCorruptError, dump_envelope, load_envelope
 from app.db.session import SessionLocal
 from app.models.research import ResearchReport
 
@@ -97,8 +98,8 @@ def _persist(
         row.question = question[:2000]
         row.status = status
         row.content = content
-        row.plan_json = json.dumps(plan, ensure_ascii=False)
-        row.steps_json = json.dumps(steps, ensure_ascii=False, default=str)
+        row.plan_json = dump_envelope(plan)
+        row.steps_json = dump_envelope(steps)
         row.model = settings.deepseek_model
         row.error = error
         session.commit()
@@ -119,20 +120,31 @@ def stream_deep_research(
     report_id = uuid.uuid4().hex
     yield {"reportId": report_id}
 
+    try:
+        _persist(report_id, user_id, question, [], [], "", "generating")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("研究报告 generating 落库失败: %s", exc)
+        yield {"error": f"persist_failed:{exc}", "reportId": report_id, "status": "failed"}
+        return
+
     plan: list[str] = []
     steps: list[dict] = []  # [{label, tools}] —— 落库供回看的分步轨迹
     acc: list[str] = []
-    persisted = False
+    persisted_ok = False
 
-    def _save(status: str, error: str | None = None) -> None:
-        nonlocal persisted
-        if persisted:
-            return
-        persisted = True
+    def _save(status: str, error: str | None = None) -> bool:
+        nonlocal persisted_ok
+        if persisted_ok:
+            return True
         try:
-            _persist(report_id, user_id, question, plan, steps, "".join(acc), status, error)
+            _persist(
+                report_id, user_id, question, plan, steps, "".join(acc), status, error
+            )
+            persisted_ok = True
+            return True
         except Exception as exc:  # noqa: BLE001
-            logger.warning("研究报告落库失败: %s", exc)
+            logger.warning("研究报告落库失败 status=%s: %s", status, exc)
+            return False
 
     try:
         yield {"step": "规划研究路径", "node": "planner"}
@@ -159,15 +171,22 @@ def stream_deep_research(
         for piece in run_completion_stream(RESEARCH_SYNTHESIS_PROMPT, assembled):
             acc.append(piece)
             yield {"delta": piece}
-        _save("ready")
+        if not _save("ready"):
+            yield {"error": "persist_failed", "reportId": report_id, "status": "generating"}
+        else:
+            yield {"reportId": report_id, "status": "ready"}
     except GeneratorExit:
         _save("partial" if acc else "failed")
         raise
     except Exception as exc:  # noqa: BLE001
         logger.warning("研究成稿失败：%s", exc)
-        _save("failed", str(exc))
+        ok = _save("failed", str(exc))
         yield {"delta": f"\n\n⚠️ 研究成稿出错：{exc}"}
-
+        yield {
+            "reportId": report_id,
+            "status": "failed" if ok else "generating",
+            "error": str(exc),
+        }
 
 # ---------- 读取（回看） ----------
 
@@ -183,14 +202,32 @@ def _to_dict(row: ResearchReport, with_content: bool = True) -> dict:
     }
     if with_content:
         out["content"] = row.content
+        corrupt: list[str] = []
         try:
-            out["plan"] = json.loads(row.plan_json) if row.plan_json else []
-        except (ValueError, TypeError):
-            out["plan"] = []
+            plan = (
+                load_envelope(row.plan_json, expect="list", field="plan_json")
+                if row.plan_json is not None
+                else []
+            )
+            out["plan"] = plan
+        except JsonCorruptError as exc:
+            corrupt.append("plan_json")
+            out["plan"] = None
+            out["error"] = f"plan_json corrupt: {exc}"
         try:
-            out["steps"] = json.loads(row.steps_json) if row.steps_json else []
-        except (ValueError, TypeError):
-            out["steps"] = []
+            steps = (
+                load_envelope(row.steps_json, expect="list", field="steps_json")
+                if row.steps_json is not None
+                else []
+            )
+            out["steps"] = steps
+        except JsonCorruptError as exc:
+            corrupt.append("steps_json")
+            out["steps"] = None
+            out["error"] = f"steps_json corrupt: {exc}"
+        if corrupt:
+            out["status"] = "data_corrupt"
+            out["error"] = f"corrupt JSON fields: {', '.join(corrupt)}"
     return out
 
 

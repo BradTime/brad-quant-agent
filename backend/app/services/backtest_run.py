@@ -7,8 +7,8 @@
 from __future__ import annotations
 
 import itertools
-import json
 from dataclasses import replace
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -17,10 +17,11 @@ from app.backtest import runner
 from app.backtest.base import BacktestConfig
 from app.backtest.runner import run_backtest
 from app.backtest.strategies import STRATEGY_REGISTRY
+from app.core.json_payload import JsonCorruptError, dump_envelope, load_envelope
 from app.db.session import SessionLocal
 from app.models.backtest import BacktestRun
 
-# 网格寻优组合数上限（防参数爆炸导致长时间占用；超出则截断并标注）
+# 网格寻优组合数上限（schema 会在运行前整体拒绝超限网格）
 _MAX_GRID_COMBOS = 64
 # 排名：回撤越小越好（升序），其余指标越大越好（降序）
 _ASC_METRICS = {"maxDrawdownPercent"}
@@ -76,48 +77,157 @@ def strategy_catalog() -> list[dict]:
     return [c for c in _STRATEGY_CATALOG if c["type"] in STRATEGY_REGISTRY]
 
 
-def _loads(s: str | None, default):
-    if not s:
+def _load_field(raw: Any, *, expect: str, field: str, default: Any) -> Any:
+    if raw is None or raw == "":
         return default
-    try:
-        return json.loads(s)
-    except (ValueError, TypeError):
-        return default
+    return load_envelope(raw, expect=expect, field=field)  # type: ignore[arg-type]
 
 
 def _to_dict(row: BacktestRun, with_detail: bool = False) -> dict:
-    config = _loads(row.config_json, {})
+    corrupt_fields: list[str] = []
+    config: dict = {}
+    metrics: dict = {}
+    equity: list = []
+    trades: list = []
+    data_quality: dict = {}
+
+    try:
+        config = _load_field(row.config_json, expect="dict", field="config_json", default={})
+        if not isinstance(config, dict):
+            raise JsonCorruptError("config must be object", field="config_json")
+    except JsonCorruptError:
+        corrupt_fields.append("config_json")
+        config = {}
+
+    try:
+        metrics = _load_field(row.metrics_json, expect="dict", field="metrics_json", default={})
+        if not isinstance(metrics, dict):
+            raise JsonCorruptError("metrics must be object", field="metrics_json")
+    except JsonCorruptError:
+        corrupt_fields.append("metrics_json")
+        metrics = {}
+
+    if with_detail:
+        try:
+            equity = _load_field(row.equity_json, expect="list", field="equity_json", default=[])
+        except JsonCorruptError:
+            corrupt_fields.append("equity_json")
+            equity = []
+        try:
+            trades = _load_field(row.trades_json, expect="list", field="trades_json", default=[])
+        except JsonCorruptError:
+            corrupt_fields.append("trades_json")
+            trades = []
+        try:
+            data_quality = _load_field(
+                row.data_quality_json, expect="dict", field="data_quality_json", default={}
+            )
+        except JsonCorruptError:
+            corrupt_fields.append("data_quality_json")
+            data_quality = {}
+
+    status = row.status
+    error = row.error
+    if corrupt_fields:
+        status = "data_corrupt"
+        error = f"corrupt JSON fields: {', '.join(corrupt_fields)}"
+
     out = {
         "id": row.id,
         "strategyType": row.strategy_type,
-        "status": row.status,
+        "status": status,
         "engine": row.engine,
-        "error": row.error,
+        "error": error,
         "createdAt": row.created_at.isoformat() if row.created_at else None,
-        "config": config,
-        "metrics": _loads(row.metrics_json, {}),
-        "actualRange": config.get("actualRange"),
-        "ruleQuality": config.get("ruleQuality"),
+        "config": None if "config_json" in corrupt_fields else config,
+        "metrics": None if "metrics_json" in corrupt_fields else metrics,
+        "actualRange": None if "config_json" in corrupt_fields else config.get("actualRange"),
+        "ruleQuality": None if "config_json" in corrupt_fields else config.get("ruleQuality"),
     }
     if with_detail:
-        out["equityCurve"] = _loads(row.equity_json, [])
-        out["trades"] = _loads(row.trades_json, [])
-        out["dataQuality"] = _loads(row.data_quality_json, {})
+        out["equityCurve"] = None if "equity_json" in corrupt_fields else equity
+        out["trades"] = None if "trades_json" in corrupt_fields else trades
+        out["dataQuality"] = None if "data_quality_json" in corrupt_fields else data_quality
     return out
 
 
-def run_and_save(user_id: str, req) -> dict:
-    cfg = BacktestConfig(
-        strategy_type=req.strategyType,
-        params=req.params or {},
-        codes=[c.strip() for c in req.codes if c and c.strip()],
-        start=req.start,
-        end=req.end,
-        initial_capital=req.initialCapital,
-        slippage=req.slippage,
-        engine=req.engine or "native",
-        frequency=getattr(req, "frequency", "1d"),
+def _validated_run_request(req: Any):
+    from app.schemas.backtest import RunBacktestRequest
+
+    return RunBacktestRequest.model_validate(req, from_attributes=True)
+
+
+def _config_from_run_request(req: Any) -> BacktestConfig:
+    validated = _validated_run_request(req)
+    return BacktestConfig(
+        strategy_type=validated.strategyType,
+        params=validated.params,
+        codes=validated.codes,
+        start=validated.start.isoformat(),
+        end=validated.end.isoformat(),
+        initial_capital=validated.initialCapital,
+        slippage=validated.slippage,
+        engine=validated.engine,
+        frequency=validated.frequency,
     )
+
+
+def _validated_grid_request(
+    base_config: BacktestConfig,
+    param_grid: dict[str, list],
+    sort_by: str,
+):
+    from app.schemas.backtest import GridSearchRequest
+    from app.services.strategy import validate_params
+
+    _, base_params = validate_params(base_config.strategy_type, base_config.params)
+    effective_grid = {
+        key: [value]
+        for key, value in base_params.items()
+        if key not in param_grid
+    }
+    effective_grid.update(param_grid)
+    validated = GridSearchRequest.model_validate(
+        {
+            "strategyType": base_config.strategy_type,
+            "paramGrid": effective_grid,
+            "codes": base_config.codes,
+            "start": base_config.start,
+            "end": base_config.end,
+            "initialCapital": base_config.initial_capital,
+            "slippage": base_config.slippage,
+            "engine": base_config.engine,
+            "frequency": base_config.frequency,
+            "sortBy": sort_by,
+        }
+    )
+    validated.paramGrid = {
+        key: validated.paramGrid[key]
+        for key in param_grid
+    }
+    return validated, base_params
+
+
+def config_from_grid_request(req: Any) -> tuple[BacktestConfig, dict[str, list], str]:
+    from app.schemas.backtest import GridSearchRequest
+
+    validated = GridSearchRequest.model_validate(req, from_attributes=True)
+    config = BacktestConfig(
+        strategy_type=validated.strategyType,
+        params={},
+        codes=validated.codes,
+        start=validated.start.isoformat(),
+        end=validated.end.isoformat(),
+        initial_capital=validated.initialCapital,
+        slippage=validated.slippage,
+        engine=validated.engine,
+        frequency=validated.frequency,
+    )
+    return config, validated.paramGrid, validated.sortBy
+
+
+def run_and_save(user_id: str, req) -> dict:
+    cfg = _config_from_run_request(req)
     out = run_backtest(cfg)
     run_id = uuid4().hex
     status = "failed" if out.get("error") else "completed"
@@ -140,11 +250,11 @@ def run_and_save(user_id: str, req) -> dict:
             user_id=user_id,
             strategy_type=cfg.strategy_type,
             status=status,
-            config_json=json.dumps(config_dict, ensure_ascii=False),
-            metrics_json=json.dumps(out.get("metrics") or {}, ensure_ascii=False, default=str),
-            equity_json=json.dumps(out.get("equityCurve") or [], ensure_ascii=False, default=str),
-            trades_json=json.dumps(out.get("trades") or [], ensure_ascii=False, default=str),
-            data_quality_json=json.dumps(out.get("dataQuality") or {}, ensure_ascii=False),
+            config_json=dump_envelope(config_dict),
+            metrics_json=dump_envelope(out.get("metrics") or {}),
+            equity_json=dump_envelope(out.get("equityCurve") or []),
+            trades_json=dump_envelope(out.get("trades") or []),
+            data_quality_json=dump_envelope(out.get("dataQuality") or {}),
             engine=out.get("engine") or cfg.engine,
             error=out.get("error"),
         )
@@ -179,8 +289,12 @@ def build_review_input(user_id: str, run_id: str) -> str | None:
     run = get_run(user_id, run_id)
     if run is None:
         return None
-    m = run.get("metrics", {})
-    cfg = run.get("config", {})
+    if run.get("status") == "data_corrupt":
+        return None
+    m = run.get("metrics") or {}
+    cfg = run.get("config") or {}
+    if not isinstance(m, dict) or not isinstance(cfg, dict):
+        return None
     actual = run.get("actualRange") or cfg.get("actualRange") or {}
     lines = ["【回测结果汇总】"]
     lines.append(
@@ -216,12 +330,37 @@ def grid_search(
 ) -> dict:
     """参数网格搜索：对参数笛卡尔积逐组回测，按 ``sort_by`` 排名。
 
-    **只加载一次行情与基准**，对每组参数复用（``runner.run_on_bars``）。组合数超上限则截断。
+    **只加载一次行情与基准**，对每组参数复用（``runner.run_on_bars``）。
+    所有组合会在加载行情前整体校验，非法或超限网格不会部分执行。
     """
+    validated, base_params = _validated_grid_request(
+        base_config,
+        param_grid,
+        sort_by,
+    )
+    from app.services.strategy import validate_params
+
+    keys = list(validated.paramGrid)
+    for combo in itertools.product(*(validated.paramGrid[key] for key in keys)):
+        validate_params(
+            validated.strategyType,
+            {**base_params, **dict(zip(keys, combo, strict=True))},
+        )
+    base_config = BacktestConfig(
+        strategy_type=validated.strategyType,
+        params=base_params,
+        codes=validated.codes,
+        start=validated.start.isoformat(),
+        end=validated.end.isoformat(),
+        initial_capital=validated.initialCapital,
+        slippage=validated.slippage,
+        engine=validated.engine,
+        frequency=validated.frequency,
+    )
+    param_grid = validated.paramGrid
+    sort_by = validated.sortBy
     keys = [k for k in param_grid if param_grid[k]]
     combos = list(itertools.product(*[param_grid[k] for k in keys])) if keys else []
-    truncated = len(combos) > _MAX_GRID_COMBOS
-    combos = combos[:_MAX_GRID_COMBOS]
 
     bars_by_code, data_quality = runner.load_bars(base_config)
     missing = runner.unusable_data_codes(base_config, bars_by_code, data_quality)
@@ -233,7 +372,20 @@ def grid_search(
             "dataQuality": data_quality,
             "error": runner.missing_data_error(base_config, missing, data_quality),
         }
-    benchmark_bars = runner.load_benchmark(base_config.start, base_config.end)
+    benchmark_bars, benchmark_quality = runner.load_benchmark_with_quality(
+        base_config.start,
+        base_config.end,
+    )
+    benchmark_key = "000300.SH:benchmark"
+    result_quality = {**data_quality, benchmark_key: benchmark_quality}
+    if benchmark_quality in {"invalid_ohlc", "partial_ingestion"}:
+        return {
+            "results": [],
+            "best": None,
+            "engine": base_config.engine,
+            "dataQuality": result_quality,
+            "error": "沪深300基准数据不可信，已拒绝回测",
+        }
 
     results: list[dict] = []
     actual_range = None
@@ -241,13 +393,19 @@ def grid_search(
     for combo in combos:
         params = {**base_config.params, **dict(zip(keys, combo, strict=True))}
         cfg = replace(base_config, params=params)
-        out = runner.run_on_bars(cfg, bars_by_code, data_quality, benchmark_bars)
+        out = runner.run_on_bars(
+            cfg,
+            bars_by_code,
+            data_quality,
+            benchmark_bars,
+            benchmark_quality,
+        )
         if out.get("error"):
             return {
                 "results": [],
                 "best": None,
                 "engine": base_config.engine,
-                "dataQuality": data_quality,
+                "dataQuality": result_quality,
                 "error": out["error"],
             }
         actual_range = out.get("actualRange")
@@ -276,8 +434,8 @@ def grid_search(
         "best": results[0] if results else None,
         "engine": base_config.engine,
         "sortBy": sort_by,
-        "truncated": truncated,
-        "dataQuality": data_quality,
+        "truncated": False,
+        "dataQuality": result_quality,
         "actualRange": actual_range,
         "ruleQuality": rule_quality,
     }

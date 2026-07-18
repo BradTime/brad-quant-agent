@@ -108,9 +108,23 @@ def _set_ef_search(session) -> None:
         pass
 
 
+def _apply_public_scope(stmt):
+    """Exclude user-personalized briefs from the shared retrieval corpus."""
+    global_brief_ids = select(MorningBrief.id).where(
+        MorningBrief.user_id.is_(None),
+        MorningBrief.status == "ready",
+    )
+    return stmt.where(
+        or_(
+            Document.source != "brief",
+            Document.ref_id.in_(global_brief_ids),
+        )
+    )
+
+
 def _vector_rows(session, qvec, limit: int, source: str | None) -> list[tuple]:
     distance = Document.embedding.cosine_distance(qvec).label("distance")
-    stmt = select(Document, distance)
+    stmt = _apply_public_scope(select(Document, distance))
     if source:
         stmt = stmt.where(Document.source == source)
     stmt = stmt.order_by(distance).limit(limit)
@@ -130,7 +144,7 @@ def _keyword_rows(session, tokens: list[str], limit: int, source: str | None) ->
         score_terms.append(case((Document.title.ilike(like), 2), else_=0))
         score_terms.append(case((Document.chunk.ilike(like), 1), else_=0))
     hit = reduce(operator.add, score_terms)
-    stmt = select(Document).where(or_(*conds))
+    stmt = _apply_public_scope(select(Document).where(or_(*conds)))
     if source:
         stmt = stmt.where(Document.source == source)
     stmt = stmt.order_by(hit.desc()).limit(limit)
@@ -221,16 +235,29 @@ def backfill_news(limit: int = 500) -> int:
 
 def backfill_briefs(limit: int = 60) -> int:
     with SessionLocal() as session:
+        private_brief_ids = select(MorningBrief.id).where(
+            MorningBrief.user_id.is_not(None)
+        )
+        session.execute(
+            delete(Document).where(
+                Document.source == "brief",
+                Document.ref_id.in_(private_brief_ids),
+            )
+        )
         rows = list(
             session.execute(
                 select(MorningBrief)
-                .where(MorningBrief.status == "ready")
+                .where(
+                    MorningBrief.status == "ready",
+                    MorningBrief.user_id.is_(None),
+                )
                 .order_by(MorningBrief.generated_at.desc())
                 .limit(limit)
             )
             .scalars()
             .all()
         )
+        session.commit()
     total = 0
     for r in rows:
         published = None

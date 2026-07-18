@@ -2,6 +2,7 @@
 
 APScheduler is imported lazily so the module stays importable without the
 dependency, and startup is guarded by ``settings.enable_scheduler``.
+Jobs are wrapped with ``job_health`` so ``/ready`` can reflect last success/failure.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ def start_scheduler():
     from apscheduler.schedulers.background import BackgroundScheduler
 
     from app.core.config import settings
-    from app.services import market
+    from app.services import job_health, market
 
     # APScheduler 自身的 INFO/WARNING（如任务跳过提示）对轮询缓存属正常现象，调高阈值降噪。
     logging.getLogger("apscheduler").setLevel(logging.ERROR)
@@ -29,8 +30,17 @@ def start_scheduler():
     quote_secs = max(settings.quote_refresh_seconds, 1)
     index_secs = max(settings.index_refresh_seconds, 1)
     scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
+
+    @job_health.tracked("refresh_quotes")
+    def _refresh_quotes() -> None:
+        market.refresh_quotes_job()
+
+    @job_health.tracked("refresh_indices")
+    def _refresh_indices() -> None:
+        market.refresh_indices_job()
+
     scheduler.add_job(
-        market.refresh_quotes_job,
+        _refresh_quotes,
         "interval",
         seconds=quote_secs,
         id="refresh_quotes",
@@ -39,7 +49,7 @@ def start_scheduler():
         misfire_grace_time=30,
     )
     scheduler.add_job(
-        market.refresh_indices_job,
+        _refresh_indices,
         "interval",
         seconds=index_secs,
         id="refresh_indices",
@@ -49,11 +59,15 @@ def start_scheduler():
     )
 
     # 模拟交易：用最新快照价撮合挂单（限价单），cache-only 价源、开销小
-    def _match_pending_job():
+    @job_health.tracked("match_pending_orders")
+    def _match_pending_tracked() -> None:
         from app.services import trading
 
+        trading.try_match_pending()
+
+    def _match_pending_job() -> None:
         try:
-            trading.try_match_pending()
+            _match_pending_tracked()
         except Exception as exc:  # noqa: BLE001
             logger.debug("挂单撮合失败（忽略）：%s", exc)
 
@@ -67,6 +81,30 @@ def start_scheduler():
         misfire_grace_time=30,
     )
 
+    # 日终：收盘后撤销未成交 DAY 挂单并解冻 T+1（不依赖用户再次访问）
+    @job_health.tracked("settle_day_orders")
+    def _settle_day_tracked() -> None:
+        from app.services import trading
+
+        trading.settle_all_accounts()
+
+    def _settle_day_orders_job() -> None:
+        try:
+            _settle_day_tracked()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("日终结算失败（忽略）：%s", exc)
+
+    scheduler.add_job(
+        _settle_day_orders_job,
+        "cron",
+        hour=15,
+        minute=5,
+        id="settle_day_orders",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=1800,
+    )
+
     if settings.enable_brief_scheduler:
         from app.services import brief
 
@@ -74,8 +112,12 @@ def start_scheduler():
         if settings.llmquant_enabled:
             from app.providers import llmquant
 
+            @job_health.tracked("refresh_us_macro")
+            def _refresh_macro() -> None:
+                llmquant.refresh_macro_job()
+
             scheduler.add_job(
-                llmquant.refresh_macro_job,
+                _refresh_macro,
                 "cron",
                 hour=settings.brief_cron_hour,
                 minute=max(settings.brief_cron_minute - 30, 0),
@@ -85,8 +127,12 @@ def start_scheduler():
                 misfire_grace_time=1800,
             )
 
+        @job_health.tracked("daily_brief")
+        def _daily_brief() -> None:
+            brief.generate_daily_global()
+
         scheduler.add_job(
-            brief.generate_daily_global,
+            _daily_brief,
             "cron",
             hour=settings.brief_cron_hour,
             minute=settings.brief_cron_minute,
@@ -107,3 +153,7 @@ def shutdown_scheduler() -> None:
     if _scheduler is not None:
         _scheduler.shutdown(wait=False)
         _scheduler = None
+
+
+def scheduler_running() -> bool:
+    return _scheduler is not None and bool(getattr(_scheduler, "running", False))

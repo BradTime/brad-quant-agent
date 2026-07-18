@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     scheduler_started = False
+    outbox_scheduler_started = False
     if settings.enable_scheduler:
         try:
             from app.services.scheduler import start_scheduler
@@ -37,6 +38,15 @@ async def lifespan(app: FastAPI):
             scheduler_started = True
         except Exception as exc:  # noqa: BLE001
             print(f"[warn] 行情调度器启动失败（已忽略，可手动 ingest）：{exc}")
+
+    if settings.enable_auth_outbox_scheduler:
+        try:
+            from app.services.verification_outbox import start_outbox_scheduler
+
+            start_outbox_scheduler()
+            outbox_scheduler_started = True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("认证邮件 outbox 调度器启动失败：%s", type(exc).__name__)
 
     # RAG：后台预热本地 embedding 模型（守护线程，不阻塞启动；离线/失败自动降级）
     if settings.rag_enabled and settings.embedding_warm_on_start:
@@ -62,6 +72,10 @@ async def lifespan(app: FastAPI):
         from app.services.scheduler import shutdown_scheduler
 
         shutdown_scheduler()
+    if outbox_scheduler_started:
+        from app.services.verification_outbox import shutdown_outbox_scheduler
+
+        shutdown_outbox_scheduler()
 
 
 def _init_sentry() -> None:

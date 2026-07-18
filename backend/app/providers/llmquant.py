@@ -1,7 +1,10 @@
 """LLMQuant Data 接入（经官方 MCP server，stdio）。
 
-后端在这里**充当 MCP 客户端**：按需 `npx -y @llmquant/data-mcp` 拉起官方 MCP server，
-完成握手后批量调用工具（美国宏观快照 / wiki 知识检索）。用官方 MCP 接口而非逆向其私有 REST。
+后端在这里**充当 MCP 客户端**：按需 ``npx -y @llmquant/data-mcp@<pinned>`` 拉起官方 MCP
+server，完成握手后批量调用工具（美国宏观快照 / wiki 知识检索）。用官方 MCP 接口而非逆向其私有 REST。
+
+供应链：包名必须带精确版本（默认 ``@llmquant/data-mcp@0.5.2``）；子进程只继承最小环境变量，
+不把 JWT/DB/DeepSeek 等密钥传给第三方包。
 
 成本控制：结果带 **TTL 进程内缓存**（默认 12h），避免每次早报生成都重复 npx + 计费；
 调度器每日定时刷新缓存。优雅降级：未启用 / 无 key / 无 npx / 超时 / 出错 → 返回 []。
@@ -12,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -22,6 +26,66 @@ logger = logging.getLogger(__name__)
 
 # 进程内 TTL 缓存：key -> (timestamp, value)
 _cache: dict[str, tuple[float, list]] = {}
+
+# 仅允许 ``@scope/name@version``（禁止无版本 / latest / 范围）
+_PINNED_PKG = re.compile(
+    r"^@[a-z0-9][\w.-]*/[a-z0-9][\w.-]*@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$"
+)
+
+# 子进程环境白名单：第三方 MCP 拿不到 DB/JWT/SMTP 等密钥
+_ENV_PASSTHROUGH_KEYS = (
+    "PATH",
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "TMPDIR",
+    "TMP",
+    "TEMP",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TERM",
+    "NODE_OPTIONS",
+    "NODE_PATH",
+    "npm_config_cache",
+    "npm_config_prefix",
+    "NPM_CONFIG_CACHE",
+    "NPM_CONFIG_PREFIX",
+)
+_ENV_PASSTHROUGH_PREFIXES = ("LLMQUANT_",)
+
+
+def _pinned_package() -> str | None:
+    pkg = (settings.llmquant_mcp_package or "").strip()
+    if not _PINNED_PKG.fullmatch(pkg):
+        logger.warning(
+            "LLMQUANT_MCP_PACKAGE 必须是精确钉死版本（如 @llmquant/data-mcp@0.5.2），当前=%r",
+            pkg,
+        )
+        return None
+    return pkg
+
+
+def _sanitized_env() -> dict[str, str]:
+    """只传 Node/npx 运行与 LLMQUANT_* 必需变量，剥离宿主密钥。"""
+    env: dict[str, str] = {}
+    for key, value in os.environ.items():
+        if key in _ENV_PASSTHROUGH_KEYS or key.startswith(_ENV_PASSTHROUGH_PREFIXES):
+            env[key] = value
+    env["LLMQUANT_API_KEY"] = settings.llmquant_api_key
+    if settings.llmquant_base_url:
+        env["LLMQUANT_BASE_URL"] = settings.llmquant_base_url
+    for secret_key in (
+        "DATABASE_URL",
+        "JWT_SECRET",
+        "DEEPSEEK_API_KEY",
+        "SMTP_PASSWORD",
+        "AUTH_OUTBOX_ENCRYPTION_KEY",
+        "LANGCHAIN_API_KEY",
+        "SENTRY_DSN",
+    ):
+        env.pop(secret_key, None)
+    return env
 
 
 def _cached(key: str, producer, force: bool = False) -> list:
@@ -60,6 +124,9 @@ def _run_mcp(tool_calls: list[tuple[str, dict]], timeout: int = 60) -> dict[int,
     """
     if not (settings.llmquant_enabled and settings.llmquant_api_key) or not tool_calls:
         return {}
+    package = _pinned_package()
+    if package is None:
+        return {}
     npx = shutil.which("npx")
     if not npx:
         logger.info("未找到 npx，跳过 LLMQuant 取数（降级为空）")
@@ -89,19 +156,14 @@ def _run_mcp(tool_calls: list[tuple[str, dict]], timeout: int = 60) -> dict[int,
         )
     stdin_payload = "\n".join(json.dumps(m, ensure_ascii=False) for m in messages) + "\n"
 
-    env = os.environ.copy()
-    env["LLMQUANT_API_KEY"] = settings.llmquant_api_key
-    if settings.llmquant_base_url:
-        env["LLMQUANT_BASE_URL"] = settings.llmquant_base_url
-
     try:
         proc = subprocess.run(
-            [npx, "-y", "@llmquant/data-mcp"],
+            [npx, "-y", package],
             input=stdin_payload,
             capture_output=True,
             text=True,
             timeout=timeout,
-            env=env,
+            env=_sanitized_env(),
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("LLMQuant 取数失败，降级为空：%s", exc)

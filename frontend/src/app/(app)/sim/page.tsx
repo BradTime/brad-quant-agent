@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Wallet, Loader2, Sparkles, AlertTriangle, X } from 'lucide-react';
+import { Wallet, Loader2, Sparkles, AlertTriangle, X, RefreshCw } from 'lucide-react';
 import { RequireAuth } from '@/components/auth/require-auth';
 import { Markdown } from '@/components/ai/markdown';
 import {
@@ -18,6 +18,7 @@ import {
   type SimTrade,
 } from '@/lib/api/sim';
 import { getApiErrorMessage } from '@/lib/api/errors';
+import { useSimTradeSocket } from '@/hooks/useSimTradeSocket';
 import { cn } from '@/lib/utils';
 
 const fmt = (v: number | null | undefined, d = 2): string =>
@@ -42,6 +43,7 @@ function SimView() {
   const [qty, setQty] = useState(100);
   const [price, setPrice] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null);
   const [review, setReview] = useState('');
   const [reviewing, setReviewing] = useState(false);
@@ -59,10 +61,32 @@ function SimView() {
       setPositions(p);
       setOrders(o);
       setTrades(t);
-    } catch {
-      /* ignore */
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(getApiErrorMessage(err, '无法加载模拟账户'));
     }
   }, []);
+
+  const onFill = useCallback(
+    (payload: unknown) => {
+      const order = payload as SimOrder | null;
+      if (order?.status === 'filled') {
+        setToast({
+          kind: 'ok',
+          msg: `成交回报：${order.name || order.code} ${order.side === 'buy' ? '买入' : '卖出'} ${order.qty} 股`,
+        });
+      } else if (order?.status === 'cancelled' || order?.status === 'rejected') {
+        setToast({
+          kind: 'err',
+          msg: `${STATUS_LABEL[order.status] ?? order.status}：${order.reason || order.code}`,
+        });
+      }
+      void refresh();
+    },
+    [refresh]
+  );
+
+  const { status: wsStatus, lastFillAt } = useSimTradeSocket(onFill);
 
   useEffect(() => {
     void (async () => {
@@ -72,7 +96,7 @@ function SimView() {
   }, [refresh]);
 
   const submit = async () => {
-    if (submitting) return;
+    if (submitting || loadError) return;
     setToast(null);
     setSubmitting(true);
     try {
@@ -134,17 +158,62 @@ function SimView() {
 
   return (
     <div className="container mx-auto p-4 lg:p-6">
-      <div className="mb-5 flex items-center gap-3">
-        <span className="grid h-10 w-10 place-items-center rounded-xl bg-brand-soft text-brand">
-          <Wallet className="h-5 w-5" />
-        </span>
-        <div>
-          <h1 className="font-display text-2xl tracking-tight">模拟交易</h1>
-          <p className="text-sm text-muted-foreground">
-            play-money 模拟盘 · T+1 · 100 股整手 · 含佣金与印花税 · 仅供练习，不构成投资建议
-          </p>
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="grid h-10 w-10 place-items-center rounded-xl bg-brand-soft text-brand">
+            <Wallet className="h-5 w-5" />
+          </span>
+          <div>
+            <h1 className="font-display text-2xl tracking-tight">模拟交易</h1>
+            <p className="text-sm text-muted-foreground">
+              play-money 模拟盘 · T+1 · 100 股整手 · 含佣金与印花税 · 仅供练习，不构成投资建议
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-md border px-2 py-1',
+              wsStatus === 'open'
+                ? 'border-emerald-500/40 text-emerald-700 dark:text-emerald-400'
+                : 'border-border'
+            )}
+            title={lastFillAt ? `最近回报 ${new Date(lastFillAt).toLocaleTimeString()}` : undefined}
+          >
+            <span
+              className={cn(
+                'h-1.5 w-1.5 rounded-full',
+                wsStatus === 'open' ? 'bg-emerald-500' : 'bg-muted-foreground/50'
+              )}
+            />
+            {wsStatus === 'open' ? '实时已连接' : wsStatus === 'connecting' ? '连接中…' : '实时未连接'}
+          </span>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 hover:bg-muted"
+            aria-label="刷新账户"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            刷新
+          </button>
         </div>
       </div>
+
+      {loadError && (
+        <div
+          role="alert"
+          className="mb-4 flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+          <div className="flex-1">
+            <p>{loadError}</p>
+            <button type="button" className="mt-2 text-xs underline" onClick={() => void refresh()}>
+              重试
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 账户概览 */}
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
@@ -222,7 +291,13 @@ function SimView() {
           />
           <button
             onClick={submit}
-            disabled={submitting || !code.trim() || qty < 100 || (orderType === 'limit' && !price)}
+            disabled={
+              submitting ||
+              !!loadError ||
+              !code.trim() ||
+              qty < 100 ||
+              (orderType === 'limit' && !price)
+            }
             className={cn(
               'mt-4 w-full rounded-lg py-2.5 text-sm font-medium text-white transition-opacity disabled:opacity-40',
               side === 'buy' ? 'bg-up' : 'bg-down'

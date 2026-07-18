@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import DateTime, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.db.types import PortableJSON
 
 
 class Strategy(Base):
@@ -19,7 +21,10 @@ class Strategy(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     category: Mapped[str] = mapped_column(String(32), nullable=False)
     builtin_type: Mapped[str] = mapped_column(String(32), nullable=False)
-    params_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    params_json: Mapped[dict[str, Any] | list[Any]] = mapped_column(
+        PortableJSON, nullable=False, default=dict
+    )
+    # draft / active / disabled / data_corrupt
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

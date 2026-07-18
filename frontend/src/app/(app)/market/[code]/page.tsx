@@ -23,8 +23,12 @@ import {
 import { ChatPanel } from '@/components/ai/chat-panel';
 import { SourceNote } from '@/components/market/source-note';
 import { marketApi, type KlinePeriod, type StockQuote } from '@/lib/api/market';
+import { selectDisplayQuote } from '@/lib/api/quote-selection';
 import { watchlistApi } from '@/lib/api/watchlist';
+import { watchlistQueryKeys } from '@/components/market/watchlist-query-keys';
+import { useFreshnessClock } from '@/hooks/useFreshnessClock';
 import { useMarketSocket } from '@/hooks/useMarketSocket';
+import { useAuthStore } from '@/stores/useAuthStore';
 import { formatAmount } from '@/lib/utils/format';
 import { cn } from '@/lib/utils';
 
@@ -72,13 +76,15 @@ export default function StockDetailPage() {
   const params = useParams<{ code: string }>();
   const rawCode = decodeURIComponent(params?.code ?? '');
   const queryClient = useQueryClient();
+  const userId = useAuthStore((s) => s.user?.id);
 
   const [period, setPeriod] = useState<KlinePeriod>('day');
   const [overlay, setOverlay] = useState<MainOverlay>('ma');
   const [sub, setSub] = useState<SubIndicator>('macd');
   const [panel, setPanel] = useState<PanelKey>('overview');
+  const freshnessNow = useFreshnessClock();
 
-  const { data: quote } = useQuery({
+  const { data: quote, dataUpdatedAt: quoteReceivedAt } = useQuery({
     queryKey: ['market', 'quote', rawCode],
     queryFn: () => marketApi.getQuote(rawCode),
     refetchInterval: 6000,
@@ -86,12 +92,22 @@ export default function StockDetailPage() {
   });
 
   const canonical = quote?.code ?? rawCode;
+  const quoteTopic = `market.quote.${canonical}`;
 
-  const { status: wsStatus, data: wsData } = useMarketSocket(
-    canonical ? [`market.quote.${canonical}`] : []
+  const {
+    status: wsStatus,
+    data: wsData,
+    receivedAt: wsReceivedAt,
+  } = useMarketSocket(canonical ? [quoteTopic] : []);
+  const liveQuote = (wsData[quoteTopic] as StockQuote | undefined) ?? undefined;
+  const q = selectDisplayQuote(
+    quote,
+    liveQuote,
+    wsStatus,
+    quoteReceivedAt,
+    wsReceivedAt[quoteTopic] ?? 0,
+    freshnessNow
   );
-  const liveQuote = (wsData[`market.quote.${canonical}`] as StockQuote | undefined) ?? undefined;
-  const q = liveQuote ?? quote;
 
   const { data: profile } = useQuery({
     queryKey: ['market', 'profile', canonical],
@@ -100,12 +116,14 @@ export default function StockDetailPage() {
     retry: false,
   });
 
-  const { data: kline = [], isLoading: klineLoading } = useQuery({
+  const { data: klineResult, isLoading: klineLoading } = useQuery({
     queryKey: ['market', 'kline', canonical, period],
     queryFn: () => marketApi.getKline(canonical, period, 250),
     enabled: !!canonical,
     retry: false,
   });
+  const kline = klineResult?.bars ?? [];
+  const klineQuality = klineResult?.dataQuality;
 
   const { data: capitalFlow = [] } = useQuery({
     queryKey: ['market', 'capital', canonical],
@@ -136,8 +154,9 @@ export default function StockDetailPage() {
   });
 
   const { data: watchlist = [] } = useQuery({
-    queryKey: ['watchlist'],
+    queryKey: watchlistQueryKeys.all(userId),
     queryFn: () => watchlistApi.getList(),
+    enabled: Boolean(userId),
     retry: false,
   });
   const isWatched = watchlist.some((w) => w.code === canonical);
@@ -147,7 +166,8 @@ export default function StockDetailPage() {
       if (isWatched) await watchlistApi.remove(canonical);
       else await watchlistApi.add(canonical, { name: q?.name });
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['watchlist'] }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: watchlistQueryKeys.all(userId) }),
   });
 
   const refresh = useMutation({
@@ -237,11 +257,13 @@ export default function StockDetailPage() {
                   <><WifiOff className="h-3.5 w-3.5" /> 未连接</>
                 )}
               </span>
-              {q?.stale ? (
-                <SourceNote source="落库收盘价" freshness="实时快照不可用·展示最近收盘" limited />
-              ) : (
-                <SourceNote source="东方财富" freshness="秒级快照·可能延迟" />
-              )}
+              <SourceNote
+                source={q?.staleReason === 'last_close' ? '落库收盘价' : '东方财富·快照'}
+                asOf={q?.asOf}
+                staleReason={q?.staleReason}
+                executable={q?.executable}
+                limited={q != null && q.asOf == null}
+              />
               <div className="tnum mt-1 grid grid-cols-2 gap-x-4 gap-y-0.5 text-right">
                 <span>今开 {q?.open != null ? q.open.toFixed(2) : '—'}</span>
                 <span>最高 {q?.high != null ? q.high.toFixed(2) : '—'}</span>
@@ -310,6 +332,11 @@ export default function StockDetailPage() {
                 </div>
               </CardHeader>
               <CardContent>
+                {klineQuality === 'invalid_ohlc' && (
+                  <p className="mb-3 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
+                    部分异常 K 线已隔离，当前图表仅展示通过 OHLC 校验的数据。
+                  </p>
+                )}
                 {klineLoading ? (
                   <div className="flex h-[460px] items-center justify-center text-muted-foreground">
                     加载 K 线…

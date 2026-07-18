@@ -7,10 +7,13 @@ interface so the rest of the platform never depends on a concrete source
 
 from __future__ import annotations
 
+import math
 from abc import ABC
 from datetime import date, datetime
+from decimal import Decimal
+from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 # Capability tokens used by the registry to route requests.
 CAP_INSTRUMENTS = "instruments"
@@ -24,6 +27,31 @@ CAP_FINANCIALS = "financials"
 CAP_DRAGON_TIGER = "dragon_tiger"
 CAP_NEWS = "news"
 CAP_PROFILE = "profile"
+
+
+class ProviderError(Exception):
+    """数据源错误基类：区分「源不可用」与「真实空结果」。"""
+
+    def __init__(
+        self,
+        provider: str,
+        message: str,
+        *,
+        code: str | None = None,
+        cause: BaseException | None = None,
+    ) -> None:
+        self.provider = provider
+        self.code = code
+        self.cause = cause
+        super().__init__(f"[{provider}] {message}")
+
+
+class ProviderUnavailable(ProviderError):
+    """网络/依赖/上游失败，调用方应展示不可用而非空态。"""
+
+
+class ProviderSchemaError(ProviderError):
+    """上游字段漂移或解析失败。"""
 
 
 class InstrumentDTO(BaseModel):
@@ -47,6 +75,29 @@ class BarDTO(BaseModel):
     volume: float | None = None
     amount: float | None = None
 
+    @field_validator(
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "amount",
+        mode="before",
+    )
+    @classmethod
+    def reject_boolean_or_non_finite_number(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        if isinstance(value, bool):
+            raise ValueError("bar numeric fields do not accept booleans")
+        try:
+            number = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return value
+        if not math.isfinite(number):
+            raise ValueError("bar numeric fields must be finite")
+        return value
+
 
 class QuoteDTO(BaseModel):
     code: str
@@ -61,6 +112,9 @@ class QuoteDTO(BaseModel):
     volume: float | None = None
     amount: float | None = None
     ts: datetime | None = None
+    # True only when ``ts`` is an exchange/source event timestamp rather than
+    # the local observation time of a free snapshot request.
+    event_time_reliable: bool = False
 
 
 class AdjustFactorDTO(BaseModel):
@@ -85,12 +139,15 @@ class CapitalFlowDTO(BaseModel):
 class FinancialSummaryDTO(BaseModel):
     code: str
     report_date: date
-    eps: float | None = None
-    bps: float | None = None
-    roe: float | None = None
-    revenue: float | None = None
-    net_profit: float | None = None
-    gross_margin: float | None = None
+    announced_at: datetime | None = None
+    available_at: datetime | None = None
+    announced_at_precision: Literal["datetime", "date"] | None = None
+    eps: Decimal | None = None
+    bps: Decimal | None = None
+    roe: Decimal | None = None
+    revenue: Decimal | None = None
+    net_profit: Decimal | None = None
+    gross_margin: Decimal | None = None
 
 
 class DragonTigerDTO(BaseModel):

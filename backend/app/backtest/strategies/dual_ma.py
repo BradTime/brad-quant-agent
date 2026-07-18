@@ -6,17 +6,33 @@
 
 from __future__ import annotations
 
+import math
+
 from app.backtest.base import Strategy
 from app.backtest.data import Bar
 
 
 class DualMA(Strategy):
     def initialize(self, ctx) -> None:
-        self.fast = max(int(ctx.params.get("fast", 5)), 1)
-        self.slow = max(int(ctx.params.get("slow", 20)), 2)
-        if self.fast >= self.slow:  # 非法参数兜底
-            self.fast, self.slow = 5, 20
-        self.target = float(ctx.params.get("target", 0.95))
+        fast = ctx.params.get("fast", 5)
+        slow = ctx.params.get("slow", 20)
+        target = ctx.params.get("target", 0.95)
+        if type(fast) is not int or not 1 <= fast <= 120:
+            raise ValueError("参数 fast 必须是 1 到 120 的整数")
+        if type(slow) is not int or not 2 <= slow <= 250:
+            raise ValueError("参数 slow 必须是 2 到 250 的整数")
+        if fast >= slow:
+            raise ValueError("参数 fast 必须小于 slow")
+        if (
+            isinstance(target, bool)
+            or not isinstance(target, (int, float))
+            or not math.isfinite(float(target))
+            or not 0.1 <= float(target) <= 1.0
+        ):
+            raise ValueError("参数 target 必须是 0.1 到 1.0 的有限数字")
+        self.fast = fast
+        self.slow = slow
+        self.target = float(target)
 
     def handle_bar(self, ctx, bars: dict[str, Bar]) -> None:
         n = len(ctx.universe) or len(bars)

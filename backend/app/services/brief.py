@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from datetime import date, datetime, timedelta
@@ -21,6 +20,7 @@ from app.ai.compliance import enforce_compliance
 from app.ai.orchestrator import run_completion_stream
 from app.ai.prompts import MORNING_BRIEF_PROMPT
 from app.core.config import settings
+from app.core.json_payload import JsonCorruptError, dump_envelope, load_envelope
 from app.db.session import SessionLocal
 from app.models.brief import MorningBrief
 from app.models.extra import DragonTiger, NewsItem
@@ -41,38 +41,120 @@ def _today() -> date:
 # ---------- 数据装配（全部读已落库/缓存，绝不触发会阻塞的实时拉取） ----------
 
 
-def _recent_news(codes: list[str], hours: int = 48, limit: int = 12) -> list[dict]:
-    since = datetime.now(_TZ).replace(tzinfo=None) - timedelta(hours=hours)
+def _as_naive(dt: datetime) -> datetime:
+    """Normalize aware/naive datetimes for age comparisons (DB mixes both)."""
+    if dt.tzinfo is not None:
+        return dt.astimezone(_TZ).replace(tzinfo=None)
+    return dt
+
+
+def _news_instant(row: NewsItem) -> datetime | None:
+    """Age clock: prefer published_at; fall back to fetched_at only if unpublished."""
+    if row.published_at is not None:
+        return _as_naive(row.published_at)
+    if row.fetched_at is not None:
+        return _as_naive(row.fetched_at)
+    return None
+
+
+def _serialize_news_row(row: NewsItem) -> dict:
+    return {
+        "title": row.title,
+        "source": row.source_name,
+        "publishedAt": row.published_at.isoformat() if row.published_at else None,
+        "code": row.code,
+    }
+
+
+def _recent_news(
+    codes: list[str],
+    *,
+    window_hours: int | None = None,
+    max_fallback_age_hours: int | None = None,
+    limit: int = 12,
+) -> dict:
+    """Load news for the brief with a hard max fallback age (H19).
+
+    Returns::
+        {
+          "items": [...],
+          "fallbackUsed": bool,
+          "newestAt": str | None,
+          "recentMissing": bool,
+          "windowHours": int,
+          "maxFallbackAgeHours": int,
+        }
+    """
+    window_hours = int(
+        window_hours
+        if window_hours is not None
+        else settings.brief_news_window_hours
+    )
+    max_fallback_age_hours = int(
+        max_fallback_age_hours
+        if max_fallback_age_hours is not None
+        else settings.brief_news_max_fallback_age_hours
+    )
+    # 回退窗口不得窄于主窗口
+    max_fallback_age_hours = max(max_fallback_age_hours, window_hours)
+
+    now = _as_naive(datetime.now(_TZ))
+    recent_since = now - timedelta(hours=window_hours)
+    fallback_since = now - timedelta(hours=max_fallback_age_hours)
+
     with SessionLocal() as session:
         stmt = (
             select(NewsItem)
-            .where(NewsItem.published_at.is_not(None), NewsItem.published_at >= since)
+            .where(
+                NewsItem.published_at.is_not(None),
+                NewsItem.published_at >= recent_since,
+            )
             .order_by(NewsItem.published_at.desc())
             .limit(limit)
         )
         if codes:
             stmt = stmt.where(NewsItem.code.in_(codes))
         rows = list(session.execute(stmt).scalars().all())
-        if not rows:  # 落库新闻发布时间可能偏旧；放宽为「最近入库」兜底
-            fallback = select(NewsItem).order_by(NewsItem.fetched_at.desc()).limit(limit)
+        fallback_used = False
+
+        if not rows:
+            # 回退：仍要求事件时刻（发布优先，否则入库）落在 max_fallback 内
+            fallback = (
+                select(NewsItem)
+                .order_by(
+                    NewsItem.published_at.desc().nullslast(),
+                    NewsItem.fetched_at.desc(),
+                )
+                .limit(max(limit * 5, 40))  # 多取再按年龄过滤
+            )
             if codes:
                 fallback = fallback.where(NewsItem.code.in_(codes))
-            rows = list(
-                session.execute(fallback)
-                .scalars()
-                .all()
-            )
-    out = []
-    for r in rows:
-        out.append(
-            {
-                "title": r.title,
-                "source": r.source_name,
-                "publishedAt": r.published_at.isoformat() if r.published_at else None,
-                "code": r.code,
-            }
-        )
-    return out
+            candidates = list(session.execute(fallback).scalars().all())
+            rows = []
+            for row in candidates:
+                instant = _news_instant(row)
+                if instant is None or instant < fallback_since:
+                    continue
+                rows.append(row)
+                if len(rows) >= limit:
+                    break
+            fallback_used = bool(rows)
+
+    items = [_serialize_news_row(r) for r in rows]
+    newest_at: str | None = None
+    if rows:
+        instants = [i for i in (_news_instant(r) for r in rows) if i is not None]
+        if instants:
+            newest_at = max(instants).isoformat()
+
+    return {
+        "items": items,
+        "fallbackUsed": fallback_used,
+        "newestAt": newest_at,
+        "recentMissing": len(items) == 0,
+        "windowHours": window_hours,
+        "maxFallbackAgeHours": max_fallback_age_hours,
+    }
 
 
 def _recent_dragon_tiger(days: int = 5, limit: int = 12) -> list[dict]:
@@ -127,7 +209,8 @@ def build_data_pack(user_id: str | None) -> dict:
 
     watch_codes = [i["code"] for i in items]
     recent_dragon_tiger = _recent_dragon_tiger()
-    recent_news = _recent_news(watch_codes)
+    news_bundle = _recent_news(watch_codes)
+    recent_news = list(news_bundle.get("items") or [])
 
     # RAG：用近期新闻主题检索相关背景（更早新闻 / 历史早报），为研判提供延续性上下文
     rag_query = " ".join(n.get("title", "") for n in recent_news[:5] if n.get("title"))
@@ -138,6 +221,18 @@ def build_data_pack(user_id: str | None) -> dict:
 
     # 量化知识背景：用近期新闻主题对 LLMQuant wiki 做语义检索（带缓存），给消息面/研究分析师补概念背景
     quant_knowledge = llmquant.search_quant_knowledge(rag_query) if rag_query.strip() else []
+
+    missing = list(_MISSING)
+    if news_bundle.get("recentMissing"):
+        missing.insert(0, "近期新闻/公告（落库无满足时效窗口的记录）")
+
+    news_meta = {
+        "fallbackUsed": bool(news_bundle.get("fallbackUsed")),
+        "newestAt": news_bundle.get("newestAt"),
+        "recentMissing": bool(news_bundle.get("recentMissing")),
+        "windowHours": news_bundle.get("windowHours"),
+        "maxFallbackAgeHours": news_bundle.get("maxFallbackAgeHours"),
+    }
 
     pack = {
         "tradeDate": _today().isoformat(),
@@ -152,6 +247,7 @@ def build_data_pack(user_id: str | None) -> dict:
         "capitalFlow": capital_flow,
         "dragonTiger": recent_dragon_tiger,
         "news": recent_news,
+        "newsMeta": news_meta,
         "relatedKnowledge": related_knowledge,
         "usMacro": us_macro,
         "quantKnowledge": quant_knowledge,
@@ -160,10 +256,12 @@ def build_data_pack(user_id: str | None) -> dict:
             "watchlist": bool(items),
             "capitalFlow": bool(capital_flow),
             "dragonTiger": bool(recent_dragon_tiger),
+            "news": bool(recent_news),
+            "newsRecentMissing": bool(news_bundle.get("recentMissing")),
             "relatedKnowledge": bool(related_knowledge),
             "usMacro": bool(us_macro),
             "quantKnowledge": bool(quant_knowledge),
-            "missing": _MISSING,
+            "missing": missing,
         },
     }
     return pack
@@ -224,10 +322,25 @@ def render_data_pack_text(pack: dict) -> str:
     lines.append("")
 
     news = pack.get("news") or []
+    news_meta = pack.get("newsMeta") or {}
     if news:
-        lines.append("# 近期新闻/公告")
+        if news_meta.get("fallbackUsed"):
+            lines.append(
+                f"# 新闻/公告（已回退：超出 {news_meta.get('windowHours', 48)}h 主窗口，"
+                f"仍在 {news_meta.get('maxFallbackAgeHours')}h 内；"
+                f"newestAt={news_meta.get('newestAt') or '—'}；勿当作当日突发）"
+            )
+        else:
+            lines.append("# 近期新闻/公告")
         for n in news:
-            lines.append(f"- {n.get('publishedAt','')} [{n.get('source','')}] {n.get('title','')}")
+            lines.append(
+                f"- {n.get('publishedAt','')} [{n.get('source','')}] {n.get('title','')}"
+            )
+    elif news_meta.get("recentMissing"):
+        lines.append(
+            f"# 近期新闻缺失：落库中无 {news_meta.get('maxFallbackAgeHours', 168)}h 内的新闻/公告"
+            f"（主窗口 {news_meta.get('windowHours', 48)}h），请勿编造消息面"
+        )
     else:
         lines.append("# 新闻：暂无落库数据")
     lines.append("")
@@ -306,7 +419,7 @@ def _persist(
 ) -> None:
     title = f"A股盘前早报 · {trade_date.isoformat()}"
     note = "数据来源：本平台已落库公开免费数据（指数/自选股/资金流/龙虎榜/新闻）；隔夜外盘与宏观政策暂未接入"
-    # data_pack_json 同时保存依据数据快照与多智能体逐步轨迹，便于复盘 / 可观测 / PIT。
+    # data_pack_json：schemaVersion 信封 + 依据数据快照 / 多智能体轨迹
     snapshot = {
         "engine": engine,
         "pack": pack,
@@ -322,7 +435,7 @@ def _persist(
         row.status = status
         row.title = title
         row.content = content
-        row.data_pack_json = json.dumps(snapshot, ensure_ascii=False, default=str)
+        row.data_pack_json = dump_envelope(snapshot)
         row.source_note = note
         row.model = settings.deepseek_model
         row.error = error
@@ -339,10 +452,22 @@ def stream_generate(user_id: str | None):
 
     引擎：``brief_engine=graph`` 走 LangGraph 多智能体（规划→三分析并行→主编→合规反思，
     逐步产出进度），不可用或异常时降级为单轮合成。
+
+    落库协议：先写 ``generating``，成功后置 ``ready``；失败置 ``failed``/``partial``。
+    ``persisted_ok`` 仅在事务成功后置位，避免落库失败却被当成已成功。
     """
     brief_id = uuid.uuid4().hex
     trade_date = _today()
     engine = settings.brief_engine
+    yield {"briefId": brief_id}
+
+    try:
+        _persist(brief_id, user_id, trade_date, {}, "", "generating", engine=engine)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("早报 generating 落库失败: %s", exc)
+        yield {"delta": f"\n\n⚠️ 早报无法落库：{exc}"}
+        yield {"error": f"persist_failed:{exc}", "briefId": brief_id, "status": "failed"}
+        return
 
     try:
         pack = build_data_pack(user_id)
@@ -354,22 +479,35 @@ def stream_generate(user_id: str | None):
             _persist(brief_id, user_id, trade_date, {}, "", "failed", str(exc), engine=engine)
         except Exception:  # noqa: BLE001
             pass
+        yield {"briefId": brief_id, "status": "failed"}
         return
 
     acc: list[str] = []
     trace: list[dict] = []
-    persisted = False
+    persisted_ok = False
 
-    def _save(status: str, error: str | None = None) -> None:
-        nonlocal persisted
-        if persisted:
-            return
-        persisted = True
+    def _save(status: str, error: str | None = None) -> bool:
+        """成功提交返回 True；失败不置位，允许重试。"""
+        nonlocal persisted_ok
+        if persisted_ok:
+            return True
         try:
-            _persist(brief_id, user_id, trade_date, pack,
-                     enforce_compliance("".join(acc)), status, error, trace=trace, engine=engine)
+            _persist(
+                brief_id,
+                user_id,
+                trade_date,
+                pack,
+                enforce_compliance("".join(acc)),
+                status,
+                error,
+                trace=trace,
+                engine=engine,
+            )
+            persisted_ok = True
+            return True
         except Exception as exc:  # noqa: BLE001
-            logger.warning("早报落库失败: %s", exc)
+            logger.warning("早报落库失败 status=%s: %s", status, exc)
+            return False
 
     def _single_shot():
         for piece in run_completion_stream(MORNING_BRIEF_PROMPT, content_text):
@@ -390,10 +528,16 @@ def stream_generate(user_id: str | None):
             for chunk in _stream_chunks(final_text):
                 acc.append(chunk)
                 yield {"delta": chunk}
-            _save("ready")
+            if not _save("ready"):
+                yield {"error": "persist_failed", "briefId": brief_id, "status": "generating"}
+            else:
+                yield {"briefId": brief_id, "status": "ready"}
         else:
             yield from _single_shot()
-            _save("ready")
+            if not _save("ready"):
+                yield {"error": "persist_failed", "briefId": brief_id, "status": "generating"}
+            else:
+                yield {"briefId": brief_id, "status": "ready"}
     except GeneratorExit:
         # 客户端断开/取消：已生成部分标 partial（get_latest 只取 ready，不会把残篇当最新），无内容标 failed
         _save("partial" if acc else "failed")
@@ -404,20 +548,33 @@ def stream_generate(user_id: str | None):
             try:
                 yield {"step": "图引擎异常，降级单轮合成"}
                 yield from _single_shot()
-                _save("ready")
+                if _save("ready"):
+                    yield {"briefId": brief_id, "status": "ready"}
+                    return
+                yield {"error": "persist_failed", "briefId": brief_id, "status": "generating"}
                 return
             except Exception as exc2:  # noqa: BLE001
                 exc = exc2
-        _save("failed", str(exc))
+        ok = _save("failed", str(exc))
         yield {"delta": f"\n\n⚠️ 早报生成出错：{exc}"}
+        yield {
+            "briefId": brief_id,
+            "status": "failed" if ok else "generating",
+            "error": str(exc),
+        }
 
 
 def generate(user_id: str | None = None) -> dict:
-    """非流式生成（供调度器/脚本），返回早报记录 dict。"""
-    parts = [ev["delta"] for ev in stream_generate(user_id) if "delta" in ev]
-    text = "".join(parts)
-    latest = get_latest(user_id)
-    return latest or {"content": text}
+    """非流式生成（供调度器/脚本），返回**本次**早报记录（含失败态），不回落旧 ready。"""
+    brief_id: str | None = None
+    for ev in stream_generate(user_id):
+        if isinstance(ev, dict) and ev.get("briefId"):
+            brief_id = str(ev["briefId"])
+    if brief_id:
+        row = get_brief(brief_id, user_id)
+        if row is not None:
+            return row
+    return {"id": brief_id, "status": "failed", "content": ""}
 
 
 def _to_dict(row: MorningBrief, with_content: bool = True, with_pack: bool = False) -> dict:
@@ -436,14 +593,20 @@ def _to_dict(row: MorningBrief, with_content: bool = True, with_pack: bool = Fal
     if with_pack:
         # 从落库快照取依据数据 + 多智能体轨迹，供前端「海外宏观/量化知识/智能体观测」卡片
         engine, data_pack, trace = "single", None, []
-        if row.data_pack_json:
+        if row.data_pack_json is not None:
             try:
-                snap = json.loads(row.data_pack_json)
+                snap = load_envelope(
+                    row.data_pack_json, expect="dict", field="data_pack_json"
+                )
+                if not isinstance(snap, dict):
+                    raise JsonCorruptError("data_pack payload must be object")
                 engine = snap.get("engine", "single")
                 data_pack = snap.get("pack")
                 trace = snap.get("agentTrace") or []
-            except (ValueError, TypeError):
-                pass
+            except JsonCorruptError as exc:
+                out["status"] = "data_corrupt"
+                out["error"] = f"data_pack_json corrupt: {exc}"
+                engine, data_pack, trace = "single", None, []
         out["engine"] = engine
         out["dataPack"] = data_pack
         out["agentTrace"] = trace

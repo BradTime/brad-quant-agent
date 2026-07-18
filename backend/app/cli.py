@@ -1,7 +1,8 @@
 """Phase 0 data-ingestion CLI.
 
 Examples:
-    python -m app.cli init-db
+    python -m app.cli migrate
+    python -m app.cli init-db  # development compatibility only
     python -m app.cli ingest-instruments
     python -m app.cli ingest-daily --code 600000.SH --start 2024-01-01 --end 2024-12-31
     python -m app.cli ingest-minute --code 600000.SH --period 5 --start 2024-12-01 --end 2024-12-31
@@ -12,13 +13,18 @@ Examples:
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
+
+import alembic.command
+from alembic.config import Config
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="quant-agent-backend")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("init-db", help="创建数据库表")
+    sub.add_parser("migrate", help="运行 Alembic 迁移到 head（推荐）")
+    sub.add_parser("init-db", help="仅开发兼容：用 create_all 创建当前表")
 
     p_inst = sub.add_parser("ingest-instruments", help="拉取并落库标的列表")
     p_inst.add_argument("--provider", default=None)
@@ -77,6 +83,12 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
+    if args.cmd == "migrate":
+        config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+        alembic.command.upgrade(config, "head")
+        print("✅ Alembic 数据库迁移已升级到 head")
+        return 0
+
     if args.cmd == "backfill":
         from datetime import date, timedelta
 
@@ -110,19 +122,29 @@ def main(argv: list[str] | None = None) -> int:
             codes, start, end, args.provider,
             minute_periods=minute_periods, minute_start=minute_start,
         )
+        runs = s.get("runs") or []
+        for run in runs:
+            failed = run.get("failedDatasets") or []
+            suffix = f"；失败数据集 {', '.join(failed)}" if failed else ""
+            print(f"- {run.get('code')}: {run.get('status')}{suffix}")
+
+        has_bad_run = any(run.get("status") in {"partial", "failed", "running"} for run in runs)
+        has_errors = bool(s.get("errors"))
+        prefix = "❌ 回填未完整完成" if (has_errors or has_bad_run) else "✅ 回填完成"
         msg = (
-            f"✅ 回填完成：日K {s['daily']}、复权 {s['adjust']}、资金流 {s['capital_flow']}、"
+            f"{prefix}：日K {s['daily']}、复权 {s['adjust']}、资金流 {s['capital_flow']}、"
             f"财务 {s['financials']}、新闻 {s['news']}"
         )
         if minute_periods:
             msg += f"、分钟K {s['minute']}（周期 {','.join(minute_periods)} 自 {minute_start}）"
         msg += f"；失败 {s['errors']}"
         print(msg)
-        return 0
+        return 1 if (has_errors or has_bad_run) else 0
 
     if args.cmd == "init-db":
         from app.db.init_db import init_db
 
+        print("⚠️ init-db 仅用于开发兼容；部署和持久库请使用 `python -m app.cli migrate`")
         init_db()
         print("✅ 数据库表已创建")
         return 0

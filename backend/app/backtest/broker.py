@@ -1,6 +1,6 @@
 """native / Backtrader 引擎共享的 A 股撮合账户。
 
-复用 ``trading_rules`` 的 A 股口径：100 股整手、佣金万2.5(最低5)、卖出印花税千1、
+复用 ``trading_rules`` 的 A 股口径：100 股整手、佣金万2.5(最低5)、历史印花税、
 T+1（当日买入次日可卖）、涨跌停（开盘越限则该方向不成交）、滑点（买抬卖压）。
 
 成交时机：策略在 t 根 bar ``submit_*`` 的意图，由引擎在 **t+1 根 bar 开盘**
@@ -128,7 +128,9 @@ class Broker:
         prev = self._prev_close.get(code)
         if not prev or prev <= 0:
             return False
-        ratio = limit_ratio if limit_ratio is not None else rules.price_limit_ratio(code)
+        if limit_ratio is None or limit_ratio <= 0:
+            return False
+        ratio = limit_ratio
         if side == "buy" and px >= round(prev * (1 + ratio), 2):
             return True  # 开盘涨停，买不进
         if side == "sell" and px <= round(prev * (1 - ratio), 2):
@@ -173,7 +175,7 @@ class Broker:
                 return
             amount = fill_px * qty
             fee = rules.commission(amount)
-            tax = rules.stamp_tax(amount, "sell")
+            tax = rules.stamp_tax(amount, "sell", trade_date)
             self.cash = rules.round_money(self.cash + amount - fee - tax)
             pos.qty -= qty
             pos.available -= qty

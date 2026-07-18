@@ -1,7 +1,7 @@
 import { API_BASE_URL } from '@/lib/constants';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { apiClient } from './client';
-import { createSSEParser } from './sse';
+import { createSSEParser, StreamInterruptedError } from './sse';
 
 export interface SimAccount {
   cash: number;
@@ -132,4 +132,8 @@ export async function streamSimReview({ onDelta, onError, signal }: ReviewHandle
       }
     }
   }
+  if (signal?.aborted) return;
+  const interrupted = '连接中断：未收到完整结束标记';
+  onError?.(interrupted);
+  throw new StreamInterruptedError(interrupted);
 }

@@ -41,6 +41,21 @@ export interface AuthResponse {
   refreshToken: string;
 }
 
+export interface RegistrationAccepted {
+  accepted: true;
+  message: string;
+}
+
+export interface EmailVerificationResult {
+  verified: true;
+}
+
+export interface EmailVerificationRequest {
+  token: string;
+  password: string;
+  name: string;
+}
+
 /**
  * 主题类型
  */

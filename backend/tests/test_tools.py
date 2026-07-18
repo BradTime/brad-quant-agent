@@ -40,3 +40,32 @@ def test_get_quotes_uses_get_quote_per_code():
         out = execute_tool("get_quotes", {"codes": ["600000", "000001.SZ"]})
     assert mock_get.call_count == 2
     assert len(out["quotes"]) == 2
+
+
+def test_tool_rejects_oversized_codes_and_limits():
+    too_many = execute_tool("get_quotes", {"codes": [f"{i:06d}" for i in range(21)]})
+    assert too_many["error"] == "工具参数无效"
+
+    huge_kline = execute_tool("get_kline", {"symbol": "600000.SH", "count": 10_000})
+    assert huge_kline["error"] == "工具参数无效"
+
+    huge_rag = execute_tool("search_knowledge", {"query": "白酒", "k": 999})
+    assert huge_rag["error"] == "工具参数无效"
+
+    nan_screen = execute_tool("screen_stocks", {"priceMin": float("nan")})
+    assert nan_screen["error"] == "工具参数无效"
+
+    extra = execute_tool("get_stock_profile", {"code": "600000.SH", "hack": 1})
+    assert extra["error"] == "工具参数无效"
+
+
+def test_tool_clamps_valid_bounds_and_dispatches():
+    with patch("app.ai.tools.market.get_kline", return_value={"bars": [], "dataQuality": {}}) as mock_k:
+        out = execute_tool("get_kline", {"symbol": "600000.SH", "count": 500})
+    assert "error" not in out
+    mock_k.assert_called_once_with("600000.SH", "day", 500)
+
+    with patch("app.services.rag.retrieve", return_value=[{"text": "x"}]) as mock_retrieve:
+        out = execute_tool("search_knowledge", {"query": "政策", "k": 5})
+    assert out["results"] == [{"text": "x"}]
+    mock_retrieve.assert_called_once_with("政策", 5)

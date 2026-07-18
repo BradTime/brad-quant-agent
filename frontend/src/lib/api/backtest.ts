@@ -4,12 +4,14 @@ import type {
   BacktestEngine,
   BacktestFrequency,
   BacktestMetrics,
+  BacktestStrategyType,
   EquityPoint,
+  GridSortMetric,
   TradeRecord,
 } from '@/types/backtest';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { apiClient } from './client';
-import { createSSEParser } from './sse';
+import { createSSEParser, StreamInterruptedError } from './sse';
 
 /** 内置策略目录项（后端 /backtest/strategies 返回，驱动前端参数表单）。 */
 export interface StrategyParamSpec {
@@ -22,14 +24,14 @@ export interface StrategyParamSpec {
 }
 
 export interface StrategyCatalogItem {
-  type: string;
+  type: BacktestStrategyType;
   name: string;
   description: string;
   params: StrategyParamSpec[];
 }
 
 export interface BacktestRunRequest {
-  strategyType: string;
+  strategyType: BacktestStrategyType;
   params: Record<string, number>;
   codes: string[];
   start: string;
@@ -52,7 +54,7 @@ export interface BacktestMetricsExt extends Partial<BacktestMetrics> {
 
 export interface BacktestRunResult {
   id: string;
-  strategyType: string;
+  strategyType: BacktestStrategyType;
   status: 'completed' | 'failed';
   engine: string;
   error?: string | null;
@@ -78,7 +80,7 @@ export interface GridSearchResult {
   results: GridResultRow[];
   best: GridResultRow | null;
   engine: BacktestEngine;
-  sortBy: string;
+  sortBy: GridSortMetric;
   truncated: boolean;
   dataQuality?: Record<string, string>;
   actualRange?: { start: string; end: string } | null;
@@ -87,7 +89,7 @@ export interface GridSearchResult {
 }
 
 export interface GridSearchRequestBody {
-  strategyType: string;
+  strategyType: BacktestStrategyType;
   paramGrid: Record<string, number[]>;
   codes: string[];
   start: string;
@@ -95,7 +97,7 @@ export interface GridSearchRequestBody {
   initialCapital: number;
   slippage: number;
   engine: BacktestEngine;
-  sortBy: string;
+  sortBy: GridSortMetric;
   frequency: BacktestFrequency;
 }
 
@@ -161,4 +163,8 @@ export async function streamBacktestReview(
       }
     }
   }
+  if (signal?.aborted) return;
+  const interrupted = '连接中断：未收到完整结束标记';
+  onError?.(interrupted);
+  throw new StreamInterruptedError(interrupted);
 }

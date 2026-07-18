@@ -1,4 +1,11 @@
-import type { LoginRequest, RegisterRequest, AuthResponse } from '@/types';
+import type {
+  AuthResponse,
+  EmailVerificationRequest,
+  EmailVerificationResult,
+  LoginRequest,
+  RegisterRequest,
+  RegistrationAccepted,
+} from '@/types';
 import { apiClient } from './client';
 
 /**
@@ -16,8 +23,13 @@ export const authApi = {
   /**
    * 用户注册
    */
-  register: async (data: RegisterRequest): Promise<AuthResponse> => {
-    const response = await apiClient.post<AuthResponse>('/auth/register', data);
+  register: async (data: RegisterRequest): Promise<RegistrationAccepted> => {
+    const response = await apiClient.post<RegistrationAccepted>('/auth/register', data);
+    return response.data;
+  },
+
+  verifyEmail: async (data: EmailVerificationRequest): Promise<EmailVerificationResult> => {
+    const response = await apiClient.post<EmailVerificationResult>('/auth/verify', data);
     return response.data;
   },
 

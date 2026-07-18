@@ -12,29 +12,52 @@ import { ScreenerPanel } from '@/components/market/screener-panel';
 import { SourceNote } from '@/components/market/source-note';
 import { dashboardApi } from '@/lib/api/dashboard';
 import { marketApi } from '@/lib/api/market';
+import { ageQuote, formatQuoteFreshness } from '@/lib/api/quote-selection';
+import { useFreshnessClock } from '@/hooks/useFreshnessClock';
 import { cn } from '@/lib/utils';
 
 type Tab = 'all' | 'screener';
+
+function changeClass(value: number | null): string {
+  if (value === null || value === 0) return 'text-muted-foreground';
+  return value > 0 ? 'text-up' : 'text-down';
+}
+
+function fixed(value: number | null): string {
+  return value === null ? '—' : value.toFixed(2);
+}
+
+function signed(value: number | null, suffix = ''): string {
+  return value === null ? '—' : `${value >= 0 ? '+' : ''}${value.toFixed(2)}${suffix}`;
+}
 
 export default function MarketPage() {
   const [tab, setTab] = useState<Tab>('all');
   const [page, setPage] = useState(1);
   const pageSize = 20;
   const [sortBy, setSortBy] = useState<'price' | 'changePercent' | 'volume'>('changePercent');
+  const freshnessNow = useFreshnessClock();
 
-  const { data: indices = [] } = useQuery({
+  const { data: indices = [], dataUpdatedAt: indicesReceivedAt } = useQuery({
     queryKey: ['dashboard', 'market-overview'],
     queryFn: () => dashboardApi.getMarketOverview(),
     refetchInterval: 10000,
   });
 
-  const { data: quotesData } = useQuery({
+  const { data: quotesData, dataUpdatedAt: quotesReceivedAt } = useQuery({
     queryKey: ['market', 'quotes', page, pageSize, sortBy],
     queryFn: () => marketApi.getQuotes(page, pageSize, sortBy, 'desc'),
     refetchInterval: 6000,
     enabled: tab === 'all',
   });
 
+  const agedIndices = indices.map((index) =>
+    ageQuote(index, indicesReceivedAt, freshnessNow)
+  );
+  const stocks = (quotesData?.stocks ?? []).map((quote) =>
+    ageQuote(quote, quotesReceivedAt, freshnessNow)
+  );
+  const quoteSummary = stocks[0];
   const total = quotesData?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -48,23 +71,26 @@ export default function MarketPage() {
 
         {/* 指数概览 */}
         <div className="grid gap-3 sm:grid-cols-3">
-          {indices.map((idx) => {
-            const up = idx.changePercent >= 0;
+          {agedIndices.map((idx) => {
+            const freshness = formatQuoteFreshness(idx);
             return (
               <Card key={idx.index}>
                 <CardContent className="p-4">
                   <div className="text-xs text-muted-foreground">{idx.name}</div>
-                  <div className={cn('tnum mt-1 text-2xl font-semibold', up ? 'text-up' : 'text-down')}>
-                    {idx.value.toFixed(2)}
+                  <div className={cn('tnum mt-1 text-2xl font-semibold', changeClass(idx.change))}>
+                    {fixed(idx.value)}
                   </div>
-                  <div className={cn('tnum text-sm font-medium', up ? 'text-up' : 'text-down')}>
-                    {up ? '+' : ''}{idx.change.toFixed(2)} ({up ? '+' : ''}{idx.changePercent.toFixed(2)}%)
+                  <div className={cn('tnum text-sm font-medium', changeClass(idx.change))}>
+                    {signed(idx.change)} ({signed(idx.changePercent, '%')})
+                  </div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">
+                    {freshness.text}
                   </div>
                 </CardContent>
               </Card>
             );
           })}
-          {indices.length === 0 && (
+          {agedIndices.length === 0 && (
             <Card className="sm:col-span-3">
               <CardContent className="p-4 text-sm text-muted-foreground">
                 指数行情暂不可用（免费源可能限流，稍后自动恢复）
@@ -115,7 +141,16 @@ export default function MarketPage() {
                   </div>
                   {tab === 'all' && (
                     <div className="flex items-center gap-2">
-                      <SourceNote source="东方财富" freshness="秒级快照" />
+                      {quoteSummary ? (
+                        <SourceNote
+                          source="东方财富·快照"
+                          asOf={quoteSummary.asOf}
+                          staleReason={quoteSummary.staleReason}
+                          executable={quoteSummary.executable}
+                        />
+                      ) : (
+                        <SourceNote source="东方财富·快照" freshness="不可用" limited />
+                      )}
                       <select
                         value={sortBy}
                         onChange={(e) => {
@@ -136,8 +171,8 @@ export default function MarketPage() {
                 {tab === 'all' ? (
                   <>
                     <QuotesTable
-                      stocks={quotesData?.stocks ?? []}
-                      emptyText="行情暂不可用（免费实时源可能限流，稍后自动恢复）"
+                      stocks={stocks}
+                      emptyText="行情暂不可用（免费行情源可能限流，稍后自动恢复）"
                     />
                     {total > pageSize && (
                       <div className="mt-3 flex items-center justify-between text-sm">

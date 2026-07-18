@@ -13,8 +13,17 @@ import {
   type StrategyCatalogItem,
 } from '@/lib/api/backtest';
 import { strategiesApi } from '@/lib/api/strategies';
+import {
+  parseGridCandidates,
+  validateBacktestForm,
+} from '@/lib/backtest-validation';
 import { formatBacktestTime } from '@/lib/utils/format';
-import type { BacktestEngine, BacktestFrequency } from '@/types/backtest';
+import type {
+  BacktestEngine,
+  BacktestFrequency,
+  BacktestStrategyType,
+  GridSortMetric,
+} from '@/types/backtest';
 import type { Strategy } from '@/types/strategy';
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -57,11 +66,39 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: str
   );
 }
 
+export function DataQualityNotice({
+  dataQuality,
+}: {
+  dataQuality?: Record<string, string>;
+}) {
+  const entries = Object.entries(dataQuality || {});
+  const noFactorCodes = entries.filter(([, quality]) => quality === 'none').map(([code]) => code);
+  const untrackedCodes = entries
+    .filter(([, quality]) => quality === 'untracked')
+    .map(([code]) => code);
+
+  return (
+    <>
+      {noFactorCodes.length > 0 && (
+        <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
+          部分标的缺少复权因子（数据质量降级），建议先 backfill 补全后再回测。
+        </p>
+      )}
+      {untrackedCodes.length > 0 && (
+        <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
+          {untrackedCodes.join(', ')} 的对应周期或区间回填快照为
+          untracked；仅为兼容历史库暂允许回测，请先确认数据完整性。
+        </p>
+      )}
+    </>
+  );
+}
+
 export default function BacktestPage() {
   const [catalog, setCatalog] = useState<StrategyCatalogItem[]>([]);
   const [savedStrategies, setSavedStrategies] = useState<Strategy[]>([]);
   const [savedStrategyId, setSavedStrategyId] = useState('');
-  const [strategyType, setStrategyType] = useState('dual_ma');
+  const [strategyType, setStrategyType] = useState<BacktestStrategyType>('dual_ma');
   const [params, setParams] = useState<Record<string, number>>({});
   const [codes, setCodes] = useState('600000.SH');
   const [start, setStart] = useState(daysAgo(730));
@@ -78,7 +115,7 @@ export default function BacktestPage() {
   const [reviewing, setReviewing] = useState(false);
   const [gridMode, setGridMode] = useState(false);
   const [gridCand, setGridCand] = useState<Record<string, string>>({});
-  const [sortBy, setSortBy] = useState('sharpeRatio');
+  const [sortBy, setSortBy] = useState<GridSortMetric>('sharpeRatio');
   const [gridResult, setGridResult] = useState<GridSearchResult | null>(null);
   const [gridRunning, setGridRunning] = useState(false);
 
@@ -125,8 +162,19 @@ export default function BacktestPage() {
   }, []);
 
   const run = useCallback(async () => {
-    setRunning(true);
     setError('');
+    const validationError = validateBacktestForm({
+      codes,
+      start,
+      end,
+      initialCapital: capital,
+      slippage,
+    });
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    setRunning(true);
     setReviewText('');
     try {
       const res = await backtestApi.run({
@@ -187,19 +235,29 @@ export default function BacktestPage() {
   }, [result]);
 
   const runGrid = useCallback(async () => {
-    setGridRunning(true);
     setError('');
     setGridResult(null);
     try {
       const paramGrid: Record<string, number[]> = {};
       (current?.params || []).forEach((p) => {
         const raw = gridCand[p.key] ?? String(params[p.key] ?? p.default);
-        const vals = raw
-          .split(',')
-          .map((s) => Number(s.trim()))
-          .filter((n) => !Number.isNaN(n));
-        if (vals.length) paramGrid[p.key] = vals;
+        paramGrid[p.key] = parseGridCandidates(raw);
       });
+      const validationError = validateBacktestForm(
+        {
+          codes,
+          start,
+          end,
+          initialCapital: capital,
+          slippage,
+        },
+        paramGrid,
+      );
+      if (validationError) {
+        setError(validationError);
+        return;
+      }
+      setGridRunning(true);
       const res = await backtestApi.gridSearch({
         strategyType,
         paramGrid,
@@ -250,7 +308,6 @@ export default function BacktestPage() {
     [result],
   );
   const m = result?.metrics || {};
-  const partialData = Object.values(result?.dataQuality || {}).includes('none');
   const actualRange = result?.actualRange;
 
   return (
@@ -280,7 +337,7 @@ export default function BacktestPage() {
                   setSavedStrategyId(id);
                   const saved = savedStrategies.find((item) => item.id === id);
                   if (saved) {
-                    setStrategyType(saved.builtinType);
+                    setStrategyType(saved.builtinType as BacktestStrategyType);
                     setParams({ ...saved.params });
                     setGridMode(false);
                     setGridResult(null);
@@ -305,7 +362,7 @@ export default function BacktestPage() {
               <select
                 value={strategyType}
                 onChange={(e) => {
-                  const t = e.target.value;
+                  const t = e.target.value as BacktestStrategyType;
                   setSavedStrategyId('');
                   setStrategyType(t);
                   const found = catalog.find((x) => x.type === t);
@@ -466,7 +523,7 @@ export default function BacktestPage() {
                 <span className="text-muted-foreground">排序指标</span>
                 <select
                   value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
+                  onChange={(e) => setSortBy(e.target.value as GridSortMetric)}
                   className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
                 >
                   <option value="sharpeRatio">夏普比率</option>
@@ -495,7 +552,11 @@ export default function BacktestPage() {
                   ? '回测中…'
                   : '运行回测'}
             </button>
-            {error && <p className="text-xs text-red-600">{error}</p>}
+            {error && (
+              <p role="alert" className="text-xs text-red-600">
+                {error}
+              </p>
+            )}
           </div>
 
           {history.length > 0 && (
@@ -546,6 +607,7 @@ export default function BacktestPage() {
                   {gridResult.actualRange.end.slice(0, 16)}
                 </p>
               )}
+              <DataQualityNotice dataQuality={gridResult?.dataQuality} />
               {gridResult?.ruleQuality?.historicalST === 'unavailable' && (
                 <p className="mb-3 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
                   历史 ST 状态暂无 PIT 数据；涨跌停按板块规则计算，未将当前名称倒灌到历史。
@@ -613,11 +675,7 @@ export default function BacktestPage() {
                   ? ` · 实际数据区间 ${actualRange.start.slice(0, 16)} 至 ${actualRange.end.slice(0, 16)}`
                   : ''}
               </p>
-              {partialData && (
-                <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
-                  部分标的缺少复权因子（数据质量降级），建议先 backfill 补全后再回测。
-                </p>
-              )}
+              <DataQualityNotice dataQuality={result.dataQuality} />
               {result.ruleQuality?.historicalST === 'unavailable' && (
                 <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
                   历史 ST 状态暂无 PIT 数据；涨跌停按板块规则计算，未将当前名称倒灌到历史。

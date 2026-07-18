@@ -4,7 +4,9 @@ import Link from 'next/link';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { Star, X } from 'lucide-react';
 import { watchlistApi, type WatchlistItemView } from '@/lib/api/watchlist';
+import { useAuthStore } from '@/stores/useAuthStore';
 import { cn } from '@/lib/utils';
+import { watchlistQueryKeys } from './watchlist-query-keys';
 
 function changeClass(v: number | null): string {
   if (v === null || v === 0) return 'text-muted-foreground';
@@ -13,17 +15,20 @@ function changeClass(v: number | null): string {
 
 export function WatchlistPanel() {
   const queryClient = useQueryClient();
+  const userId = useAuthStore((s) => s.user?.id);
 
   const { data: items = [], isLoading } = useQuery({
-    queryKey: ['watchlist'],
+    queryKey: watchlistQueryKeys.all(userId),
     queryFn: () => watchlistApi.getList(),
+    enabled: Boolean(userId),
     refetchInterval: 8000,
     retry: false,
   });
 
   const remove = useMutation({
     mutationFn: (code: string) => watchlistApi.remove(code),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['watchlist'] }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: watchlistQueryKeys.all(userId) }),
   });
 
   const groups = items.reduce<Record<string, WatchlistItemView[]>>((acc, it) => {

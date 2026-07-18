@@ -1,6 +1,7 @@
 /**
  * 仪表盘相关类型定义
  */
+import type { QuoteStaleReason } from '@/lib/api/market';
 
 export interface DashboardStats {
   totalAssets: number;
@@ -15,9 +16,16 @@ export interface DashboardStats {
 export interface MarketOverview {
   index: string;
   name: string;
-  value: number;
-  change: number;
-  changePercent: number;
+  value: number | null;
+  change: number | null;
+  changePercent: number | null;
+  timestamp: number;
+  asOf: number | null;
+  ageMs: number | null;
+  maxAgeMs: number;
+  stale: boolean;
+  staleReason: QuoteStaleReason | null;
+  executable: boolean;
 }
 
 export interface RecentTrade {

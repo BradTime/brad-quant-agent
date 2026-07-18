@@ -11,7 +11,7 @@ from dataclasses import replace
 from datetime import date, timedelta
 
 from app.backtest.base import BacktestConfig
-from app.backtest.data import Bar, load_hfq_bars, load_minute_bars
+from app.backtest.data import Bar, load_bars_with_quality
 from app.backtest.metrics import compute_metrics
 from app.backtest.registry import get_engine
 from app.backtest.strategies import get_strategy
@@ -28,15 +28,12 @@ def load_bars(config: BacktestConfig) -> tuple[dict[str, list[Bar]], dict[str, s
     bars_by_code: dict[str, list[Bar]] = {}
     data_quality: dict[str, str] = {}
     for code in config.codes:
-        if config.frequency == "1d":
-            bars, coverage = load_hfq_bars(code, config.start, config.end)
-        else:
-            bars, coverage = load_minute_bars(
-                code,
-                config.frequency,
-                config.start,
-                config.end,
-            )
+        bars, coverage = load_bars_with_quality(
+            code,
+            config.frequency,
+            config.start,
+            config.end,
+        )
         data_quality[code] = coverage
         if bars:
             bars_by_code[code] = bars
@@ -45,9 +42,14 @@ def load_bars(config: BacktestConfig) -> tuple[dict[str, list[Bar]], dict[str, s
 
 def load_benchmark(start: str, end: str) -> list[Bar]:
     """预加载基准指数日线（供 run_on_bars 复用；网格寻优避免重复加载）。"""
-    warm_start = (date.fromisoformat(start[:10]) - timedelta(days=14)).isoformat()
-    bars, _ = load_hfq_bars(_BENCHMARK_INDEX, warm_start, end)
+    bars, _ = load_benchmark_with_quality(start, end)
     return bars
+
+
+def load_benchmark_with_quality(start: str, end: str) -> tuple[list[Bar], str]:
+    """Load CSI 300 bars through the same audited snapshot gate."""
+    warm_start = (date.fromisoformat(start[:10]) - timedelta(days=14)).isoformat()
+    return load_bars_with_quality(_BENCHMARK_INDEX, "1d", warm_start, end)
 
 
 def run_on_bars(
@@ -55,15 +57,36 @@ def run_on_bars(
     bars_by_code: dict[str, list[Bar]],
     data_quality: dict[str, str],
     benchmark_bars: list[Bar] | None = None,
+    benchmark_quality: str | None = None,
 ) -> dict:
     """在**已加载**的行情上跑单次回测（网格寻优对每组参数复用同一份数据）。"""
+    if benchmark_bars is None:
+        benchmark_bars, loaded_quality = load_benchmark_with_quality(
+            config.start,
+            config.end,
+        )
+        benchmark_quality = benchmark_quality or loaded_quality
+    elif benchmark_quality is None:
+        benchmark_quality = "untracked"
+    result_quality = dict(data_quality)
+    if benchmark_quality is not None:
+        result_quality[f"{_BENCHMARK_INDEX}:benchmark"] = benchmark_quality
+    if benchmark_quality in {"invalid_ohlc", "partial_ingestion"}:
+        return {
+            "metrics": {},
+            "equityCurve": [],
+            "trades": [],
+            "dataQuality": result_quality,
+            "ruleQuality": {**_RULE_QUALITY, "benchmarkData": benchmark_quality},
+            "error": "沪深300基准数据不可信，已拒绝回测",
+        }
     aligned_bars, actual_range = _align_bars_to_common_range(bars_by_code)
     if aligned_bars is None or actual_range is None:
         return {
             "metrics": {},
             "equityCurve": [],
             "trades": [],
-            "dataQuality": data_quality,
+            "dataQuality": result_quality,
             "error": "所选标的没有共同可回测区间",
         }
     range_start, range_end = actual_range
@@ -82,7 +105,7 @@ def run_on_bars(
             "metrics": {},
             "equityCurve": [],
             "trades": [],
-            "dataQuality": data_quality,
+            "dataQuality": result_quality,
             "engine": engine.name,
             "actualRange": {
                 "start": range_start.isoformat(),
@@ -102,8 +125,15 @@ def run_on_bars(
         return_curve=return_curve,
     )
     _attach_benchmark(computed, aligned_bars, config.start, config.end, benchmark_bars)
-    computed["dataQuality"] = data_quality
-    computed["ruleQuality"] = dict(_RULE_QUALITY)
+    computed["dataQuality"] = result_quality
+    computed["ruleQuality"] = {
+        **_RULE_QUALITY,
+        **(
+            {"benchmarkData": benchmark_quality}
+            if benchmark_quality is not None
+            else {}
+        ),
+    }
     computed["engine"] = engine.name
     computed["actualRange"] = {
         "start": range_start.isoformat(),
@@ -168,7 +198,27 @@ def run_backtest(config: BacktestConfig) -> dict:
             "dataQuality": data_quality,
             "error": missing_data_error(config, missing, data_quality),
         }
-    return run_on_bars(config, bars_by_code, data_quality)
+    benchmark_bars, benchmark_quality = load_benchmark_with_quality(
+        config.start,
+        config.end,
+    )
+    benchmark_key = f"{_BENCHMARK_INDEX}:benchmark"
+    if benchmark_quality in {"invalid_ohlc", "partial_ingestion"}:
+        return {
+            "metrics": {},
+            "equityCurve": [],
+            "trades": [],
+            "dataQuality": {**data_quality, benchmark_key: benchmark_quality},
+            "ruleQuality": {**_RULE_QUALITY, "benchmarkData": benchmark_quality},
+            "error": "沪深300基准数据不可信，已拒绝回测",
+        }
+    return run_on_bars(
+        config,
+        bars_by_code,
+        data_quality,
+        benchmark_bars,
+        benchmark_quality,
+    )
 
 
 def unusable_data_codes(
@@ -176,7 +226,12 @@ def unusable_data_codes(
     bars_by_code: dict[str, list[Bar]],
     data_quality: dict[str, str],
 ) -> list[str]:
-    unusable_quality = {"missing", "missing_previous_close"}
+    unusable_quality = {
+        "invalid_ohlc",
+        "missing",
+        "missing_previous_close",
+        "partial_ingestion",
+    }
     return [
         code
         for code in config.codes
@@ -190,6 +245,14 @@ def missing_data_error(
     data_quality: dict[str, str] | None = None,
 ) -> str:
     suffix = f"；缺失标的: {', '.join(codes)}" if codes else ""
+    if data_quality and any(
+        data_quality.get(code) == "invalid_ohlc" for code in (codes or [])
+    ):
+        return f"历史行情含非法或缺失 OHLC，已拒绝回测{suffix}"
+    if data_quality and any(
+        data_quality.get(code) == "partial_ingestion" for code in (codes or [])
+    ):
+        return f"最新回填运行仍为部分回填、失败或进行中，已拒绝回测{suffix}"
     if data_quality and any(
         data_quality.get(code) == "missing_previous_close" for code in (codes or [])
     ):

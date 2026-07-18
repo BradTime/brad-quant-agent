@@ -8,3 +8,6 @@ extend-exclude = [".venv", "tests/reports"]
 select = ["E", "F", "I", "B", "UP", "W"]
 # 行宽不作硬约束（中文注释偏长）；B008(FastAPI Depends 默认值)、B024(接口式抽象基类)为有意为之
 ignore = ["E501", "B008", "B024"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

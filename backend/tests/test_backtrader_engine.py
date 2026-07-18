@@ -18,6 +18,7 @@ from app.backtest.engines.native import NativeEngine
 from app.backtest.metrics import compute_metrics
 from app.backtest.registry import available_engines
 from app.backtest.strategies import get_strategy
+from app.core.json_payload import load_envelope
 from app.schemas.backtest import GridSearchRequest, RunBacktestRequest
 from app.services import backtest_run
 
@@ -104,7 +105,7 @@ def test_registry_exposes_real_backtrader_name():
 def test_api_schemas_accept_both_engines_and_reject_unknown():
     common = {
         "strategyType": "dual_ma",
-        "codes": ["X"],
+        "codes": ["600000.SH"],
         "start": "2024-01-01",
         "end": "2024-01-10",
         "engine": "backtrader",
@@ -130,7 +131,7 @@ def test_grid_api_passes_selected_engine(monkeypatch):
     request = GridSearchRequest(
         strategyType="dual_ma",
         paramGrid={"fast": [3]},
-        codes=["X"],
+        codes=["600000.SH"],
         start="2024-01-01",
         end="2024-01-10",
         engine="backtrader",
@@ -172,7 +173,7 @@ def test_saved_history_config_keeps_selected_engine(monkeypatch):
     request = SimpleNamespace(
         strategyType="dual_ma",
         params={},
-        codes=["X"],
+        codes=["600000.SH"],
         start="2024-01-01",
         end="2024-01-10",
         initialCapital=100_000,
@@ -183,7 +184,7 @@ def test_saved_history_config_keeps_selected_engine(monkeypatch):
 
     result = backtest_run.run_and_save("user-a", request)
 
-    assert json.loads(captured["row"].config_json)["engine"] == "backtrader"
+    assert load_envelope(captured["row"].config_json)["engine"] == "backtrader"
     assert result["config"]["engine"] == "backtrader"
 
 
@@ -252,9 +253,9 @@ def test_commission_stamp_tax_and_round_lot_match_trading_rules():
 
     assert [(fill.side, fill.qty, fill.fee, fill.tax) for fill in result.fills] == [
         ("buy", 1_000, 5.0, 0.0),
-        ("sell", 1_000, 5.0, 10.0),
+        ("sell", 1_000, 5.0, 5.0),
     ]
-    assert result.equity_curve[-1]["equity"] == 99_980.0
+    assert result.equity_curve[-1]["equity"] == 99_985.0
 
 
 def test_slippage_is_applied_to_next_open():
@@ -270,14 +271,26 @@ def test_slippage_is_applied_to_next_open():
 
 def test_limit_up_blocks_buy_without_later_ghost_fill():
     bars = [
-        _bar(date(2024, 1, 1), 10, 10),
-        _bar(date(2024, 1, 2), 11, 11),
-        _bar(date(2024, 1, 3), 10.5, 10.5),
+        _bar(date(2024, 1, 1), 10, 10, limit_ratio=0.10),
+        _bar(date(2024, 1, 2), 11, 11, limit_ratio=0.10),
+        _bar(date(2024, 1, 3), 10.5, 10.5, limit_ratio=0.10),
     ]
 
     result = BacktraderEngine().run(_cfg(), _BuyOnce(), {"X": bars})
 
     assert result.fills == []
+
+
+def test_none_limit_ratio_means_no_limit_and_never_falls_back():
+    bars = [
+        _bar(date(2024, 1, 2), 10, 10, limit_ratio=None),
+        _bar(date(2024, 1, 3), 12, 12, limit_ratio=None),
+    ]
+
+    result = BacktraderEngine().run(_cfg(), _BuyOnce(), {"X": bars})
+
+    assert len(result.fills) == 1
+    assert result.fills[0].price == 12
 
 
 def test_st_five_percent_limit_ratio_blocks_buy():
@@ -393,8 +406,17 @@ def test_runner_returns_friendly_missing_dependency_error(monkeypatch):
     monkeypatch.setattr(runner, "get_strategy", lambda name: _BuyOnce())
     bars = {"X": [_bar(date(2024, 1, 1), 10, 10), _bar(date(2024, 1, 2), 10, 10)]}
 
-    result = runner.run_on_bars(_cfg(), bars, {"X": "full"}, benchmark_bars=[])
+    result = runner.run_on_bars(
+        _cfg(),
+        bars,
+        {"X": "full"},
+        benchmark_bars=[],
+        benchmark_quality="full",
+    )
 
     assert result["engine"] == "backtrader"
-    assert result["dataQuality"] == {"X": "full"}
+    assert result["dataQuality"] == {
+        "X": "full",
+        "000300.SH:benchmark": "full",
+    }
     assert "pip install backtrader" in result["error"]

@@ -21,23 +21,37 @@ class QuoteCache:
         self._stocks_ts = 0.0
         self._indices_ts = 0.0
 
-    def set_stocks(self, quotes: list[QuoteDTO]) -> None:
+    def set_stocks(
+        self, quotes: list[QuoteDTO], *, refreshed_at: float | None = None
+    ) -> None:
         with self._lock:
             self._stocks = list(quotes)
-            self._stocks_ts = time.time()
+            self._stocks_ts = time.time() if refreshed_at is None else refreshed_at
 
     def get_stocks(self) -> list[QuoteDTO]:
         with self._lock:
             return list(self._stocks)
 
-    def set_indices(self, quotes: list[QuoteDTO]) -> None:
+    def get_stocks_snapshot(self) -> tuple[list[QuoteDTO], float]:
+        """Atomically return quotes and the cache refresh wall-clock timestamp."""
+        with self._lock:
+            return list(self._stocks), self._stocks_ts
+
+    def set_indices(
+        self, quotes: list[QuoteDTO], *, refreshed_at: float | None = None
+    ) -> None:
         with self._lock:
             self._indices = list(quotes)
-            self._indices_ts = time.time()
+            self._indices_ts = time.time() if refreshed_at is None else refreshed_at
 
     def get_indices(self) -> list[QuoteDTO]:
         with self._lock:
             return list(self._indices)
+
+    def get_indices_snapshot(self) -> tuple[list[QuoteDTO], float]:
+        """Atomically return index quotes and their cache refresh timestamp."""
+        with self._lock:
+            return list(self._indices), self._indices_ts
 
     def status(self) -> dict:
         with self._lock:

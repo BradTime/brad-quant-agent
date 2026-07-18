@@ -22,6 +22,7 @@ from app.backtest.context import Context
 from app.backtest.data import Bar
 from app.backtest.engines.native import NativeEngine
 from app.backtest.metrics import compute_metrics
+from app.core.json_payload import load_envelope
 from app.main import app
 from app.models.market import AdjustFactor, DailyBar, Instrument, MinuteBar
 from app.services import backtest_run, rate_limit
@@ -160,7 +161,7 @@ def test_load_minute_bars_seeds_first_day_previous_close(minute_db):
     assert bars[0].previous_close == 10
 
 
-def test_load_minute_bars_skips_invalid_previous_closes(minute_db):
+def test_load_minute_bars_uses_latest_valid_previous_close(minute_db):
     with minute_db() as session:
         session.add_all(
             [
@@ -189,7 +190,7 @@ def test_load_minute_bars_skips_invalid_previous_closes(minute_db):
     )
 
     assert bars[0].previous_close == 9
-    assert coverage != "missing_previous_close"
+    assert coverage != "invalid_ohlc"
 
 
 def test_current_st_name_does_not_rewrite_historical_price_limits(minute_db):
@@ -288,20 +289,105 @@ def test_load_minute_bars_does_not_apply_future_st_name_to_history(minute_db):
     assert coverage == "none"
 
 
+def test_daily_loader_assigns_limit_ratio_for_each_bar_date(minute_db):
+    with minute_db() as session:
+        session.add_all(
+            [
+                Instrument(
+                    code="300001.SZ",
+                    name="测试",
+                    exchange="SZ",
+                    list_date=date(2010, 1, 1),
+                ),
+                DailyBar(
+                    code="300001.SZ",
+                    trade_date=date(2020, 8, 21),
+                    open=10,
+                    high=10,
+                    low=10,
+                    close=10,
+                    volume=100,
+                    amount=1_000,
+                ),
+                DailyBar(
+                    code="300001.SZ",
+                    trade_date=date(2020, 8, 24),
+                    open=10,
+                    high=10,
+                    low=10,
+                    close=10,
+                    volume=100,
+                    amount=1_000,
+                ),
+            ]
+        )
+        session.commit()
+
+    bars, _ = data_module.load_hfq_bars(
+        "300001.SZ",
+        "2020-08-21",
+        "2020-08-24",
+    )
+
+    assert [bar.limit_ratio for bar in bars] == [0.10, 0.20]
+
+
+def test_minute_loader_uses_list_date_for_first_five_trading_days(minute_db):
+    with minute_db() as session:
+        session.add_all(
+            [
+                Instrument(
+                    code="688001.SH",
+                    name="测试",
+                    exchange="SH",
+                    list_date=date(2024, 1, 2),
+                ),
+                DailyBar(code="688001.SH", trade_date=date(2024, 1, 5), close=10),
+                MinuteBar(
+                    code="688001.SH",
+                    dt=datetime(2024, 1, 8, 9, 35),
+                    period="5",
+                    open=10,
+                    high=10,
+                    low=10,
+                    close=10,
+                    volume=100,
+                    amount=1_000,
+                ),
+                MinuteBar(
+                    code="688001.SH",
+                    dt=datetime(2024, 1, 9, 9, 35),
+                    period="5",
+                    open=10,
+                    high=10,
+                    low=10,
+                    close=10,
+                    volume=100,
+                    amount=1_000,
+                ),
+            ]
+        )
+        session.commit()
+
+    bars, _ = data_module.load_minute_bars(
+        "688001.SH",
+        "5m",
+        "2024-01-08",
+        "2024-01-09",
+    )
+
+    assert [bar.limit_ratio for bar in bars] == [None, 0.20]
+
+
 def test_runner_dispatches_minute_frequency_without_daily_fetch(monkeypatch):
     calls: list[tuple[str, str]] = []
     expected = _minute_bar(datetime(2024, 1, 2, 9, 35), 10, 10)
 
-    def minute_loader(code: str, frequency: str, start: str, end: str):
+    def snapshot_loader(code: str, frequency: str, start: str, end: str):
         calls.append(("minute", frequency))
         return [expected], "full"
 
-    def daily_loader(code: str, start: str, end: str):
-        calls.append(("daily", "1d"))
-        return [], "none"
-
-    monkeypatch.setattr(runner, "load_minute_bars", minute_loader, raising=False)
-    monkeypatch.setattr(runner, "load_hfq_bars", daily_loader)
+    monkeypatch.setattr(runner, "load_bars_with_quality", snapshot_loader)
     config = _cfg()
     config.frequency = "15m"
 
@@ -340,6 +426,7 @@ def test_minute_first_day_limit_uses_preloaded_previous_close():
         _minute_bar(datetime(2024, 1, 2, 9, 40), 11.0, 11.0),
     ]
     bars[0].previous_close = 10.0
+    bars[1].limit_ratio = 0.10
 
     result = NativeEngine().run(_cfg(frequency="5m"), _AlwaysFull(), {"X": bars})
 
@@ -590,6 +677,7 @@ def test_backtest_discloses_missing_historical_st_status():
         bars,
         {"X": "full"},
         benchmark_bars=[],
+        benchmark_quality="full",
     )
 
     assert result["ruleQuality"]["historicalST"] == "unavailable"
@@ -669,7 +757,7 @@ def _run_payload(frequency: str) -> dict:
     return {
         "strategyType": "dual_ma",
         "params": {"fast": 5, "slow": 20},
-        "codes": ["X"],
+        "codes": ["600000.SH"],
         "start": "2024-01-01",
         "end": "2024-01-03",
         "initialCapital": 100_000,
@@ -720,6 +808,7 @@ def test_api_passes_frequency_to_single_run_and_grid(backtest_client, monkeypatc
         "paramGrid": {"fast": [5, 10]},
         "sortBy": "sharpeRatio",
     }
+    grid_payload.pop("params")
     grid_response = backtest_client.post("/api/v1/backtest/grid", json=grid_payload)
 
     assert run_response.status_code == grid_response.status_code == 200
@@ -757,7 +846,7 @@ def test_saved_run_config_keeps_frequency(monkeypatch):
     req = SimpleNamespace(
         strategyType="dual_ma",
         params={},
-        codes=["X"],
+        codes=["600000.SH"],
         start="2024-01-01",
         end="2024-01-03",
         initialCapital=100_000,
@@ -768,7 +857,7 @@ def test_saved_run_config_keeps_frequency(monkeypatch):
 
     result = backtest_run.run_and_save("user-a", req)
 
-    assert json.loads(captured["row"].config_json)["frequency"] == "60m"
+    assert load_envelope(captured["row"].config_json)["frequency"] == "60m"
     assert result["config"]["frequency"] == "60m"
 
 

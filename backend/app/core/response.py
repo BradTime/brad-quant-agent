@@ -26,10 +26,11 @@ def error(
     code: int | str = 500,
     http_status: int = 500,
     request: Request | None = None,
+    data: Any = None,
 ) -> JSONResponse:
     response = JSONResponse(
         status_code=http_status,
-        content={"code": code, "message": message, "data": None, "timestamp": _now_ms()},
+        content={"code": code, "message": message, "data": data, "timestamp": _now_ms()},
     )
     if request is not None:
         apply_cors_headers(request.headers.get("origin"), response)

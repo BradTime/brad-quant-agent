@@ -56,11 +56,33 @@
 - **数据源**：AkShare（主力，覆盖最广）+ BaoStock（历史 K线 / 财务，最稳，用于落库与 Phase 4 回测）+ efinance（补实时快照）；统一经 **`DataProvider` 抽象**、可热插拔（预留 Tushare Pro / 付费源）。
 - **存储**：**Postgres**（业务数据 + 历史 K线，多用户就绪）；Redis **后置**（行情缓存 / 限流 / 任务队列，按需引入）；DuckDB/Parquet 列存留 **Phase 4** 回测时再引入。
 - **数据正确性（PIT, point-in-time）**：落库时记录数据获取 / 发布时间、复权因子、停复牌 / 退市标记，为 Phase 4 回测严谨性预留，避免未来函数与幸存者偏差。
+  - 财务摘要采用追加式版本：同一 `code + report_date` 的指标修订生成不同 `vintage`，历史版本永不原地覆盖；同值重抓幂等并保留最早 `available_at`。
+  - 源提供精确公告时间时，`announced_at` 同时作为可用时点；仅提供公告日期时标记 `date` 精度，并保守到上海当日 15:00 才可见；源不提供时，以系统首次抓取时间作为 `available_at`，质量标记为 `first_observed_at`。
+  - 财务指标在 Provider 层保持 `Decimal`，ingest 按数据库字段 scale 量化并将正负零统一后再生成 `vintage`，禁止经 binary float 往返。
+  - `GET /api/v1/market/financials?asOf=` 支持 RFC3339 与 ISO 日期。带时区值转 UTC；无时区时间按 `Asia/Shanghai` 解释；日期表示上海当日收盘（日末）。查询只使用当时已可见版本。
 - **实时**：**WebSocket**（心跳 / 重连 / 订阅退订 / 鉴权 + 后端行情拉取调度与广播）；定位为"可复用基座"（看盘先用，Phase 3 交易回报、AI 流式、风险告警共用）。
   - ⚠️ 明确预期：**上 WS ≠ 真实时**。免费快照的刷新粒度是上限；每个数据面板**标题需标注数据来源 / 新鲜度**，拿不到或延迟的明确标注（如「快照·可能延迟」「来源有限」「免费源数据有限 / 缺失」）。
 - **AI**：DeepSeek，经 function calling 驱动工具层；**强制附免责声明、禁止输出确定性买卖指令、数据缺失必须显式声明不得杜撰**。用户偏好只是不可信个性化元数据；行情与数值事实继续只能来自工具返回，偏好和界面上下文均不得替代工具取数或系统规则。
 - **部署**：本地 **Docker Compose** 起步（Postgres + backend + frontend）；代码"云就绪"（配置走环境变量、不硬编码 localhost、数据可备份），云部署留后期。
 - **多用户预留**：所有数据按 `user_id` 隔离；认证体系可平滑长成 RBAC（**MVP 仍单用户**，不实现完整权限矩阵）。
+- **认证安全（H4）**：注册与登录共用邮箱规范化，但密码契约分离：注册密码须为 10–128
+  字符并按 ASCII 类同时包含 `[a-z]`、`[A-Z]`、`[0-9]`、`[^A-Za-z0-9]`，禁止空白/
+  控制字符；登录为兼容旧账户仅要求非空、最长 256、禁止控制字符，允许旧 8 位及含空格密码。
+  合法注册无论邮箱新旧统一返回 HTTP 202 与 `{accepted:true,message}`，不签发 token；生产中新
+  邮箱必须经一次性邮件 token 激活；pending 阶段不创建 User、不保存 password hash，仅保存
+  email/requested_name/token SHA-256/有效期。同邮箱未过期 pending 的重复注册不轮换 token，
+  过期后才签发新链接，避免攻击者使受害者链接失效。邮箱持有者在验证时输入最终严格密码与姓名；
+  `POST /auth/verify` 原子消费 token 并创建 verified User，并发消费最多成功一次。未验证与不存在
+  账户的登录失败完全统一；旧用户迁移时按 `created_at` 标记已验证。生产强制完整 SMTP/发件人、
+  HTTPS 前端 URL 配置并关闭自动验证，邮件验证链接仅允许 HTTPS；dev/test
+  默认自动验证以维持本地与 E2E。登录恒定执行一次 PBKDF2 与一次 bcrypt 校验，真实哈希之外的
+  算法使用预生成 dummy，旧 bcrypt 成功后迁移 PBKDF2。非法注册统一使用 400 响应信封；错误凭据
+  使用统一消息。生产 JWT 密钥仅接受 64 位 hex 或解码后至少 32 字节的 base64url，拒绝周期重复、
+  低多样性/常见弱串且算法仅允许 HS256；开发默认值仅告警。登录失败以规范化邮箱和客户端 IP
+  双 bucket 写入 Postgres `auth_throttles`，默认 15 分钟 5 次后锁 15 分钟；注册按 IP 默认
+  每小时 10 次。事务内 PostgreSQL advisory lock + row lock 保证多 worker 原子更新；成功登录
+  清账户 bucket。默认不信任 `X-Forwarded-For`；仅直连 peer 位于 trusted proxy CIDR 时从
+  XFF 右向左剥离可信代理并选择首个不可信 hop，无效 XFF 保守回退 peer。
 - **工程**：统一响应格式 `{ code, message, data, timestamp }`；关键模块测试；Sentry 等可后置。
 
 ### 3.1 项目结构（前后端分离，本次落地）
@@ -217,9 +239,9 @@ brad-quant-agent/
 
 ### Phase 3 — 模拟交易（play-money）
 - [x] ORM `SimAccount/SimPosition/SimOrder/SimTrade`（现金/冻结/可用、成本、状态）；初始资金 100 万、100 股整手
-- [x] 撮合 `services/trading`：市价即时成交（缓存/最近收盘价，取不到拒单不杜撰）、限价可成交即成交否则挂单；佣金万2.5(最低5) + 卖出印花税千1
+- [x] 撮合 `services/trading`：市价仅用可执行行情即时成交（取不到拒单不杜撰）、限价可成交即成交否则挂单；佣金万2.5(最低5)；印花税仅卖出，2023-08-28 起 0.5‰、此前 1‰，模拟交易按上海当前交易日
 - [x] **T+1**：当日买入计 `qty` 不计 `available_qty`，跨日 `_settle` 解冻并自动撤销上一日未成交挂单；挂买冻结现金 / 挂卖冻结可用股
-- [x] 调度器 `try_match_pending` 用最新快照价撮合挂单；成交/拒单经 **WS 私有通道** `trade.fill` 推送（不走广播）
+- [x] 调度器 `try_match_pending` 用包含昨收的完整可执行快照撮合挂单；即时/挂单均校验涨停买、跌停卖，行情不可执行门禁优先；成交/拒单经 **WS 私有通道** `trade.fill` 推送（不走广播）
 - [x] API `/sim`：account / positions / orders(GET/POST/DELETE) / trades；**AI 复盘** `POST /sim/review`（SSE，走成本闸，只喂真实账户数据）
 - [x] 前端 `/sim`：账户概览 + 下单 + 持仓 + 委托/成交 + AI 复盘；侧栏导航
 - [x] 单测 `test_trading`（市价买 / T+1 阻卖 / 限价挂撤 / 费税 / 整手校验）
@@ -235,6 +257,7 @@ brad-quant-agent/
 - [x] **用户策略持久化**：内置策略参数 ORM（`user_id` 隔离）+ CRUD / 启停 / 复制 API 与页面；回测页可加载已保存策略并预填类型和参数
 - [x] **分钟级回测**：5/15/30/60 分钟后复权加载、下一根开盘撮合、自然交易日 T+1、昨收涨跌停、单次/网格/API/前端/历史配置全链路
 - [x] **Backtrader Cerebro 调度适配**：Cerebro + PandasData 装载后复权日/分钟 bars，包装统一 `Context` 策略语义并保持下一 bar 开盘；默认 BackBroker 无法精确表达本项目全部 A 股规则，因此适配器显式复用共享 A 股执行账本（不调用 `NativeEngine`）。对拍验证的是 Cerebro 与 native 的调度/时间轴一致性，**不作为独立撮合正确性证明**
+- [x] **H2 历史费税/涨跌停**：回测按上海交易日解释 `Fill.trade_date` 后适用印花税；每根 bar 按日期 + `Instrument.list_date` 生成涨跌停比例（主板 10%、主板 ST 5%、创业板改革前 10%/后 20%、科创板 688/689 为 20%、北交所 30%，注册制板块上市前 5 个 XSHG 中国交易日无涨跌停）。存在涨跌停规则但快照缺昨收时不可成交；昨日 DAY 单在锁内上海跨日结算后先撤销。当前尚无历史 PIT ST 状态序列，缺口下不使用当前名称倒灌，保守按代码/日期制度并显式披露。
 
 ---
 

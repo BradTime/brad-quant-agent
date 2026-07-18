@@ -1,7 +1,7 @@
 import { API_BASE_URL } from '@/lib/constants';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { apiClient } from './client';
-import { createSSEParser } from './sse';
+import { createSSEParser, StreamInterruptedError } from './sse';
 
 export interface ChatMessage {
   role: 'user';
@@ -117,7 +117,7 @@ export async function streamChat(
   }
   const interrupted = '连接中断：未收到完整结束标记';
   onError?.(interrupted);
-  throw new Error(interrupted);
+  throw new StreamInterruptedError(interrupted);
 }
 
 export interface StoredChatMessage {
@@ -311,4 +311,8 @@ export async function streamDeepResearch(
       }
     }
   }
+  if (signal?.aborted) return;
+  const interrupted = '连接中断：未收到完整结束标记';
+  onError?.(interrupted);
+  throw new StreamInterruptedError(interrupted);
 }

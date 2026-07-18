@@ -17,20 +17,6 @@ const kline = Array.from({ length: 120 }, (_, i) => ({
 }));
 
 async function installDeterministicMarketFixtures(page: Page) {
-  await page.addInitScript(() => {
-    localStorage.setItem(
-      'auth-storage',
-      JSON.stringify({
-        state: {
-          user: { id: 'perf-user', email: 'perf@test.com', name: 'Perf', role: 'user' },
-          token: 'perf-token',
-          refreshToken: 'perf-refresh',
-          isAuthenticated: true,
-        },
-        version: 0,
-      }),
-    );
-  });
   await page.route('**/api/v1/market/quote/**', (route) => {
     expect(new URL(route.request().url()).pathname.endsWith('/market/quote/600000.SH')).toBe(true);
     return route.fulfill({
@@ -49,7 +35,12 @@ async function installDeterministicMarketFixtures(page: Page) {
           open: 9.3,
           yesterdayClose: 9.32,
           timestamp: Date.now(),
-          stale: true,
+          asOf: Date.now(),
+          ageMs: 0,
+          maxAgeMs: 60_000,
+          stale: false,
+          staleReason: null,
+          executable: true,
         }),
       ),
     });
@@ -68,11 +59,31 @@ async function installDeterministicMarketFixtures(page: Page) {
     expect(url.searchParams.get('symbol')).toBe('600000.SH');
     expect(url.searchParams.get('period')).toBe('day');
     expect(url.searchParams.get('count')).toBe('250');
-    return route.fulfill({ contentType: 'application/json', body: JSON.stringify(envelope(kline)) });
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify(envelope({ bars: kline, dataQuality: 'full' })),
+    });
   });
   await page.route('**/api/v1/watchlist**', (route) =>
     route.fulfill({ contentType: 'application/json', body: JSON.stringify(envelope([])) }),
   );
+}
+
+async function registerFresh(page: Page) {
+  const stamp = `${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+  const email = `perf_${stamp}@test.com`;
+  const password = 'Test123456!';
+  await page.goto('/register');
+  await page.locator('#name').fill(`perf ${stamp}`);
+  await page.locator('#email').fill(email);
+  await page.locator('#password').fill(password);
+  await page.locator('#confirmPassword').fill(password);
+  await page.getByRole('button', { name: '注册' }).click();
+  await expect(page).toHaveURL(/\/login\?registered=1/, { timeout: 15_000 });
+  await page.locator('#email').fill(email);
+  await page.locator('#password').fill(password);
+  await page.getByRole('button', { name: '登录' }).click();
+  await expect(page).toHaveURL(/\/dashboard/, { timeout: 15_000 });
 }
 
 async function gotoWarmRoute(page: Page) {
@@ -86,6 +97,7 @@ async function gotoWarmRoute(page: Page) {
 
 test('个股详情关键首屏连续三次中位数小于 2 秒', async ({ page }, testInfo) => {
   await installDeterministicMarketFixtures(page);
+  await registerFresh(page);
 
   // First navigation warms the Next.js dev compiler and module graph; the measured
   // runs represent an already-running local/production service with data available.

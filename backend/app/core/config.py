@@ -1,11 +1,47 @@
 """Application settings loaded from environment (.env)."""
 
+import base64
+import binascii
+import logging
+import re
 from functools import lru_cache
 
+from cryptography.fernet import Fernet
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _DEFAULT_JWT_SECRET = "change-me-in-production"
+_DEFAULT_OUTBOX_KEY = "vB38N4l1nnNNX-fEgdhxgLk37KFuWKBAhcTW1XZOrfc="
+_WEAK_JWT_SECRETS = {
+    _DEFAULT_JWT_SECRET,
+    "secret",
+    "password",
+    "jwt-secret",
+    "changeme",
+}
+logger = logging.getLogger(__name__)
+_HEX_SECRET = re.compile(r"^[0-9a-fA-F]{64}$")
+_BASE64URL_SECRET = re.compile(r"^[A-Za-z0-9_-]+={0,2}$")
+
+
+def _decode_production_secret(secret: str) -> bytes | None:
+    if _HEX_SECRET.fullmatch(secret):
+        return bytes.fromhex(secret)
+    if not _BASE64URL_SECRET.fullmatch(secret):
+        return None
+    padded = secret + "=" * (-len(secret) % 4)
+    try:
+        decoded = base64.b64decode(padded, altchars=b"-_", validate=True)
+    except (binascii.Error, ValueError):
+        return None
+    return decoded if len(decoded) >= 32 else None
+
+
+def _is_periodic(value: bytes) -> bool:
+    return any(
+        len(value) % period == 0 and value == value[:period] * (len(value) // period)
+        for period in range(1, len(value) // 2 + 1)
+    )
 
 
 class Settings(BaseSettings):
@@ -37,19 +73,52 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 1440
 
+    # Authentication abuse controls
+    auth_trusted_proxies: str = ""
+    auth_login_limit: int = 5
+    auth_login_window_seconds: int = 900
+    auth_login_lock_seconds: int = 900
+    auth_register_limit: int = 10
+    auth_register_window_seconds: int = 3600
+    auth_auto_verify_registration: bool | None = None
+    auth_verification_expire_hours: int = 24
+    auth_verify_limit: int = 10
+    auth_verify_window_seconds: int = 900
+    auth_verify_lock_seconds: int = 900
+    auth_outbox_encryption_key: str = _DEFAULT_OUTBOX_KEY
+    auth_outbox_poll_seconds: int = 30
+    auth_outbox_max_attempts: int = 6
+    auth_outbox_retry_base_seconds: int = 60
+    enable_auth_outbox_scheduler: bool = True
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_starttls: bool = True
+    frontend_url: str = "http://localhost:3000"
+
     # 行情调度器
     enable_scheduler: bool = True
     quote_refresh_seconds: int = 10
     index_refresh_seconds: int = 30
     ws_push_seconds: int = 3
+    # 模拟交易只接受 data asOf 与缓存刷新时间均未超过该阈值的快照。
+    quote_trade_max_age_seconds: int = 60
     index_codes: str = "000001.SH,399001.SZ,399006.SZ"
     # 免费实时源限流/卡顿时的硬超时（秒）：超时即降级为空，避免请求/任务无限挂起。
     realtime_fetch_timeout_seconds: int = 20
+    # CI / 离线环境可关闭所有按需实时抓取，仅读缓存与落库数据。
+    enable_realtime_fetch: bool = True
 
     # 盘前早报（Phase 2）：每日定时生成全局早报
     enable_brief_scheduler: bool = True
     brief_cron_hour: int = 8
     brief_cron_minute: int = 30
+    # 早报「近期新闻」主窗口（小时）；窗口内无数据再按 max_fallback 回退
+    brief_news_window_hours: int = 48
+    # 回退最大年龄（小时）；再旧则标 recentMissing，禁止当近期新闻
+    brief_news_max_fallback_age_hours: int = 168
 
     # RAG（检索增强）：可插拔 embedding 后端
     # embedding_provider: local（本地 sentence-transformers）/ api（OpenAI 兼容）
@@ -99,6 +168,8 @@ class Settings(BaseSettings):
     llmquant_enabled: bool = True
     llmquant_api_key: str = ""
     llmquant_base_url: str = "https://api.llmquantdata.com"
+    # 必须钉死版本，禁止 `npx -y @pkg` 拉 latest（供应链风险）
+    llmquant_mcp_package: str = "@llmquant/data-mcp@0.5.2"
     llmquant_macro_indicators: str = (
         "us.cpi.headline,us.pce.core,us.unemployment_rate,"
         "us.rates.fed_funds,us.yield.10y,us.yield_curve.10y_2y"
@@ -122,16 +193,60 @@ class Settings(BaseSettings):
         return [c.strip() for c in self.index_codes.split(",") if c.strip()]
 
     @property
+    def auth_trusted_proxy_list(self) -> tuple[str, ...]:
+        return tuple(
+            proxy.strip() for proxy in self.auth_trusted_proxies.split(",") if proxy.strip()
+        )
+
+    @property
     def llmquant_macro_list(self) -> list[str]:
         return [c.strip() for c in self.llmquant_macro_indicators.split(",") if c.strip()]
 
     @model_validator(mode="after")
     def _enforce_production_security(self) -> "Settings":
-        # 生产环境严禁使用默认 JWT 密钥（启动即失败，避免可伪造令牌的弱配置上线）
-        if self.is_production and self.jwt_secret == _DEFAULT_JWT_SECRET:
-            raise ValueError(
-                "生产环境（APP_ENV=production）必须设置非默认 JWT_SECRET"
+        if self.jwt_algorithm != "HS256":
+            raise ValueError("JWT_ALGORITHM 仅允许 HS256")
+        if self.is_production:
+            secret = self.jwt_secret
+            normalized = secret.strip().lower()
+            decoded = _decode_production_secret(secret)
+            if (
+                decoded is None
+                or len(set(decoded)) < 16
+                or _is_periodic(decoded)
+                or normalized in _WEAK_JWT_SECRETS
+                or "change-me" in normalized
+            ):
+                raise ValueError(
+                    "生产环境 JWT_SECRET 必须是 64 位 hex 或解码后至少 32 字节的高熵 base64url"
+                )
+        elif self.jwt_secret == _DEFAULT_JWT_SECRET:
+            logger.warning("开发环境正在使用默认 JWT_SECRET；不得用于生产")
+        if self.auth_auto_verify_registration is None:
+            object.__setattr__(
+                self,
+                "auth_auto_verify_registration",
+                not self.is_production,
             )
+        if self.is_production:
+            if self.auth_auto_verify_registration:
+                raise ValueError("生产环境禁止 AUTH_AUTO_VERIFY_REGISTRATION")
+            if not (
+                self.smtp_host.strip()
+                and 1 <= self.smtp_port <= 65535
+                and self.smtp_user.strip()
+                and self.smtp_password
+                and self.smtp_from.strip()
+                and self.frontend_url.startswith("https://")
+                and self.smtp_starttls
+            ):
+                raise ValueError("生产环境必须完整配置 SMTP、发件人和 FRONTEND_URL")
+            if self.auth_outbox_encryption_key == _DEFAULT_OUTBOX_KEY:
+                raise ValueError("生产环境必须配置独立 AUTH_OUTBOX_ENCRYPTION_KEY")
+        try:
+            Fernet(self.auth_outbox_encryption_key.encode())
+        except (TypeError, ValueError) as exc:
+            raise ValueError("AUTH_OUTBOX_ENCRYPTION_KEY 必须是合法 Fernet key") from exc
         return self
 
 

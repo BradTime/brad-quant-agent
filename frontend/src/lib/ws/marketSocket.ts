@@ -8,7 +8,13 @@ export interface WsUpdate {
   timestamp: number;
 }
 
+/** 与后端私有推送对齐的判别联合（非行情 update） */
+export type WsPrivateEvent =
+  | { type: 'trade.fill'; payload: unknown; timestamp: number }
+  | { type: string; payload: unknown; timestamp: number };
+
 type UpdateHandler = (update: WsUpdate) => void;
+type PrivateHandler = (event: WsPrivateEvent) => void;
 type StatusHandler = (status: WsStatus) => void;
 
 const HEARTBEAT_MS = 30_000;
@@ -25,6 +31,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 /**
  * 单例 WebSocket 客户端：持续自动重连（指数退避）、心跳 ping + pong 超时检测、
  * 断线后自动重新订阅。订阅主题：`market.indices`、`market.quote.<code>`。
+ * 私有事件（如 `trade.fill`）经 onPrivate 分发，不走行情 update 路径。
  */
 class MarketSocket {
   private ws: WebSocket | null = null;
@@ -37,6 +44,7 @@ class MarketSocket {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly topics = new Set<string>();
   private readonly updateHandlers = new Set<UpdateHandler>();
+  private readonly privateHandlers = new Set<PrivateHandler>();
   private readonly statusHandlers = new Set<StatusHandler>();
 
   connect(token?: string): void {
@@ -77,6 +85,13 @@ class MarketSocket {
     this.updateHandlers.add(handler);
     return () => {
       this.updateHandlers.delete(handler);
+    };
+  }
+
+  onPrivate(handler: PrivateHandler): () => void {
+    this.privateHandlers.add(handler);
+    return () => {
+      this.privateHandlers.delete(handler);
     };
   }
 
@@ -131,7 +146,7 @@ class MarketSocket {
         return;
       }
       const msg = asRecord(parsed);
-      if (!msg) return;
+      if (!msg || typeof msg.type !== 'string') return;
 
       if (msg.type === 'pong') {
         this.clearPongTimer();
@@ -145,6 +160,17 @@ class MarketSocket {
           timestamp: typeof msg.timestamp === 'number' ? msg.timestamp : Date.now(),
         };
         this.updateHandlers.forEach((handler) => handler(update));
+        return;
+      }
+
+      // 私有事件：trade.fill
+      if (msg.type === 'trade.fill') {
+        const privateEvent: WsPrivateEvent = {
+          type: 'trade.fill',
+          payload: msg.payload,
+          timestamp: typeof msg.timestamp === 'number' ? msg.timestamp : Date.now(),
+        };
+        this.privateHandlers.forEach((handler) => handler(privateEvent));
       }
     };
 

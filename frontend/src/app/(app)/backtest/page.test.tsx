@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import BacktestPage from './page';
+import BacktestPage, { DataQualityNotice } from './page';
 
 vi.mock('@/components/charts', () => ({
   LineChart: () => null,
@@ -39,5 +39,16 @@ describe('BacktestPage', () => {
     expect(html).toContain('回测引擎');
     expect(html).toContain('value="native"');
     expect(html).toContain('value="backtrader"');
+  });
+
+  it('warns that an untracked ingestion snapshot is allowed only for compatibility', () => {
+    const html = renderToStaticMarkup(
+      <DataQualityNotice dataQuality={{ '600000.SH': 'untracked' }} />,
+    );
+
+    expect(html).toContain('untracked');
+    expect(html).toContain('兼容历史库');
+    expect(html).toContain('对应周期或区间');
+    expect(html).toContain('确认数据完整性');
   });
 });

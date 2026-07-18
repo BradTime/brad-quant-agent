@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-import json
 import math
 from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import func, or_, select
 
+from app.core.json_payload import (
+    JsonCorruptError,
+    dump_envelope,
+    load_envelope,
+)
 from app.db.session import SessionLocal
 from app.models.strategy import Strategy
 from app.services.backtest_run import strategy_catalog
@@ -73,27 +77,39 @@ def validate_params(
     return _CATEGORY_BY_BUILTIN[builtin_type], normalized
 
 
-def _loads_params(raw: str) -> dict[str, int | float]:
-    try:
-        value = json.loads(raw)
-    except (TypeError, ValueError):
+def _loads_params(raw: Any) -> dict[str, int | float]:
+    """Decode params envelope; corrupt data raises JsonCorruptError."""
+    if raw is None or raw == "" or raw == {}:
         return {}
-    return value if isinstance(value, dict) else {}
+    value = load_envelope(raw, expect="dict", field="params_json")
+    if not isinstance(value, dict):
+        raise JsonCorruptError("params payload must be an object", field="params_json")
+    return value  # type: ignore[return-value]
+
+
+def _dump_params(params: dict[str, int | float]) -> dict:
+    return dump_envelope(params)
 
 
 def _serialize(row: Strategy) -> dict:
-    return {
+    out: dict[str, Any] = {
         "id": row.id,
         "userId": row.user_id,
         "name": row.name,
         "description": row.description,
         "category": row.category,
         "builtinType": row.builtin_type,
-        "params": _loads_params(row.params_json),
         "status": row.status,
         "createdAt": row.created_at.isoformat() if row.created_at else None,
         "updatedAt": row.updated_at.isoformat() if row.updated_at else None,
     }
+    try:
+        out["params"] = _loads_params(row.params_json)
+    except JsonCorruptError as exc:
+        out["params"] = None
+        out["status"] = "data_corrupt"
+        out["error"] = f"params_json corrupt: {exc}"
+    return out
 
 
 def _owned(session, user_id: str, strategy_id: str) -> Strategy | None:
@@ -178,7 +194,7 @@ def create_strategy(
         description=description or "",
         category=category,
         builtin_type=builtin_type,
-        params_json=json.dumps(normalized, ensure_ascii=False, allow_nan=False),
+        params_json=_dump_params(normalized),
         status="draft",
     )
     with SessionLocal() as session:
@@ -211,15 +227,16 @@ def update_strategy(
             elif new_type != row.builtin_type:
                 new_params = {}
             else:
-                new_params = _loads_params(row.params_json)
+                try:
+                    new_params = _loads_params(row.params_json)
+                except JsonCorruptError as exc:
+                    raise ValueError(f"策略参数已损坏，请重新提交 params: {exc}") from exc
             category, normalized = validate_params(new_type, new_params)
             row.builtin_type = new_type
             row.category = category
-            row.params_json = json.dumps(
-                normalized,
-                ensure_ascii=False,
-                allow_nan=False,
-            )
+            row.params_json = _dump_params(normalized)
+            if row.status == "data_corrupt":
+                row.status = "draft"
 
         session.commit()
         session.refresh(row)
