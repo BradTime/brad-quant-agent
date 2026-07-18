@@ -1,10 +1,19 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import * as echarts from 'echarts';
+import * as echarts from 'echarts/core';
+import { PieChart as EPieChart } from 'echarts/charts';
+import {
+  LegendComponent,
+  TitleComponent,
+  TooltipComponent,
+} from 'echarts/components';
+import { CanvasRenderer } from 'echarts/renderers';
 import type { EChartsOption } from 'echarts';
 import { useThemeStore } from '@/stores/useThemeStore';
 import { getChartPalette } from './chart-theme';
+
+echarts.use([EPieChart, TooltipComponent, LegendComponent, TitleComponent, CanvasRenderer]);
 
 interface PieChartData {
   name: string;
@@ -69,5 +78,13 @@ export function PieChart({ data, height = 300, title }: PieChartProps) {
     };
   }, []);
 
-  return <div ref={chartRef} style={{ width: '100%', height: `${height}px` }} />;
+  const topSlice = data.length > 0 ? [...data].sort((a, b) => b.value - a.value)[0] : null;
+  const chartLabel = `饼图，${data.length} 个分类${topSlice ? `，最大项 ${topSlice.name}` : ''}${title ? `，${title}` : ''}`;
+
+  return (
+    <div role="img" aria-label={chartLabel}>
+      <div ref={chartRef} style={{ width: '100%', height: `${height}px` }} />
+      <span className="sr-only">{chartLabel}</span>
+    </div>
+  );
 }

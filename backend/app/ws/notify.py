@@ -16,6 +16,9 @@ from app.ws.manager import manager
 
 logger = logging.getLogger(__name__)
 
+# 私有事件类型（与行情 ``update`` 分型；前端按 type 判别）
+TRADE_FILL = "trade.fill"
+
 
 def _envelope(event_type: str, payload: object) -> dict:
     return {"type": event_type, "payload": payload, "timestamp": int(time.time() * 1000)}
@@ -28,14 +31,27 @@ async def notify_user(user_id: str, event_type: str, payload: object) -> int:
     return await manager.send_to_user(user_id, _envelope(event_type, payload))
 
 
+def _observe_future(fut: object) -> None:
+    try:
+        result = getattr(fut, "result", None)
+        delivered = result() if callable(result) else None
+        if delivered == 0:
+            logger.debug("私有 WS 推送：用户当前无在线连接")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("私有 WS 推送失败: %s", exc)
+
+
 def notify_user_threadsafe(user_id: str, event_type: str, payload: object) -> bool:
     """同步上下文（无事件循环）下投递私有事件到应用事件循环。返回是否成功排程。"""
     loop = manager.loop()
     if loop is None or not user_id:
         return False
     try:
-        asyncio.run_coroutine_threadsafe(notify_user(user_id, event_type, payload), loop)
+        fut = asyncio.run_coroutine_threadsafe(
+            notify_user(user_id, event_type, payload), loop
+        )
+        fut.add_done_callback(_observe_future)
         return True
     except Exception as exc:  # noqa: BLE001
-        logger.debug("私有 WS 推送排程失败: %s", exc)
+        logger.warning("私有 WS 推送排程失败: %s", exc)
         return False

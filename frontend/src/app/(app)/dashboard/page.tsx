@@ -7,7 +7,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { LineChart, PieChart } from '@/components/charts';
 import { dashboardApi } from '@/lib/api/dashboard';
 import { marketApi } from '@/lib/api/market';
-import { formatCurrency, formatPercent } from '@/lib/utils/format';
+import { ageQuote, formatQuoteFreshness } from '@/lib/api/quote-selection';
+import { useFreshnessClock } from '@/hooks/useFreshnessClock';
+import { useAuthStore } from '@/stores/useAuthStore';
+import {
+  formatAmount,
+  formatCurrency,
+  formatPercent,
+  formatVolume,
+} from '@/lib/utils/format';
 import {
   Table,
   TableBody,
@@ -19,32 +27,64 @@ import {
 import { Button } from '@/components/ui/button';
 import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 
+function changeClass(value: number | null): string {
+  if (value === null || value === 0) return 'text-muted-foreground';
+  return value > 0 ? 'text-up' : 'text-down';
+}
+
+function fixed(value: number | null): string {
+  return value === null ? '—' : value.toFixed(2);
+}
+
+function signed(value: number | null, suffix = ''): string {
+  return value === null ? '—' : `${value >= 0 ? '+' : ''}${value.toFixed(2)}${suffix}`;
+}
+
 export default function DashboardPage() {
   // 分页和排序状态
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
   const [sortBy, setSortBy] = useState<'price' | 'changePercent' | 'volume'>('price');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const freshnessNow = useFreshnessClock();
+  const userId = useAuthStore((state) => state.user?.id);
 
   const { data: stats, isLoading: statsLoading } = useQuery({
-    queryKey: ['dashboard', 'stats'],
+    queryKey: ['dashboard', userId ?? 'anonymous', 'stats'],
     queryFn: () => dashboardApi.getStats(),
+    enabled: Boolean(userId),
     refetchInterval: 30000, // 30秒刷新一次
   });
 
-  const { data: marketOverview } = useQuery({
+  const { data: marketOverview = [], dataUpdatedAt: overviewReceivedAt } = useQuery({
     queryKey: ['dashboard', 'market-overview'],
     queryFn: () => dashboardApi.getMarketOverview(),
-    refetchInterval: 10000, // 10秒刷新一次（市场数据实时性要求高）
+    refetchInterval: 10000, // 10秒刷新一次；本地时钟负责失败后的继续老化
   });
 
-  const { data: quotesData, isLoading: quotesLoading, refetch: refetchQuotes } = useQuery({
+  const {
+    data: quotesData,
+    dataUpdatedAt: quotesReceivedAt,
+    isLoading: quotesLoading,
+    refetch: refetchQuotes,
+  } = useQuery({
     queryKey: ['market', 'quotes', page, pageSize, sortBy, sortOrder],
     queryFn: () => marketApi.getQuotes(page, pageSize, sortBy, sortOrder),
-    refetchInterval: 5000, // 5秒刷新一次（股票行情实时性要求最高）
+    refetchInterval: 5000, // 5秒刷新一次；失败时保留数据并由本地时钟标记过期
   });
 
-  const stockQuotes = quotesData?.stocks || [];
+  const agedOverview = marketOverview.map((index) =>
+    ageQuote(index, overviewReceivedAt, freshnessNow)
+  );
+  const stockQuotes = (quotesData?.stocks || []).map((quote) =>
+    ageQuote(quote, quotesReceivedAt, freshnessNow)
+  );
+  const overviewFreshness = agedOverview[0]
+    ? formatQuoteFreshness(agedOverview[0])
+    : null;
+  const stockFreshness = stockQuotes[0]
+    ? formatQuoteFreshness(stockQuotes[0])
+    : null;
   const total = quotesData?.total || 0;
   const totalPages = Math.ceil(total / pageSize);
 
@@ -75,18 +115,21 @@ export default function DashboardPage() {
   };
 
   const { data: returnCurve, isLoading: curveLoading } = useQuery({
-    queryKey: ['dashboard', 'return-curve'],
+    queryKey: ['dashboard', userId ?? 'anonymous', 'return-curve'],
     queryFn: () => dashboardApi.getReturnCurve(30),
+    enabled: Boolean(userId),
   });
 
   const { data: positionDist, isLoading: distLoading } = useQuery({
-    queryKey: ['dashboard', 'position-distribution'],
+    queryKey: ['dashboard', userId ?? 'anonymous', 'position-distribution'],
     queryFn: () => dashboardApi.getPositionDistribution(),
+    enabled: Boolean(userId),
   });
 
   const { data: recentTrades, isLoading: tradesLoading } = useQuery({
-    queryKey: ['dashboard', 'recent-trades'],
+    queryKey: ['dashboard', userId ?? 'anonymous', 'recent-trades'],
     queryFn: () => dashboardApi.getRecentTrades(5),
+    enabled: Boolean(userId),
   });
 
   return (
@@ -98,28 +141,33 @@ export default function DashboardPage() {
         </div>
 
         {/* 市场指数概览 */}
-        {marketOverview && marketOverview.length > 0 && (
+        {agedOverview.length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle>A股指数</CardTitle>
-              <CardDescription>实时指数行情（数据来源：东方财富）</CardDescription>
+              <CardDescription>
+                {overviewFreshness?.text ?? '不可用'}（数据来源：东方财富）
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid gap-4 md:grid-cols-3">
-                {marketOverview.map((index) => (
-                  <div key={index.index} className="border rounded-lg p-4">
-                    <div className="text-sm text-muted-foreground mb-1">{index.name}</div>
-                    <div className="text-2xl font-bold mb-1">
-                      {index.value.toFixed(2)}
+                {agedOverview.map((index) => {
+                  const freshness = formatQuoteFreshness(index);
+                  return (
+                    <div key={index.index} className="border rounded-lg p-4">
+                      <div className="text-sm text-muted-foreground mb-1">{index.name}</div>
+                      <div className="text-2xl font-bold mb-1">
+                        {fixed(index.value)}
+                      </div>
+                      <div className={`text-sm font-semibold ${changeClass(index.change)}`}>
+                        {signed(index.change)} ({signed(index.changePercent, '%')})
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {freshness.text}
+                      </div>
                     </div>
-                    <div className={`text-sm font-semibold ${
-                      index.changePercent >= 0 ? 'text-up' : 'text-down'
-                    }`}>
-                      {index.change >= 0 ? '+' : ''}{index.change.toFixed(2)} (
-                      {index.changePercent >= 0 ? '+' : ''}{index.changePercent.toFixed(2)}%)
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </CardContent>
           </Card>
@@ -129,9 +177,9 @@ export default function DashboardPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
-              <CardTitle>A股实时行情</CardTitle>
+              <CardTitle>A股行情</CardTitle>
               <CardDescription>
-                共 {total} 只股票（每5秒自动刷新，每页 {pageSize} 只）
+                {stockFreshness?.text ?? '不可用'} · 共 {total} 只股票（每5秒自动刷新，每页 {pageSize} 只）
               </CardDescription>
             </div>
             <Button
@@ -183,6 +231,7 @@ export default function DashboardPage() {
                           </button>
                         </TableHead>
                         <TableHead className="text-right">成交额</TableHead>
+                        <TableHead className="text-right">状态</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -191,27 +240,26 @@ export default function DashboardPage() {
                           <TableCell className="font-mono">{stock.code}</TableCell>
                           <TableCell className="font-medium">{stock.name}</TableCell>
                           <TableCell className="text-right font-semibold tnum">
-                            {stock.price.toFixed(2)}
+                            {fixed(stock.price)}
                           </TableCell>
                           <TableCell
-                            className={`text-right ${
-                              stock.change >= 0 ? 'text-up' : 'text-down'
-                            }`}
+                            className={`text-right ${changeClass(stock.change)}`}
                           >
-                            {stock.change >= 0 ? '+' : ''}{stock.change.toFixed(2)}
+                            {signed(stock.change)}
                           </TableCell>
                           <TableCell
-                            className={`text-right font-semibold ${
-                              stock.changePercent >= 0 ? 'text-up' : 'text-down'
-                            }`}
+                            className={`text-right font-semibold ${changeClass(stock.changePercent)}`}
                           >
-                            {stock.changePercent >= 0 ? '+' : ''}{stock.changePercent.toFixed(2)}%
+                            {signed(stock.changePercent, '%')}
                           </TableCell>
                           <TableCell className="text-right text-sm text-muted-foreground">
-                            {(stock.volume / 10000).toFixed(2)}万手
+                            {formatVolume(stock.volume, '手')}
                           </TableCell>
                           <TableCell className="text-right text-sm text-muted-foreground">
-                            {(stock.amount / 100000000).toFixed(2)}亿
+                            {formatAmount(stock.amount)}
+                          </TableCell>
+                          <TableCell className="text-right text-xs text-muted-foreground">
+                            {formatQuoteFreshness(stock).text}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -254,12 +302,6 @@ export default function DashboardPage() {
             ) : (
               <div className="text-center py-8 text-muted-foreground">暂无行情数据</div>
             )}
-          </CardContent>
-        </Card>
-
-        <Card className="border-brand/30 bg-brand-soft">
-          <CardContent className="p-4 text-sm text-muted-foreground">
-            资产、收益、持仓与交易记录属于 Phase 3 模拟交易范围；当前为占位数据，尚未接入真实模拟账户。
           </CardContent>
         </Card>
 
@@ -333,7 +375,7 @@ export default function DashboardPage() {
                 <LineChart data={returnCurve} height={300} />
               ) : (
                 <div className="flex items-center justify-center h-[300px] text-muted-foreground">
-                  模拟交易尚未开放，暂无收益曲线
+                  暂无模拟交易数据
                 </div>
               )}
             </CardContent>
@@ -357,7 +399,7 @@ export default function DashboardPage() {
                 />
               ) : (
                 <div className="flex items-center justify-center h-[300px] text-muted-foreground">
-                  模拟交易尚未开放，暂无持仓数据
+                  暂无模拟交易数据
                 </div>
               )}
             </CardContent>
@@ -406,7 +448,7 @@ export default function DashboardPage() {
               </div>
             ) : (
               <div className="text-center py-4 text-muted-foreground">
-                模拟交易尚未开放，暂无交易记录
+                暂无模拟交易数据
               </div>
             )}
           </CardContent>

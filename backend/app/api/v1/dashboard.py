@@ -1,17 +1,17 @@
 """Dashboard endpoints.
 
-Phase 1 implements the market overview (indices). Portfolio-related endpoints
-(stats / return-curve / position-distribution / recent-trades) belong to the
-simulated-trading phase (Phase 3); until then they return **empty placeholders**
-(zeros / empty lists) so the legacy dashboard renders gracefully instead of 404.
+Market overview is public cache data. Portfolio endpoints require auth and
+aggregate the caller's simulated trading account / positions / trades / strategies.
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.api.deps import get_current_user
 from app.core.response import success
-from app.services import market
+from app.models.user import User
+from app.services import dashboard, market
 
 router = APIRouter()
 
@@ -21,34 +21,21 @@ def market_overview() -> dict:
     return success(market.get_market_overview())
 
 
-# ---- Phase 3 占位：尚无模拟交易/持仓时返回空数据，避免前端 404 ----
-
-
 @router.get("/stats")
-def stats() -> dict:
-    return success(
-        {
-            "totalAssets": 0,
-            "todayReturn": 0,
-            "todayReturnPercent": 0,
-            "cumulativeReturn": 0,
-            "cumulativeReturnPercent": 0,
-            "runningStrategies": 0,
-            "totalStrategies": 0,
-        }
-    )
+def stats(user: User = Depends(get_current_user)) -> dict:
+    return success(dashboard.get_stats(str(user.id)))
 
 
 @router.get("/return-curve")
-def return_curve(days: int = 30) -> dict:
-    return success([])
+def return_curve(days: int = 30, user: User = Depends(get_current_user)) -> dict:
+    return success(dashboard.return_curve(str(user.id), days=days))
 
 
 @router.get("/position-distribution")
-def position_distribution() -> dict:
-    return success([])
+def position_distribution(user: User = Depends(get_current_user)) -> dict:
+    return success(dashboard.position_distribution(str(user.id)))
 
 
 @router.get("/recent-trades")
-def recent_trades(limit: int = 10) -> dict:
-    return success([])
+def recent_trades(limit: int = 10, user: User = Depends(get_current_user)) -> dict:
+    return success(dashboard.recent_trades(str(user.id), limit=limit))

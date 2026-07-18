@@ -1,9 +1,9 @@
 # AI 原生 A 股个人投研平台 — SPEC v1（定稿）
 
 - 状态：定稿（Approved）
-- 日期：2026-05-29（进度更新 2026-07-14）
+- 日期：2026-05-29（进度更新 2026-07-15）
 - 适用范围：本仓库后续所有开发的总纲；与 `前端开发需求文档.md`（旧版纯前端需求）冲突时，以本 SPEC 为准。
-- **实现进度**：Phase 0–4 + AI 增强（RAG 含 HNSW/混合检索、多智能体、MCP）+ 工程化基线**均已完成**。剩余小项：多智能体轨迹下钻、首屏 <2s 正式测量、记忆 / 微调；「产品化扩展期」（RBAC / 多市场 / i18n / 真实时）按规划后置。
+- **实现进度**：Phase 0–4 + AI 增强（RAG 含 HNSW/混合检索、多智能体、MCP、可删除会话/偏好记忆 MVP）+ 工程化基线**均已完成**。剩余小项：微调（明确后置）；「产品化扩展期」（RBAC / 多市场 / i18n / 真实时）按规划后置。
 
 ---
 
@@ -42,32 +42,54 @@
 | **Phase 0（地基）** | 仓库结构 frontend/backend 分离；FastAPI 骨架；数据源三件套 + `DataProvider` 抽象 + Postgres 落库（含 PIT 字段）；行情拉取调度器；DeepSeek 工具层；WebSocket 基座；前端全局导航壳；认证迁移到 FastAPI |
 | **Phase 1（MVP）** | 看盘"进阶版" + AI 看盘问答（含选股工具）✅ |
 | **Phase 2** | AI 盘前早报 / 对话问答 ✅ |
-| **AI 增强（增量）** | RAG 检索增强（pgvector + 本地 bge，含 HNSW + 混合检索）✅；多智能体早报（LangGraph）+ 可观测 ✅；MCP（LLMQuant Data）✅；后续 记忆 / 微调 |
+| **AI 增强（增量）** | RAG 检索增强（pgvector + 本地 bge，含 HNSW + 混合检索）✅；多智能体早报（LangGraph）+ 可观测 ✅；MCP（LLMQuant Data）✅；可删除、按用户隔离的会话/偏好记忆 MVP ✅；微调后置 |
 | **Phase 3** | 模拟交易（T+1 撮合 / 持仓 / 订单 + WS 回报 + AI 复盘）✅ |
-| **Phase 4** | 量化研究 + 真回测引擎（自研事件驱动引擎，backtrader 预留；策略 API 向 RQAlpha/JoinQuant 对齐）✅ |
+| **Phase 4** | 量化研究 + 真回测引擎（native 执行引擎 + Backtrader Cerebro 调度适配；策略 API 向 RQAlpha/JoinQuant 对齐）✅ |
 | **产品化扩展期** | 完整 RBAC + 商业化；其他市场（期货 / 港股 / 美股 / 加密）；i18n；（接付费源后）真实时 / Level-2 |
 
 ---
 
 ## 3. Technical Constraints（技术约束）
 
-- **前端**：Next.js 15 / React 19 / shadcn/ui / ECharts / Zustand / React Query；国际化用 `next-intl` **预留**（MVP 仅中文，文案不写死）。
+- **前端**：Next.js 16 / React 19 / shadcn/ui / ECharts / Zustand / React Query；国际化用 `next-intl` **预留**（MVP 仅中文，文案不写死）。
 - **后端**：Python **FastAPI**（异步 + 原生 WebSocket）；废弃 Express。
 - **数据源**：AkShare（主力，覆盖最广）+ BaoStock（历史 K线 / 财务，最稳，用于落库与 Phase 4 回测）+ efinance（补实时快照）；统一经 **`DataProvider` 抽象**、可热插拔（预留 Tushare Pro / 付费源）。
 - **存储**：**Postgres**（业务数据 + 历史 K线，多用户就绪）；Redis **后置**（行情缓存 / 限流 / 任务队列，按需引入）；DuckDB/Parquet 列存留 **Phase 4** 回测时再引入。
 - **数据正确性（PIT, point-in-time）**：落库时记录数据获取 / 发布时间、复权因子、停复牌 / 退市标记，为 Phase 4 回测严谨性预留，避免未来函数与幸存者偏差。
+  - 财务摘要采用追加式版本：同一 `code + report_date` 的指标修订生成不同 `vintage`，历史版本永不原地覆盖；同值重抓幂等并保留最早 `available_at`。
+  - 源提供精确公告时间时，`announced_at` 同时作为可用时点；仅提供公告日期时标记 `date` 精度，并保守到上海当日 15:00 才可见；源不提供时，以系统首次抓取时间作为 `available_at`，质量标记为 `first_observed_at`。
+  - 财务指标在 Provider 层保持 `Decimal`，ingest 按数据库字段 scale 量化并将正负零统一后再生成 `vintage`，禁止经 binary float 往返。
+  - `GET /api/v1/market/financials?asOf=` 支持 RFC3339 与 ISO 日期。带时区值转 UTC；无时区时间按 `Asia/Shanghai` 解释；日期表示上海当日收盘（日末）。查询只使用当时已可见版本。
 - **实时**：**WebSocket**（心跳 / 重连 / 订阅退订 / 鉴权 + 后端行情拉取调度与广播）；定位为"可复用基座"（看盘先用，Phase 3 交易回报、AI 流式、风险告警共用）。
   - ⚠️ 明确预期：**上 WS ≠ 真实时**。免费快照的刷新粒度是上限；每个数据面板**标题需标注数据来源 / 新鲜度**，拿不到或延迟的明确标注（如「快照·可能延迟」「来源有限」「免费源数据有限 / 缺失」）。
-- **AI**：DeepSeek，经 function calling 驱动工具层；**强制附免责声明、禁止输出确定性买卖指令、数据缺失必须显式声明不得杜撰**。
+- **AI**：DeepSeek，经 function calling 驱动工具层；**强制附免责声明、禁止输出确定性买卖指令、数据缺失必须显式声明不得杜撰**。用户偏好只是不可信个性化元数据；行情与数值事实继续只能来自工具返回，偏好和界面上下文均不得替代工具取数或系统规则。
 - **部署**：本地 **Docker Compose** 起步（Postgres + backend + frontend）；代码"云就绪"（配置走环境变量、不硬编码 localhost、数据可备份），云部署留后期。
 - **多用户预留**：所有数据按 `user_id` 隔离；认证体系可平滑长成 RBAC（**MVP 仍单用户**，不实现完整权限矩阵）。
+- **认证安全（H4）**：注册与登录共用邮箱规范化，但密码契约分离：注册密码须为 10–128
+  字符并按 ASCII 类同时包含 `[a-z]`、`[A-Z]`、`[0-9]`、`[^A-Za-z0-9]`，禁止空白/
+  控制字符；登录为兼容旧账户仅要求非空、最长 256、禁止控制字符，允许旧 8 位及含空格密码。
+  合法注册无论邮箱新旧统一返回 HTTP 202 与 `{accepted:true,message}`，不签发 token；生产中新
+  邮箱必须经一次性邮件 token 激活；pending 阶段不创建 User、不保存 password hash，仅保存
+  email/requested_name/token SHA-256/有效期。同邮箱未过期 pending 的重复注册不轮换 token，
+  过期后才签发新链接，避免攻击者使受害者链接失效。邮箱持有者在验证时输入最终严格密码与姓名；
+  `POST /auth/verify` 原子消费 token 并创建 verified User，并发消费最多成功一次。未验证与不存在
+  账户的登录失败完全统一；旧用户迁移时按 `created_at` 标记已验证。生产强制完整 SMTP/发件人、
+  HTTPS 前端 URL 配置并关闭自动验证，邮件验证链接仅允许 HTTPS；dev/test
+  默认自动验证以维持本地与 E2E。登录恒定执行一次 PBKDF2 与一次 bcrypt 校验，真实哈希之外的
+  算法使用预生成 dummy，旧 bcrypt 成功后迁移 PBKDF2。非法注册统一使用 400 响应信封；错误凭据
+  使用统一消息。生产 JWT 密钥仅接受 64 位 hex 或解码后至少 32 字节的 base64url，拒绝周期重复、
+  低多样性/常见弱串且算法仅允许 HS256；开发默认值仅告警。登录失败以规范化邮箱和客户端 IP
+  双 bucket 写入 Postgres `auth_throttles`，默认 15 分钟 5 次后锁 15 分钟；注册按 IP 默认
+  每小时 10 次。事务内 PostgreSQL advisory lock + row lock 保证多 worker 原子更新；成功登录
+  清账户 bucket。默认不信任 `X-Forwarded-For`；仅直连 peer 位于 trusted proxy CIDR 时从
+  XFF 右向左剥离可信代理并选择首个不可信 hop，无效 XFF 保守回退 peer。
 - **工程**：统一响应格式 `{ code, message, data, timestamp }`；关键模块测试；Sentry 等可后置。
 
 ### 3.1 项目结构（前后端分离，本次落地）
 
 ```
 brad-quant-agent/
-├── frontend/                 # Next.js 15 + React 19（看盘 / AI / 交易 / 研究 UI）
+├── frontend/                 # Next.js 16 + React 19（看盘 / AI / 交易 / 研究 UI）
 │   ├── src/
 │   ├── public/
 │   ├── package.json
@@ -166,7 +188,7 @@ brad-quant-agent/
 - [x] AI 准确性测试集（36 题 `tests/golden_questions.json`）与回归校验脚本 `scripts/ai_eval.py`（离线/全量）
 - [x] **AI 准确性全量回归已通过**（DeepSeek `deepseek-chat` 实跑 36 题）：工具选择 100%（32/32，目标 ≥95%）、合规含免责 100%（36/36，红线）、确定性买卖指令 0 条（红线）、报价数值与落库一致 14/14（软指标 100%）、缺数据诚实性 2/2；报告留存于 `backend/tests/reports/phase1_ai_eval_*.txt`
 - [x] 健壮性：免费实时源限流时全市场快照抓取加硬超时降级（`realtime_fetch_timeout_seconds`），避免请求/调度无限挂起；实时不可用时选股/快照按 SPEC 显式标注，不杜撰
-- [~] 验收：`docker compose up` 一键起（已就绪）；个股详情首屏 < 2s（本地达标，依赖数据已落库）
+- [x] 验收：`docker compose up -d --build backend frontend` 一键起；真实 Postgres/FastAPI/Next.js Docker 全栈首次导航个股关键首屏 483ms（阈值 <2s，见 `docs/performance-baseline-2026-07-14.md`）
 
 ### Phase 2 — AI 盘前早报
 - [x] 数据装配 `build_data_pack`：从已落库/缓存离线汇总（指数、自选股涨跌榜、自选股资金流、近期龙虎榜、近 48h 新闻），并显式标注覆盖缺口（隔夜外盘 / 宏观政策 / 机构研报）——只喂真实数据，绝不触发会阻塞的实时拉取
@@ -197,22 +219,29 @@ brad-quant-agent/
 - [x] **评审轮数可配**：`brief_max_revisions`（默认 1，`brief_graph` 封顶 3，防失控）
 - [x] **分析师按域暴露更多工具**：市场结构→`get_market_overview`/`get_kline`、资金面→`get_capital_flow`/`get_dragon_tiger`、消息面→`search_knowledge`/`get_news`（均有界 1 轮、复用同一能力层）
 - [x] **轨迹时序甘特图**：每节点记录 `start/end`（epoch ms），前端按真实起止绘制条带，直观呈现四分析师**并行重叠**与各段耗时
-- [ ] 后续：轨迹下钻查看各节点输入输出
+- [x] **轨迹下钻**：节点 trace 持久化合规清洗后的输入/输出（单字段截断 + 总预算），前端可展开查看；保留甘特图、评分与工具调用
+
+### AI 增强 — 可删除会话 / 偏好记忆 MVP（增量）
+- [x] `chat_sessions` / `chat_messages` / `user_memories` 按 `user_id` 严格隔离；会话及其消息可级联删除，越权读取/删除统一返回 404
+- [x] 普通问答由服务端保存用户显式对话历史并恢复有限最近消息；SSE 先返回 `sessionId`，只在完整生成结束后保存 assistant 正文，不存 system prompt / tool result
+- [x] 用户主动保存的偏好支持同 key upsert、数量/长度上限、列表与删除；不从模型输出自动抽取事实
+- [x] 偏好与界面上下文均作为普通 user 层的“不可信元数据”包裹，仅可个性化表达；行情/数值事实继续只能来自工具，`SYSTEM_PROMPT` 工具取数红线不变
+- [ ] 微调 / 训练数据闭环继续后置；本 MVP 不包含微调、RBAC、计费或多市场扩展
 
 ### 工程化与 Phase 3 预备（增量）
 - [x] **WS 私有定向推送通道**：连接按 `user_id` 建反向索引，`send_to_user`/`notify_user`(async)+`notify_user_threadsafe`(同步撮合/调度器用)，私有事件信封；Phase 3 成交回报/持仓变动复用（私有数据绝不走广播）
 - [x] **自主深度研究持久化**：`research_reports` 表落库（问题/计划/分步轨迹/正文/状态），`GET /ai/research`(列表)+`/ai/research/{id}`(详情)，前端「研究历史」可回看；为 Phase 3 AI 复盘复用
 - [x] **批量数据回填**：`cli backfill`（日K+复权因子+资金流+财务+新闻，逐项降级）；已扩 daily_bars→6776、adjust_factors 0→44、news→181、RAG documents→253
-- [x] **CI（GitHub Actions）**：后端 `ruff check`+`pytest`（含 pgvector 服务容器、RAG 关闭确定性运行）；前端 `eslint`+`next build`
+- [x] **CI（GitHub Actions）**：后端 `ruff check`+`pytest`（含 pgvector 服务容器、RAG 关闭确定性运行）；前端 `vitest`+`eslint`+`next build`；独立 job 跑 **Playwright** E2E 冒烟（注册/鉴权/各页渲染，无 LLM）
 - [x] **Sentry（后端，DSN 可选）**：配置 `SENTRY_DSN` 才启用、默认零开销不外联；`ruff` 纳入质量基线
 - [x] **AI 成本闸**：`ai_cost_gate` 每用户每日配额（chat/research/brief/backtest）+ 重型生成最小间隔，SSE 超额优雅拒
 - [x] **自动化 E2E（Playwright）**：注册/鉴权门/各页渲染冒烟（确定性、无 LLM）
 
 ### Phase 3 — 模拟交易（play-money）
 - [x] ORM `SimAccount/SimPosition/SimOrder/SimTrade`（现金/冻结/可用、成本、状态）；初始资金 100 万、100 股整手
-- [x] 撮合 `services/trading`：市价即时成交（缓存/最近收盘价，取不到拒单不杜撰）、限价可成交即成交否则挂单；佣金万2.5(最低5) + 卖出印花税千1
+- [x] 撮合 `services/trading`：市价仅用可执行行情即时成交（取不到拒单不杜撰）、限价可成交即成交否则挂单；佣金万2.5(最低5)；印花税仅卖出，2023-08-28 起 0.5‰、此前 1‰，模拟交易按上海当前交易日
 - [x] **T+1**：当日买入计 `qty` 不计 `available_qty`，跨日 `_settle` 解冻并自动撤销上一日未成交挂单；挂买冻结现金 / 挂卖冻结可用股
-- [x] 调度器 `try_match_pending` 用最新快照价撮合挂单；成交/拒单经 **WS 私有通道** `trade.fill` 推送（不走广播）
+- [x] 调度器 `try_match_pending` 用包含昨收的完整可执行快照撮合挂单；即时/挂单均校验涨停买、跌停卖，行情不可执行门禁优先；成交/拒单经 **WS 私有通道** `trade.fill` 推送（不走广播）
 - [x] API `/sim`：account / positions / orders(GET/POST/DELETE) / trades；**AI 复盘** `POST /sim/review`（SSE，走成本闸，只喂真实账户数据）
 - [x] 前端 `/sim`：账户概览 + 下单 + 持仓 + 委托/成交 + AI 复盘；侧栏导航
 - [x] 单测 `test_trading`（市价买 / T+1 阻卖 / 限价挂撤 / 费税 / 整手校验）
@@ -225,7 +254,33 @@ brad-quant-agent/
 - [x] **M4 策略库 + 基准 + AI 点评**：RSI / 布林带 / 动量（注册表 + 参数 schema）；沪深300 基准对比 + 超额（降级买入持有）；`POST /backtest/{id}/review` AI 诊断（SSE，只喂真实结果、不荐股）
 - [x] 单测 `test_trading_rules` / `test_backtest` / `test_backtest_engine`（费用口径 / 后复权阶梯 / 前视偏差 / 涨跌停 / 引擎注册 / 策略全跑）
 - [x] **参数网格寻优**：参数笛卡尔积、行情/基准单次加载复用、按指标排名、组合数上限 64；`POST /backtest/grid` + 前端候选值/排名/一键应用
-- [ ] 后续：分钟级回测、把 backtrader 预留补成真实现并与自研对拍、策略持久化（strategies CRUD 页）
+- [x] **用户策略持久化**：内置策略参数 ORM（`user_id` 隔离）+ CRUD / 启停 / 复制 API 与页面；回测页可加载已保存策略并预填类型和参数
+- [x] **分钟级回测**：5/15/30/60 分钟后复权加载、下一根开盘撮合、自然交易日 T+1、昨收涨跌停、单次/网格/API/前端/历史配置全链路
+- [x] **Backtrader Cerebro 调度适配**：Cerebro + PandasData 装载后复权日/分钟 bars，包装统一 `Context` 策略语义并保持下一 bar 开盘；默认 BackBroker 无法精确表达本项目全部 A 股规则，因此适配器显式复用共享 A 股执行账本（不调用 `NativeEngine`）。对拍验证的是 Cerebro 与 native 的调度/时间轴一致性，**不作为独立撮合正确性证明**
+- [x] **H2 历史费税/涨跌停**：回测按上海交易日解释 `Fill.trade_date` 后适用印花税；每根 bar 按日期 + `Instrument.list_date` 生成涨跌停比例（主板 10%、主板 ST 5%、创业板改革前 10%/后 20%、科创板 688/689 为 20%、北交所 30%，注册制板块上市前 5 个 XSHG 中国交易日无涨跌停）。存在涨跌停规则但快照缺昨收时不可成交；昨日 DAY 单在锁内上海跨日结算后先撤销。当前尚无历史 PIT ST 状态序列，缺口下不使用当前名称倒灌，保守按代码/日期制度并显式披露。
+
+### Medium audit remediation（M16–M27）
+- [x] **M16 类型契约（增量）**：前端 `BacktestJob` / `SimOrderStatus` 联合类型；`getJob` 经 zod 校验 unwrap
+- [x] **M17 MARKET_TZ**：`backend/app/core/tz.py` + 后端服务/Provider 统一引用；前端 `lib/constants/market-tz.ts` 供 quote 新鲜度/标注
+- [x] **M18 金额舍入**：模拟交易 cash/frozen 写入路径统一 `round_money`
+- [x] **M19 状态 StrEnum**：`BacktestJobStatus`（后端 StrEnum + 前端 union）；`SimOrderStatus` Literal
+- [ ] **M20 httpOnly SSR 鉴权**：**延后产品化** — MVP 仍用 localStorage JWT/refresh；完整 httpOnly cookie + SSR session 需无破坏迁移，见 `useAuthStore` 注释；`RequireAuth` 已 hydration 门控减闪烁
+- [x] **M21 ECharts tree-shake**：图表组件改 `echarts/core` + 按需 register
+- [x] **M22 流式 batching**：chat-panel / brief 生成 `requestAnimationFrame` 合并 onDelta
+- [x] **M23 WS 开时停 HTTP poll**：个股详情 quote poll；看盘页 indices 订阅 `market.indices` 后停 poll
+- [x] **M24 Next standalone**：`output: 'standalone'` + Dockerfile 复制 standalone 产物
+- [x] **M25/M26 CI 与文档**：README/SPEC 对齐 Vitest+Playwright CI；Phase 3/4 完成态；Next.js 16
+- [x] **M27 前端 Sentry**：`lib/sentry.ts` 可选 DSN + ErrorBoundary `captureException`（动态 import `@sentry/nextjs`，未安装时 console 提示）
+
+### Low audit remediation（L1–L8）
+- [x] **L1** Topbar 补 `/sim` 标题映射
+- [x] **L2** API 根改为 `apiVersion` + `capabilities`（移除误导性 `phase: 1`）
+- [x] **L3** 删除未使用的 `GET /backtest/{id}/metrics`
+- [x] **L4** `avatar` / RBAC `role` 明确后置：序列化恒 `avatar=null`、`role=user`；类型注释标明预留
+- [x] **L5** 个股侧栏 ChatPanel 保持轻量；引导前往 `/ai` 做深度研究
+- [x] **L6** 移除未用依赖（`echarts-for-react` / `date-fns` / `react-hook-form` / `@hookform/resolvers`）
+- [x] **L7** 减少预加载字重；首屏 `main` 去掉 opacity 动画
+- [x] **L8** pytest 过滤上游 `utcnow` 弃用警告；Vitest setup 已 polyfill localStorage
 
 ---
 

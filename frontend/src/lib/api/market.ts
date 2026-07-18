@@ -1,20 +1,40 @@
 import { apiClient } from './client';
 
+export type QuoteStaleReason =
+  | 'last_close'
+  | 'missing_as_of'
+  | 'missing_cache_refresh'
+  | 'quote_expired'
+  | 'cache_expired'
+  | 'unverified_event_time'
+  | 'market_closed'
+  | 'invalid_price';
+
 export interface StockQuote {
   code: string;
   name: string;
-  price: number;
-  change: number;
-  changePercent: number;
-  volume: number;
-  amount: number;
-  high?: number;
-  low?: number;
-  open?: number;
-  yesterdayClose?: number;
+  price: number | null;
+  change: number | null;
+  changePercent: number | null;
+  volume: number | null;
+  amount: number | null;
+  high?: number | null;
+  low?: number | null;
+  open?: number | null;
+  yesterdayClose?: number | null;
+  /** 兼容字段，与 asOf 同源；不是 API/WS 的发送时间。 */
   timestamp: number;
-  /** 真实快照不可用时，价格来自最近一个交易日的收盘（盘后/降级展示）。 */
-  stale?: boolean;
+  /** 行情数据本身的观测时间（Unix ms），未知时为 null。 */
+  asOf: number | null;
+  /** data asOf 与缓存刷新时间中较老者的年龄（ms）。 */
+  ageMs: number | null;
+  /** 服务端用于判定可成交的最大快照年龄（ms）。 */
+  maxAgeMs: number;
+  stale: boolean;
+  /** 陈旧或不可成交原因；market_closed 可在 stale=false 时出现。 */
+  staleReason: QuoteStaleReason | null;
+  /** 仅价格正数、快照未超龄且处于 A 股交易时段时为 true。 */
+  executable: boolean;
 }
 
 export interface KlineData {
@@ -23,7 +43,12 @@ export interface KlineData {
   high: number;
   low: number;
   close: number;
-  volume: number;
+  volume: number | null;
+}
+
+export interface KlineResponse {
+  bars: KlineData[];
+  dataQuality: 'full' | 'missing' | 'invalid_ohlc';
 }
 
 export interface QuotesResponse {
@@ -156,8 +181,8 @@ export const marketApi = {
     symbol: string,
     period: KlinePeriod = 'day',
     count = 200
-  ): Promise<KlineData[]> => {
-    const response = await apiClient.get<KlineData[]>('/market/kline', {
+  ): Promise<KlineResponse> => {
+    const response = await apiClient.get<KlineResponse>('/market/kline', {
       params: { symbol, period, count },
     });
     return response.data;

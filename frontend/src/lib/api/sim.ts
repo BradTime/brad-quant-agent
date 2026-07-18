@@ -1,7 +1,7 @@
 import { API_BASE_URL } from '@/lib/constants';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { apiClient } from './client';
-import { createSSEParser } from './sse';
+import { createSSEParser, StreamInterruptedError } from './sse';
 
 export interface SimAccount {
   cash: number;
@@ -25,6 +25,8 @@ export interface SimPosition {
   pnlPct: number;
 }
 
+export type SimOrderStatus = 'pending' | 'filled' | 'cancelled' | 'rejected';
+
 export interface SimOrder {
   id: string;
   code: string;
@@ -35,7 +37,7 @@ export interface SimOrder {
   qty: number;
   filledQty: number;
   avgFillPrice: number | null;
-  status: string;
+  status: SimOrderStatus;
   reason: string;
   createdAt: string | null;
 }
@@ -132,4 +134,8 @@ export async function streamSimReview({ onDelta, onError, signal }: ReviewHandle
       }
     }
   }
+  if (signal?.aborted) return;
+  const interrupted = '连接中断：未收到完整结束标记';
+  onError?.(interrupted);
+  throw new StreamInterruptedError(interrupted);
 }

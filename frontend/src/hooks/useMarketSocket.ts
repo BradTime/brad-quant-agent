@@ -4,19 +4,28 @@ import { marketSocket, type WsStatus, type WsUpdate } from '@/lib/ws/marketSocke
 
 /**
  * 订阅一组行情主题（如 `['market.indices', 'market.quote.600000.SH']`），
- * 返回连接状态与按 topic 聚合的最新 payload。
+ * 返回连接状态、按 topic 聚合的最新 payload 及其本地接收时间。
  */
 export function useMarketSocket(topics: string[]) {
   const token = useAuthStore((s) => s.token);
   const [status, setStatus] = useState<WsStatus>('idle');
   const [data, setData] = useState<Record<string, unknown>>({});
+  const [receivedAt, setReceivedAt] = useState<Record<string, number>>({});
   const topicsKey = topics.join(',');
 
   useEffect(() => {
     marketSocket.connect(token ?? undefined);
-    const offStatus = marketSocket.onStatus(setStatus);
+    const offStatus = marketSocket.onStatus((nextStatus) => {
+      setStatus(nextStatus);
+      if (nextStatus !== 'open') {
+        setData({});
+        setReceivedAt({});
+      }
+    });
     const offUpdate = marketSocket.onUpdate((update: WsUpdate) => {
+      const receivedAtNow = Date.now();
       setData((prev) => ({ ...prev, [update.topic]: update.payload }));
+      setReceivedAt((prev) => ({ ...prev, [update.topic]: receivedAtNow }));
     });
 
     const list = topicsKey ? topicsKey.split(',') : [];
@@ -29,5 +38,5 @@ export function useMarketSocket(topics: string[]) {
     };
   }, [token, topicsKey]);
 
-  return { status, data };
+  return { status, data, receivedAt };
 }

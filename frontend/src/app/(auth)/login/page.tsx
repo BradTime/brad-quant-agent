@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,21 +10,38 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { authApi } from '@/lib/api/auth';
 import { getApiErrorMessage } from '@/lib/api/errors';
+import { normalizeEmail, validateLogin } from '@/lib/auth-validation';
 import { useAuthStore } from '@/stores/useAuthStore';
 import type { LoginRequest } from '@/types';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { setAuth } = useAuthStore();
+  const queryClient = useQueryClient();
+  const { setAuth, isAuthenticated } = useAuthStore();
   const [formData, setFormData] = useState<LoginRequest>({
     email: '',
     password: '',
   });
   const [error, setError] = useState<string>('');
+  const registered = useSyncExternalStore(
+    () => () => undefined,
+    () => new URLSearchParams(window.location.search).get('registered') === '1',
+    () => false,
+  );
+  const notice = registered
+    ? '注册请求已受理，请查收验证邮件；本地自动验证环境可直接登录。'
+    : '';
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      router.replace('/dashboard');
+    }
+  }, [isAuthenticated, router]);
 
   const loginMutation = useMutation({
     mutationFn: (data: LoginRequest) => authApi.login(data),
     onSuccess: (data) => {
+      queryClient.clear();
       setAuth(data.user, data.token, data.refreshToken);
       router.push('/dashboard');
     },
@@ -36,7 +53,12 @@ export default function LoginPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    loginMutation.mutate(formData);
+    const validationError = validateLogin(formData);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    loginMutation.mutate({ ...formData, email: normalizeEmail(formData.email) });
   };
 
   return (
@@ -48,9 +70,16 @@ export default function LoginPage() {
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
-            {error && (
-              <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-                {error}
+            <div
+              role="alert"
+              aria-live="polite"
+              className={error ? 'rounded-md bg-destructive/10 p-3 text-sm text-destructive' : 'sr-only'}
+            >
+              {error}
+            </div>
+            {notice && (
+              <div role="status" className="rounded-md bg-primary/10 p-3 text-sm text-primary">
+                {notice}
               </div>
             )}
             <div className="space-y-2">
@@ -74,6 +103,8 @@ export default function LoginPage() {
                 value={formData.password}
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                 required
+                minLength={1}
+                maxLength={256}
                 disabled={loginMutation.isPending}
               />
             </div>

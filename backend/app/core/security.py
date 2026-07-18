@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import bcrypt
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
@@ -14,6 +15,11 @@ from app.core.config import settings
 pwd_context = CryptContext(schemes=["pbkdf2_sha256", "bcrypt"], deprecated="auto")
 
 _REFRESH_TOKEN_MINUTES = 60 * 24 * 7  # 7 天
+_DUMMY_PBKDF2_HASH = (
+    "$pbkdf2-sha256$29000$oFSqdU4JoRSilFJq7b23tg$"
+    "Gl18dLb6eC45wD8ylPkEdr6L2H7EW8UILaMnOutALOQ"
+)
+_DUMMY_BCRYPT_HASH = "$2b$12$TvhMwwvaoikj1r6ia2lz0.0oVCe42.IqJ2/IRrEXOWVGl22bBOP0q"
 
 
 def hash_password(password: str) -> str:
@@ -27,27 +33,83 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
-def _create_token(subject: str, expires_minutes: int, token_type: str) -> str:
+def _verify_pbkdf2(password: str, password_hash: str) -> bool:
+    try:
+        return pwd_context.handler("pbkdf2_sha256").verify(password, password_hash)
+    except (TypeError, ValueError):
+        return False
+
+
+def _verify_bcrypt(password: str, password_hash: str) -> bool:
+    try:
+        return bcrypt.checkpw(password.encode(), password_hash.encode())
+    except (TypeError, ValueError):
+        return False
+
+
+def verify_password_constant(
+    password: str,
+    password_hash: str | None,
+) -> tuple[bool, bool]:
+    """Always execute one PBKDF2 and one bcrypt check.
+
+    Returns ``(valid, needs_rehash)``; only a valid legacy bcrypt hash needs
+    migration to the current PBKDF2 scheme.
+    """
+    is_pbkdf2 = bool(password_hash and password_hash.startswith("$pbkdf2-sha256$"))
+    is_bcrypt = bool(password_hash and password_hash.startswith(("$2a$", "$2b$", "$2y$")))
+    pbkdf2_valid = _verify_pbkdf2(
+        password,
+        password_hash if is_pbkdf2 else _DUMMY_PBKDF2_HASH,
+    )
+    bcrypt_valid = _verify_bcrypt(
+        password,
+        password_hash if is_bcrypt else _DUMMY_BCRYPT_HASH,
+    )
+    valid = (is_pbkdf2 and pbkdf2_valid) or (is_bcrypt and bcrypt_valid)
+    return valid, bool(valid and is_bcrypt)
+
+
+def _create_token(
+    subject: str,
+    expires_minutes: int,
+    token_type: str,
+    token_version: int = 0,
+) -> str:
     now = datetime.now(UTC)
     payload = {
         "sub": subject,
         "type": token_type,
+        "tv": int(token_version),
         "iat": now,
         "exp": now + timedelta(minutes=expires_minutes),
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
-def create_access_token(subject: str) -> str:
-    return _create_token(subject, settings.access_token_expire_minutes, "access")
+def create_access_token(subject: str, token_version: int = 0) -> str:
+    return _create_token(
+        subject, settings.access_token_expire_minutes, "access", token_version
+    )
 
 
-def create_refresh_token(subject: str) -> str:
-    return _create_token(subject, _REFRESH_TOKEN_MINUTES, "refresh")
+def create_refresh_token(subject: str, token_version: int = 0) -> str:
+    return _create_token(subject, _REFRESH_TOKEN_MINUTES, "refresh", token_version)
 
 
 def decode_token(token: str) -> dict | None:
     try:
         return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
     except JWTError:
+        return None
+
+
+def token_version_of(payload: dict | None) -> int | None:
+    """从 JWT payload 读取 tv；缺省或非法返回 None（视为无效）。"""
+    if not payload:
+        return None
+    raw = payload.get("tv", 0)
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
         return None

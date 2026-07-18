@@ -1,7 +1,7 @@
 import { API_BASE_URL } from '@/lib/constants';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { apiClient } from './client';
-import { createSSEParser } from './sse';
+import { createSSEParser, StreamInterruptedError } from './sse';
 
 export interface BriefSummary {
   id: string;
@@ -47,12 +47,25 @@ export interface AgentTraceEntry {
   total?: number | null;
   scores?: Record<string, number>;
   issues?: string[];
+  /** 节点输入/输出原文（后端持久化时各截断至 1500 字），用于观测下钻。 */
+  input?: string;
+  output?: string;
+}
+
+/** 早报新闻时效元数据（H19） */
+export interface BriefNewsMeta {
+  fallbackUsed?: boolean;
+  newestAt?: string | null;
+  recentMissing?: boolean;
+  windowHours?: number;
+  maxFallbackAgeHours?: number;
 }
 
 /** 早报落库的依据数据快照（前端只用部分字段做可视化卡片） */
 export interface BriefDataPack {
   usMacro?: MacroItem[];
   quantKnowledge?: KnowledgeItem[];
+  newsMeta?: BriefNewsMeta;
   coverage?: Record<string, unknown>;
   [k: string]: unknown;
 }
@@ -167,5 +180,8 @@ export async function streamGenerateBrief({
       }
     }
   }
-  onDone?.();
+  if (signal?.aborted) return;
+  const interrupted = '连接中断：未收到完整结束标记';
+  onError?.(interrupted);
+  throw new StreamInterruptedError(interrupted);
 }

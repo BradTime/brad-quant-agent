@@ -7,11 +7,13 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import DateTime, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.db.types import PortableJSON
 
 
 class ResearchReport(Base):
@@ -20,10 +22,15 @@ class ResearchReport(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     question: Mapped[str] = mapped_column(String(2000), default="")
-    status: Mapped[str] = mapped_column(String(16), default="ready")  # generating/ready/partial/failed
-    content: Mapped[str] = mapped_column(Text, default="")            # 报告正文（Markdown）
-    plan_json: Mapped[str | None] = mapped_column(Text, nullable=True)   # 子问题列表(JSON)
-    steps_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # 分步轨迹[{label,tools}](JSON)
+    # generating/ready/partial/failed/data_corrupt
+    status: Mapped[str] = mapped_column(String(16), default="ready")
+    content: Mapped[str] = mapped_column(Text, default="")
+    plan_json: Mapped[dict[str, Any] | list[Any] | None] = mapped_column(
+        PortableJSON, nullable=True
+    )
+    steps_json: Mapped[dict[str, Any] | list[Any] | None] = mapped_column(
+        PortableJSON, nullable=True
+    )
     model: Mapped[str] = mapped_column(String(64), default="")
     error: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

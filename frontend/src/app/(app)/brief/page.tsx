@@ -1,7 +1,16 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Newspaper, Sparkles, Loader2, Clock, RefreshCw, AlertTriangle, Check } from 'lucide-react';
+import {
+  Newspaper,
+  Sparkles,
+  Loader2,
+  Clock,
+  RefreshCw,
+  AlertTriangle,
+  Check,
+  ChevronDown,
+} from 'lucide-react';
 import { RequireAuth } from '@/components/auth/require-auth';
 import { Markdown } from '@/components/ai/markdown';
 import { BriefInsights } from '@/components/ai/brief-insights';
@@ -15,7 +24,9 @@ import {
   type BriefSummary,
   type BriefStep,
 } from '@/lib/api/brief';
+import { useRafBatchedString } from '@/hooks/useRafBatchedString';
 import { cn } from '@/lib/utils';
+import { marketDateKey } from '@/lib/constants/market-tz';
 
 function fmtTime(iso: string | null): string {
   if (!iso) return '';
@@ -28,6 +39,14 @@ function fmtTime(iso: string | null): string {
   });
 }
 
+function isBriefStale(meta: Brief): boolean {
+  const ref = meta.tradeDate?.slice(0, 10) ?? meta.generatedAt?.slice(0, 10);
+  if (!ref) return false;
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  return ref < marketDateKey(yesterday);
+}
+
 function BriefView() {
   const [content, setContent] = useState('');
   const [meta, setMeta] = useState<Brief | null>(null);
@@ -37,6 +56,8 @@ function BriefView() {
   const [steps, setSteps] = useState<BriefStep[]>([]);
   const [error, setError] = useState('');
   const abortRef = useRef<AbortController | null>(null);
+  const { append: appendContent, reset: resetContent, getAccumulated } =
+    useRafBatchedString(setContent);
 
   const refreshHistory = useCallback(async () => {
     try {
@@ -67,23 +88,20 @@ function BriefView() {
   const generate = async () => {
     if (generating) return;
     setError('');
-    setContent('');
+    resetContent('');
     setMeta(null);
     setSteps([]);
     setGenerating(true);
     const controller = new AbortController();
     abortRef.current = controller;
 
-    let acc = '';
     await streamGenerateBrief({
       signal: controller.signal,
       onStep: (s) => setSteps((prev) => [...prev, s]),
-      onDelta: (piece) => {
-        acc += piece;
-        setContent(acc);
-      },
+      onDelta: appendContent,
       onError: (msg) => setError(msg),
       onDone: async () => {
+        setContent(getAccumulated());
         const latest = await getLatestBrief();
         if (latest) setMeta(latest);
         await refreshHistory();
@@ -143,14 +161,21 @@ function BriefView() {
         </button>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_300px]">
-        {/* 正文 */}
-        <div className="order-2 min-h-[60vh] rounded-2xl border border-border bg-card p-5 lg:order-1 lg:p-7">
+      <div className="grid min-w-0 gap-5 lg:grid-cols-[1fr_300px]">
+        {/* 正文 — 移动端优先展示 */}
+        <div className="order-1 min-w-0 min-h-[60vh] overflow-x-auto rounded-2xl border border-border bg-card p-5 break-words lg:p-7">
           {meta && (
             <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border pb-3">
               <h2 className="font-display text-lg tracking-tight">{meta.title}</h2>
+              {isBriefStale(meta) && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/50 bg-amber-500/15 px-2.5 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  数据可能已过期
+                </span>
+              )}
               <span className="text-xs text-muted-foreground">
                 生成于 {fmtTime(meta.generatedAt)} · {meta.model}
+                {meta.tradeDate ? ` · 交易日 ${meta.tradeDate}` : ''}
               </span>
             </div>
           )}
@@ -219,12 +244,27 @@ function BriefView() {
         </div>
 
         {/* 侧栏：智能体观测 / 海外宏观 / 量化知识 / 历史 */}
-        <aside className="order-1 space-y-4 lg:order-2">
-          <BriefInsights
-            dataPack={meta?.dataPack}
-            agentTrace={meta?.agentTrace}
-            engine={meta?.engine}
-          />
+        <aside className="order-2 min-w-0 space-y-4">
+          <details className="group rounded-2xl border border-border bg-card lg:hidden">
+            <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium">
+              <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+              智能体观测与扩展信息
+            </summary>
+            <div className="border-t border-border p-4 pt-0">
+              <BriefInsights
+                dataPack={meta?.dataPack}
+                agentTrace={meta?.agentTrace}
+                engine={meta?.engine}
+              />
+            </div>
+          </details>
+          <div className="hidden lg:block">
+            <BriefInsights
+              dataPack={meta?.dataPack}
+              agentTrace={meta?.agentTrace}
+              engine={meta?.engine}
+            />
+          </div>
 
           <div className="rounded-2xl border border-border bg-card p-4">
             <div className="mb-3 flex items-center gap-2 text-sm font-medium">

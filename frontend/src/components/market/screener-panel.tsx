@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { QuotesTable } from './quotes-table';
 import { SourceNote } from './source-note';
 import { marketApi, type ScreenFilters, type StockQuote } from '@/lib/api/market';
+import { ageQuote } from '@/lib/api/quote-selection';
+import { useFreshnessClock } from '@/hooks/useFreshnessClock';
 
 function numOrUndef(s: string): number | undefined {
   const n = parseFloat(s);
@@ -21,6 +23,8 @@ export function ScreenerPanel() {
   const [amountMinYi, setAmountMinYi] = useState('');
   const [keyword, setKeyword] = useState('');
   const [result, setResult] = useState<{ stocks: StockQuote[]; total: number } | null>(null);
+  const [resultReceivedAt, setResultReceivedAt] = useState(0);
+  const freshnessNow = useFreshnessClock();
 
   const run = useMutation({
     mutationFn: () => {
@@ -34,8 +38,15 @@ export function ScreenerPanel() {
       };
       return marketApi.screen(filters, { limit: 50, sortBy: 'changePercent', sortOrder: 'desc' });
     },
-    onSuccess: (data) => setResult(data),
+    onSuccess: (data) => {
+      setResult(data);
+      setResultReceivedAt(Date.now());
+    },
   });
+  const agedStocks = (result?.stocks ?? []).map((quote) =>
+    ageQuote(quote, resultReceivedAt, freshnessNow)
+  );
+  const summary = agedStocks[0];
 
   const field = (label: string, value: string, set: (v: string) => void, placeholder = '') => (
     <label className="flex flex-col gap-1">
@@ -61,7 +72,16 @@ export function ScreenerPanel() {
         {field('名称/代码含', keyword, setKeyword, '如 银行')}
       </div>
       <div className="flex items-center justify-between">
-        <SourceNote source="全市场快照" freshness="基于实时快照·盘面筛选" />
+        {summary ? (
+          <SourceNote
+            source="全市场快照"
+            asOf={summary.asOf}
+            staleReason={summary.staleReason}
+            executable={summary.executable}
+          />
+        ) : (
+          <SourceNote source="全市场快照" freshness="筛选后显示新鲜度" />
+        )}
         <Button size="sm" onClick={() => run.mutate()} disabled={run.isPending}>
           <Filter className="mr-1.5 h-3.5 w-3.5" />
           {run.isPending ? '筛选中…' : '开始筛选'}
@@ -70,8 +90,8 @@ export function ScreenerPanel() {
 
       {result && (
         <div>
-          <div className="mb-2 text-xs text-muted-foreground">命中 {result.total} 只（展示前 {result.stocks.length} 只）</div>
-          <QuotesTable stocks={result.stocks} emptyText="无匹配结果（或实时快照暂不可用）" />
+          <div className="mb-2 text-xs text-muted-foreground">命中 {result.total} 只（展示前 {agedStocks.length} 只）</div>
+          <QuotesTable stocks={agedStocks} emptyText="无匹配结果（或行情快照暂不可用）" />
         </div>
       )}
     </div>
