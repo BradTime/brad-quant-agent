@@ -37,12 +37,13 @@ def _aware(value: datetime) -> datetime:
 
 
 def serialize_user(user: User) -> dict:
+    # avatar / 非 user 的 role 为产品化预留；MVP 不暴露头像入口，role 恒为 user。
     return {
         "id": user.id,
         "email": user.email,
         "name": user.name,
-        "avatar": user.avatar,
-        "role": user.role,
+        "avatar": None,
+        "role": "user",
         "createdAt": user.created_at.isoformat() if user.created_at else None,
         "updatedAt": user.updated_at.isoformat() if user.updated_at else None,
     }

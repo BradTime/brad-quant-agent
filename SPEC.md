@@ -272,6 +272,16 @@ brad-quant-agent/
 - [x] **M25/M26 CI 与文档**：README/SPEC 对齐 Vitest+Playwright CI；Phase 3/4 完成态；Next.js 16
 - [x] **M27 前端 Sentry**：`lib/sentry.ts` 可选 DSN + ErrorBoundary `captureException`（动态 import `@sentry/nextjs`，未安装时 console 提示）
 
+### Low audit remediation（L1–L8）
+- [x] **L1** Topbar 补 `/sim` 标题映射
+- [x] **L2** API 根改为 `apiVersion` + `capabilities`（移除误导性 `phase: 1`）
+- [x] **L3** 删除未使用的 `GET /backtest/{id}/metrics`
+- [x] **L4** `avatar` / RBAC `role` 明确后置：序列化恒 `avatar=null`、`role=user`；类型注释标明预留
+- [x] **L5** 个股侧栏 ChatPanel 保持轻量；引导前往 `/ai` 做深度研究
+- [x] **L6** 移除未用依赖（`echarts-for-react` / `date-fns` / `react-hook-form` / `@hookform/resolvers`）
+- [x] **L7** 减少预加载字重；首屏 `main` 去掉 opacity 动画
+- [x] **L8** pytest 过滤上游 `utcnow` 弃用警告；Vitest setup 已 polyfill localStorage
+
 ---
 
 ## 8. 决策记录（Decision Log）

@@ -11,3 +11,7 @@ ignore = ["E501", "B008", "B024"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+filterwarnings = [
+  # Backtrader / 上游在 Python 3.14 仍用 utcnow；隔离噪声，避免掩盖新告警
+  "ignore:datetime\\.datetime\\.utcnow\\(\\) is deprecated:DeprecationWarning",
+]

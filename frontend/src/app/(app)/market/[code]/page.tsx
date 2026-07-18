@@ -559,6 +559,13 @@ export default function StockDetailPage() {
             <Card className="lg:sticky lg:top-6 flex h-[640px] flex-col overflow-hidden">
               <CardHeader className="border-b border-border pb-3">
                 <CardTitle className="text-base">AI 看盘助手</CardTitle>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  侧栏为轻量问答；深度研究 / 记忆偏好请前往{' '}
+                  <Link href="/ai" className="text-brand underline-offset-2 hover:underline">
+                    AI 问答
+                  </Link>
+                  。
+                </p>
               </CardHeader>
               <CardContent className="flex-1 overflow-hidden p-0">
                 <ChatPanel

@@ -87,7 +87,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             mobileOpen={mobileOpen}
             onMenu={() => setMobileOpen(true)}
           />
-          <main className="app-fade-up">{children}</main>
+          <main>{children}</main>
         </div>
       </div>
     </RequireAuth>

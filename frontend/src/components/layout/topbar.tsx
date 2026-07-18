@@ -14,6 +14,7 @@ const TITLES: Record<string, [string, string]> = {
   '/brief': ['盘前早报', 'AI 生成的条件式研究计划'],
   '/strategies': ['策略', '创建与管理量化策略'],
   '/backtest': ['回测', '用历史检验你的想法'],
+  '/sim': ['模拟交易', 'T+1 撮合 · 持仓与成交回报'],
   '/ai': ['AI 问答', '与你的投研助手对话'],
 };
 

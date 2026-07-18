@@ -83,14 +83,6 @@ def get_backtest(backtest_id: str, user: User = Depends(get_current_user)):
     return success(result)
 
 
-@router.get("/{backtest_id}/metrics")
-def get_metrics(backtest_id: str, user: User = Depends(get_current_user)):
-    result = backtest_run.get_run(str(user.id), backtest_id)
-    if result is None:
-        return error("回测结果不存在", code=404, http_status=404)
-    return success(result.get("metrics") or {})
-
-
 @router.post("/{backtest_id}/review")
 def review(
     backtest_id: str, request: Request, user: User = Depends(get_current_user)

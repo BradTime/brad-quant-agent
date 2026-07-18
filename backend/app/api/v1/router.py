@@ -24,7 +24,25 @@ api_router = APIRouter(prefix="/api/v1")
 
 @api_router.get("")
 def api_root() -> dict:
-    return success({"service": "quant-agent-backend", "phase": "1"}, message="API v1 root")
+    """能力版本号（非产品 Phase）；供监控/客户端识别 API 契约代际。"""
+    return success(
+        {
+            "service": "quant-agent-backend",
+            "apiVersion": "1",
+            "capabilities": [
+                "auth",
+                "market",
+                "watchlist",
+                "dashboard",
+                "ai",
+                "brief",
+                "strategies",
+                "backtest",
+                "sim",
+            ],
+        },
+        message="API v1 root",
+    )
 
 
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
