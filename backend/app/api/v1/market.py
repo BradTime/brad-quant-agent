@@ -113,13 +113,16 @@ def screen(body: ScreenRequest, _user: User = Depends(get_current_user)) -> dict
 @router.post("/refresh/{code}")
 def refresh(code: str, user: User = Depends(get_current_user)) -> dict:
     uid = str(user.id)
-    wait = rate_limit_service.seconds_until_refresh_allowed(uid, code)
+    try:
+        canonical = market.canonical_stock_code(code)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    wait = rate_limit_service.acquire_refresh_cooldown(uid, canonical)
     if wait is not None:
         return error(
             f"刷新过于频繁，请 {int(wait) + 1} 秒后再试",
             code=429,
             http_status=429,
         )
-    result = market.refresh_stock(code)
-    rate_limit_service.mark_refresh(uid, code)
+    result = market.refresh_stock(canonical)
     return success(result)

@@ -15,6 +15,7 @@ from app.ai import deep_research
 from app.ai.deep_research import stream_deep_research
 from app.ai.orchestrator import run_chat_stream
 from app.api.deps import get_current_user
+from app.core import redis_client
 from app.core.response import error, success
 from app.models.user import User
 from app.schemas.ai import ChatRequest, MemoryUpsertRequest, ResearchRequest
@@ -70,6 +71,7 @@ def chat(body: ChatRequest, user: User = Depends(get_current_user)):
             code=SESSION_NOT_FOUND_CODE,
             http_status=404,
         )
+    redis_client.ensure_available()
 
     return StreamingResponse(
         _chat_event_stream(turn, body.contextHint),

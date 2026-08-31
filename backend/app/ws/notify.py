@@ -9,9 +9,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
+from uuid import uuid4
 
+from app.core import redis_client
 from app.ws.manager import manager
 
 logger = logging.getLogger(__name__)
@@ -24,11 +27,34 @@ def _envelope(event_type: str, payload: object) -> dict:
     return {"type": event_type, "payload": payload, "timestamp": int(time.time() * 1000)}
 
 
+def _redis_payload(user_id: str, event: dict) -> bytes:
+    return json.dumps(
+        {"v": 1, "eventId": uuid4().hex, "userId": user_id, "event": event},
+        ensure_ascii=False,
+        separators=(",", ":"),
+        default=str,
+    ).encode()
+
+
 async def notify_user(user_id: str, event_type: str, payload: object) -> int:
     """向某用户的所有在线连接下发一个私有事件；返回送达连接数。"""
     if not user_id:
         return 0
-    return await manager.send_to_user(user_id, _envelope(event_type, payload))
+    event = _envelope(event_type, payload)
+    client = redis_client.get_async_redis()
+    if client is not None:
+        try:
+            return int(
+                await client.publish(
+                    redis_client.key("ws", "private"),
+                    _redis_payload(user_id, event),
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Redis private WS publish failed: %s", type(exc).__name__)
+            if redis_client.required():
+                return 0
+    return await manager.send_to_user(user_id, event)
 
 
 def _observe_future(fut: object) -> None:
@@ -43,10 +69,25 @@ def _observe_future(fut: object) -> None:
 
 def notify_user_threadsafe(user_id: str, event_type: str, payload: object) -> bool:
     """同步上下文（无事件循环）下投递私有事件到应用事件循环。返回是否成功排程。"""
-    loop = manager.loop()
-    if loop is None or not user_id:
+    if not user_id:
         return False
-    coroutine = notify_user(user_id, event_type, payload)
+    event = _envelope(event_type, payload)
+    client = redis_client.get_redis()
+    if client is not None:
+        try:
+            client.publish(
+                redis_client.key("ws", "private"),
+                _redis_payload(user_id, event),
+            )
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Redis private WS publish failed: %s", type(exc).__name__)
+            if redis_client.required():
+                return False
+    loop = manager.loop()
+    if loop is None:
+        return False
+    coroutine = manager.send_to_user(user_id, event)
     try:
         fut = asyncio.run_coroutine_threadsafe(coroutine, loop)
     except Exception as exc:  # noqa: BLE001

@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "Quant Agent Backend"
-    version: str = "0.1.0"
+    version: str = "1.0.3"
     port: int = 8000
     # 运行环境：dev / production —— 用于生产收紧安全默认（CORS、JWT 密钥校验）
     app_env: str = "dev"
@@ -62,6 +62,19 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str = "postgresql+psycopg2://postgres:postgres@localhost:5432/quant_agent"
+
+    # Redis shared coordination. Empty URL keeps the deterministic in-process
+    # fallback for local tests; production sets REDIS_REQUIRED=true.
+    redis_url: str = ""
+    redis_required: bool = False
+    redis_key_prefix: str = "quant-agent"
+    redis_socket_timeout_seconds: float = 2.0
+    redis_quote_ttl_seconds: int = 604800
+    redis_quote_l1_ttl_seconds: float = 1.0
+    redis_scheduler_lease_seconds: int = 30
+    redis_scheduler_renew_seconds: int = 10
+    worker_heartbeat_ttl_seconds: int = 30
+    readiness_startup_grace_seconds: int = 60
 
     # Optional paid PIT source. Historical status ingestion uses the compact
     # per-symbol namechange endpoint and never date-filters it (older rows may
@@ -237,6 +250,14 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _enforce_production_security(self) -> "Settings":
+        role = self.process_role.strip().lower()
+        if role not in {"all", "api", "worker"}:
+            raise ValueError("PROCESS_ROLE 仅允许 all/api/worker")
+        object.__setattr__(self, "process_role", role)
+        if role in {"api", "worker"} and not self.redis_url.strip():
+            raise ValueError("PROCESS_ROLE=api/worker 时必须配置 REDIS_URL")
+        if self.redis_scheduler_lease_seconds < self.redis_scheduler_renew_seconds * 3:
+            raise ValueError("REDIS_SCHEDULER_LEASE_SECONDS 必须至少为续租间隔的 3 倍")
         if self.jwt_algorithm != "HS256":
             raise ValueError("JWT_ALGORITHM 仅允许 HS256")
         if self.is_production:
@@ -262,6 +283,8 @@ class Settings(BaseSettings):
                 not self.is_production,
             )
         if self.is_production:
+            if self.redis_required and not self.redis_url.strip():
+                raise ValueError("REDIS_REQUIRED=true 时必须配置 REDIS_URL")
             if self.auth_auto_verify_registration:
                 raise ValueError("生产环境禁止 AUTH_AUTO_VERIFY_REGISTRATION")
             if not (

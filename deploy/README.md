@@ -6,16 +6,18 @@ origin:
 
 - `/api/*` and `/ws/*` → FastAPI
 - everything else → Next.js
-- PostgreSQL/pgvector is private to the Compose network
+- PostgreSQL/pgvector and Redis are private to the Compose network
 
 The frontend derives `ws://`/`wss://` from the browser's current origin unless
 an explicit development override is configured, so one image works across
 domains without embedding a production hostname.
 
-One backend replica intentionally runs HTTP, WebSocket, schedulers, and the job
-consumer together. Quote caches, WebSocket user maps, cost gates, and scheduler
-leadership are currently process-local; do not scale the backend horizontally
-until those coordination points move to Redis/shared infrastructure.
+The backend is split by `PROCESS_ROLE`: API replicas own HTTP/WebSocket and
+subscribe to Redis private-event Pub/Sub; one worker owns ingestion schedules,
+the DB-backed backtest consumer, and email outbox delivery. Quote snapshots,
+AI quotas, refresh cooldowns, private WS notifications, and scheduler leadership
+are shared through Redis. API replicas may scale horizontally; keep one worker
+until email-outbox leadership is also distributed.
 
 ## Host requirements
 
@@ -44,11 +46,11 @@ docker compose \
 docker compose \
   --env-file deploy/production.env \
   -f docker-compose.production.yml \
-  build backend frontend migrate
+  build backend worker frontend migrate
 docker compose \
   --env-file deploy/production.env \
   -f docker-compose.production.yml \
-  up -d postgres
+  up -d postgres redis
 docker compose \
   --env-file deploy/production.env \
   -f docker-compose.production.yml \
@@ -56,11 +58,11 @@ docker compose \
 docker compose \
   --env-file deploy/production.env \
   -f docker-compose.production.yml \
-  up -d backend frontend caddy
+  up -d backend worker frontend caddy
 ```
 
-`POSTGRES_PASSWORD` and the password embedded in `DATABASE_URL` must match.
-Percent-encode reserved URL characters in `DATABASE_URL`. Production startup
+`POSTGRES_PASSWORD`/`DATABASE_URL` and `REDIS_PASSWORD`/`REDIS_URL` must match.
+Percent-encode reserved URL characters in connection URLs. Production startup
 will reject weak JWT keys, the default outbox encryption key, automatic email
 verification, incomplete SMTP settings, or a non-HTTPS frontend URL.
 
@@ -75,6 +77,41 @@ docker compose \
   ps
 ```
 
+## Local production rehearsal
+
+`rehearsal.env.example` contains deterministic, non-production credentials and
+uses ports 18080/18443 plus an isolated Compose project. It may be used to
+exercise the full production topology without colliding with local services:
+
+```bash
+export PRODUCTION_ENV_FILE=./deploy/rehearsal.env.example
+docker compose --env-file deploy/rehearsal.env.example \
+  -f docker-compose.production.yml build backend worker frontend migrate
+docker compose --env-file deploy/rehearsal.env.example \
+  -f docker-compose.production.yml up -d postgres redis
+docker compose --env-file deploy/rehearsal.env.example \
+  -f docker-compose.production.yml --profile ops run --rm migrate
+docker compose --env-file deploy/rehearsal.env.example \
+  -f docker-compose.production.yml up -d backend worker frontend caddy
+
+curl --insecure --fail https://localhost:18443/health
+ENV_FILE="$PWD/deploy/rehearsal.env.example" \
+  BACKUP_DIR="$PWD/backups/rehearsal" \
+  ./deploy/backup-postgres.sh
+```
+
+The rehearsal must verify HTTPS Cookie login, authenticated WSS, worker→API
+private Pub/Sub, cross-process quotas/cache, scheduler lease failover, backup
+restore into a disposable database, and an application-only restart without
+running Alembic downgrade.
+
+Cleanup removes only the isolated rehearsal project and its disposable volumes:
+
+```bash
+docker compose --env-file deploy/rehearsal.env.example \
+  -f docker-compose.production.yml down -v
+```
+
 ## Updates and rollback
 
 Before every update:
@@ -83,13 +120,13 @@ Before every update:
 ./deploy/backup-postgres.sh
 git pull --ff-only
 docker compose --env-file deploy/production.env \
-  -f docker-compose.production.yml build backend frontend migrate
+  -f docker-compose.production.yml build backend worker frontend migrate
 docker compose --env-file deploy/production.env \
-  -f docker-compose.production.yml stop backend frontend
+  -f docker-compose.production.yml stop backend worker frontend
 docker compose --env-file deploy/production.env \
   -f docker-compose.production.yml --profile ops run --rm migrate
 docker compose --env-file deploy/production.env \
-  -f docker-compose.production.yml up -d backend frontend caddy
+  -f docker-compose.production.yml up -d backend worker frontend caddy
 ```
 
 The one-shot `migrate` service is deliberately behind the `ops` profile and is
@@ -131,8 +168,10 @@ not a recovery plan.
 - Proxy/Uvicorn access logs are disabled because the current WebSocket handshake
   carries a short-lived ticket in the query string. Application and error logs
   remain available; introduce structured redaction before enabling access logs.
-- Uvicorn stays at one worker because the scheduler, quote cache, WebSocket
-  connections, and in-process AI quotas are not shared between processes.
+- Each container uses one Uvicorn worker. Scale the `backend` service by adding
+  API containers behind Caddy; Redis shares cache, quotas, and private events.
+  Keep the `worker` service at one replica because email outbox scheduling is
+  not yet leader-elected (the market scheduler itself uses a renewable lease).
 - `LLMQUANT_ENABLED=false` is the safe container default because the backend
   image does not include Node/npx. Add a pinned Node runtime before enabling it.
 - For managed PostgreSQL, retain pgvector support and automated backups, set

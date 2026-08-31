@@ -54,7 +54,7 @@
 - **前端**：Next.js 16 / React 19 / shadcn/ui / ECharts / Zustand / React Query；国际化用 `next-intl` **预留**（MVP 仅中文，文案不写死）。
 - **后端**：Python **FastAPI**（异步 + 原生 WebSocket）；废弃 Express。
 - **数据源**：AkShare（主力，覆盖最广）+ BaoStock（历史 K线 / 财务，最稳，用于落库与 Phase 4 回测）+ efinance（补实时快照）；统一经 **`DataProvider` 抽象**、可热插拔（预留 Tushare Pro / 付费源）。
-- **存储**：**Postgres**（业务数据 + 历史 K线，多用户就绪）；Redis **后置**（行情缓存 / 限流 / 任务队列，按需引入）；DuckDB/Parquet 列存留 **Phase 4** 回测时再引入。
+- **存储**：**Postgres**（业务数据 + 历史 K线）+ **Redis**（跨进程行情缓存、WS Pub/Sub、分布式配额/冷却、调度器租约）；Redis 未配置时 dev/test 保留进程内降级。DuckDB/Parquet 列存继续后置。
 - **数据正确性（PIT, point-in-time）**：落库时记录数据获取 / 发布时间、复权因子、停复牌 / 退市标记，为 Phase 4 回测严谨性预留，避免未来函数与幸存者偏差。
   - 财务摘要采用追加式版本：同一 `code + report_date` 的指标修订生成不同 `vintage`，历史版本永不原地覆盖；同值重抓幂等并保留最早 `available_at`。
   - 源提供精确公告时间时，`announced_at` 同时作为可用时点；仅提供公告日期时标记 `date` 精度，并保守到上海当日 15:00 才可见；源不提供时，以系统首次抓取时间作为 `available_at`，质量标记为 `first_observed_at`。
@@ -63,7 +63,7 @@
 - **实时**：**WebSocket**（心跳 / 重连 / 订阅退订 / 鉴权 + 后端行情拉取调度与广播）；定位为"可复用基座"（看盘先用，Phase 3 交易回报、AI 流式、风险告警共用）。
   - ⚠️ 明确预期：**上 WS ≠ 真实时**。免费快照的刷新粒度是上限；每个数据面板**标题需标注数据来源 / 新鲜度**，拿不到或延迟的明确标注（如「快照·可能延迟」「来源有限」「免费源数据有限 / 缺失」）。
 - **AI**：DeepSeek，经 function calling 驱动工具层；**强制附免责声明、禁止输出确定性买卖指令、数据缺失必须显式声明不得杜撰**。用户偏好只是不可信个性化元数据；行情与数值事实继续只能来自工具返回，偏好和界面上下文均不得替代工具取数或系统规则。
-- **部署**：本地 **Docker Compose** 起步（Postgres + backend + frontend）；代码"云就绪"（配置走环境变量、不硬编码 localhost、数据可备份），云部署留后期。
+- **部署**：本地 Docker Compose；生产基线为 Caddy 自动 HTTPS + API/Worker 分离 + Redis/Postgres 私网 + 显式迁移/备份/回滚流程，并已完成隔离端口的本机生产演练；真实云主机上线待提供域名与服务器。
 - **多用户预留**：所有数据按 `user_id` 隔离；认证体系可平滑长成 RBAC（**MVP 仍单用户**，不实现完整权限矩阵）。
 - **认证安全（H4）**：注册与登录共用邮箱规范化，但密码契约分离：注册密码须为 10–128
   字符并按 ASCII 类同时包含 `[a-z]`、`[A-Z]`、`[0-9]`、`[^A-Za-z0-9]`，禁止空白/
@@ -272,6 +272,8 @@ brad-quant-agent/
 - [x] **M24 Next standalone**：`output: 'standalone'` + Dockerfile 复制 standalone 产物
 - [x] **M25/M26 CI 与文档**：README/SPEC 对齐 Vitest+Playwright CI；Phase 3/4 完成态；Next.js 16
 - [x] **M27 前端 Sentry**：`lib/sentry.ts` 可选 DSN + ErrorBoundary `captureException`（动态 import `@sentry/nextjs`，未安装时 console 提示）
+- [x] **M28 Redis 共享协调**：行情/指数快照跨进程缓存；worker→API 私有 WS Pub/Sub；AI 配额与刷新冷却原子共享；APScheduler 可续租选主与故障接管；API/Worker readiness 按角色校验，dev/test 无 Redis 可降级
+- [x] **M29 生产部署基线与演练**：Caddy 同源 HTTPS/WSS；API/Worker/Postgres/Redis 私网编排；短时 WS ticket；显式 Alembic ops；校验型备份/恢复；应用回滚不触发旧 migration；本机完整生产拓扑演练通过
 
 ### Low audit remediation（L1–L8）
 - [x] **L1** Topbar 补 `/sim` 标题映射

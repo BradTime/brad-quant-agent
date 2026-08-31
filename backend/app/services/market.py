@@ -683,8 +683,20 @@ def search_instruments(search: str | None = None, limit: int = 50) -> list[dict]
         ]
 
 
+def canonical_stock_code(code: str) -> str:
+    six, exchange = symbols.split_canonical(code)
+    if (
+        len(six) != 6
+        or not six.isdigit()
+        or exchange not in {"SH", "SZ", "BJ"}
+        or exchange != symbols.infer_exchange(six)
+    ):
+        raise ValueError("股票代码无效或交易所不匹配")
+    return symbols.to_canonical(six, exchange)
+
+
 def _canonical(code: str) -> str:
-    return code if '.' in code else symbols.to_canonical(symbols.to_six(code))
+    return code if "." in code else symbols.to_canonical(symbols.to_six(code))
 
 
 def get_capital_flow(code: str, limit: int = 30) -> dict:

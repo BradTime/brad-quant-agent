@@ -1183,9 +1183,10 @@ def test_refresh_stock_routes_required_writes_through_backfill(monkeypatch):
     monkeypatch.setattr(ingest, "ingest_financials", lambda *args, **kwargs: 0)
     monkeypatch.setattr(ingest, "ingest_news", lambda *args, **kwargs: 0)
 
-    result = market.refresh_stock("X", daily_days=3)
+    result = market.refresh_stock("600000", daily_days=3)
 
     assert len(calls) == 1
+    assert calls[0][0] == ["600000.SH"]
     assert result["runStatus"] == "ready"
 
 

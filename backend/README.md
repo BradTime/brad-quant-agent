@@ -80,6 +80,12 @@ HTTPS）；否则启动失败。dev/test 默认自动验证，Docker/E2E 显式�
 
 数据源经 `app/providers` 的 `DataProvider` 抽象接入，按能力路由（历史/分钟/复权/标的 → BaoStock；实时快照 → efinance，退 AkShare）；落库到 Postgres（`app/models/market.py`，含 PIT 审计字段 `source`/`fetched_at`）。
 
+配置 `REDIS_URL` 后，行情/指数快照、AI 配额和手动刷新冷却在 API 副本间共享；
+worker 的私有成交事件通过 Redis Pub/Sub 扇出到持有用户 WebSocket 的 API 进程。
+APScheduler 由可续租 Redis lease 选主，失去续租会立即停止本地 scheduler，其他 worker
+可接管。dev/test 未配置 Redis 时自动使用原进程内实现；生产建议
+`REDIS_REQUIRED=true`，Redis 异常会反映到 `/ready`。
+
 ```bash
 # 创建/升级 schema（也可直接执行 alembic upgrade head）
 python -m app.cli migrate

@@ -15,7 +15,6 @@ from app.models.auth import VerificationEmailOutbox
 from app.services.email_sender import send_verification_email
 
 logger = logging.getLogger(__name__)
-_scheduler = None
 
 
 def _now() -> datetime:
@@ -88,31 +87,3 @@ def deliver_due_verification_emails(*, now: datetime | None = None) -> int:
                 row.last_error = None
                 sent += 1
     return sent
-
-
-def start_outbox_scheduler():
-    global _scheduler
-    if _scheduler is not None or not settings.enable_auth_outbox_scheduler:
-        return _scheduler
-    from apscheduler.schedulers.background import BackgroundScheduler
-
-    scheduler = BackgroundScheduler(timezone="UTC")
-    scheduler.add_job(
-        deliver_due_verification_emails,
-        "interval",
-        seconds=max(settings.auth_outbox_poll_seconds, 1),
-        id="deliver_verification_email_outbox",
-        max_instances=1,
-        coalesce=True,
-        misfire_grace_time=60,
-    )
-    scheduler.start()
-    _scheduler = scheduler
-    return scheduler
-
-
-def shutdown_outbox_scheduler() -> None:
-    global _scheduler
-    if _scheduler is not None:
-        _scheduler.shutdown(wait=False)
-        _scheduler = None

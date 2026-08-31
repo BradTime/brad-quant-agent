@@ -16,7 +16,7 @@ brad-quant-agent/
 
 ## 技术栈
 - **前端**：Next.js 16 / React 19 / TypeScript / shadcn/ui / Tailwind / Zustand / React Query / ECharts
-- **后端**：Python / FastAPI / SQLAlchemy / Postgres
+- **后端**：Python / FastAPI / SQLAlchemy / Postgres / Redis（共享缓存、Pub/Sub、配额与选主）
 - **数据源**：AkShare + BaoStock + efinance（经 `DataProvider` 抽象，免费）
 - **AI**：DeepSeek（function calling 工具层）
 
@@ -74,11 +74,11 @@ Next.js + FastAPI + 私有 PostgreSQL/pgvector。配置、备份、更新与回�
 ```bash
 cp deploy/production.env.example deploy/production.env
 docker compose --env-file deploy/production.env \
-  -f docker-compose.production.yml up -d postgres
+  -f docker-compose.production.yml up -d postgres redis
 docker compose --env-file deploy/production.env \
   -f docker-compose.production.yml --profile ops run --rm --build migrate
 docker compose --env-file deploy/production.env \
-  -f docker-compose.production.yml up -d --build backend frontend caddy
+  -f docker-compose.production.yml up -d --build backend worker frontend caddy
 ```
 
 ### 落库行情数据（看盘/AI 需要）

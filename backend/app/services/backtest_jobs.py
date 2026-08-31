@@ -274,3 +274,7 @@ def shutdown_job_worker() -> None:
     thread = _worker_thread
     if thread and thread.is_alive():
         thread.join(timeout=5)
+
+
+def job_worker_running() -> bool:
+    return bool(_worker_thread and _worker_thread.is_alive())

@@ -26,6 +26,15 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/quant_agent
       APP_ENV: test
@@ -52,6 +61,11 @@ jobs:
         run: alembic upgrade head
       - name: Check schema drift
         run: alembic check
+      - name: Redis integration contracts
+        env:
+          REDIS_URL: redis://localhost:6379/15
+          REDIS_REQUIRED: "true"
+        run: python -m pytest -q tests/test_redis_integration.py
       - name: Pytest
         run: python -m pytest -q
 

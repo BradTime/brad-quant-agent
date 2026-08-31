@@ -14,6 +14,24 @@ logger = logging.getLogger(__name__)
 _scheduler = None
 
 
+def _add_outbox_job(scheduler) -> None:
+    from app.core.config import settings
+
+    if not settings.enable_auth_outbox_scheduler:
+        return
+    from app.services.verification_outbox import deliver_due_verification_emails
+
+    scheduler.add_job(
+        deliver_due_verification_emails,
+        "interval",
+        seconds=max(settings.auth_outbox_poll_seconds, 1),
+        id="deliver_verification_email_outbox",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=60,
+    )
+
+
 def start_scheduler():
     global _scheduler
     if _scheduler is not None:
@@ -31,6 +49,12 @@ def start_scheduler():
     quote_secs = max(settings.quote_refresh_seconds, 1)
     index_secs = max(settings.index_refresh_seconds, 1)
     scheduler = BackgroundScheduler(timezone=MARKET_TZ)
+    if not settings.enable_scheduler:
+        _add_outbox_job(scheduler)
+        scheduler.start()
+        _scheduler = scheduler
+        logger.info("认证邮件 outbox 调度器已启动")
+        return scheduler
 
     @job_health.tracked("refresh_quotes")
     def _refresh_quotes() -> None:
@@ -246,6 +270,7 @@ def start_scheduler():
             misfire_grace_time=3600,
         )
 
+    _add_outbox_job(scheduler)
     scheduler.start()
     _scheduler = scheduler
     logger.info("行情调度器已启动（行情 %ss / 指数 %ss）", quote_secs, index_secs)
