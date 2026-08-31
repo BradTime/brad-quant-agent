@@ -1,9 +1,10 @@
 /**
  * API 配置常量
  */
-// 后端为 FastAPI（默认 :8000）。可用 NEXT_PUBLIC_API_BASE_URL 覆盖（见 .env.example）。
+// M20: 默认走同源 /api/v1（Next rewrite → FastAPI），Cookie 才能落在前端域。
+// 可用 NEXT_PUBLIC_API_BASE_URL 覆盖（见 .env.example）。
 export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api/v1';
+  process.env.NEXT_PUBLIC_API_BASE_URL || '/api/v1';
 
 export const API_TIMEOUT = 30000; // 30秒
 
@@ -12,12 +13,6 @@ export const API_TIMEOUT = 30000; // 30秒
  */
 export const WS_BASE_URL =
   process.env.NEXT_PUBLIC_WS_BASE_URL || 'ws://localhost:8000/ws/v1';
-
-/**
- * Token 存储键名
- */
-export const TOKEN_KEY = 'quant-agent-token';
-export const REFRESH_TOKEN_KEY = 'quant-agent-refresh-token';
 
 /**
  * 错误码定义
@@ -46,4 +41,3 @@ export const ERROR_CODES = {
   RISK_ERROR_START: 10401,
   RISK_ERROR_END: 10499,
 } as const;
-

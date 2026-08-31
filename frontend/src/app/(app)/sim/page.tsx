@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Wallet, Loader2, Sparkles, AlertTriangle, X, RefreshCw } from 'lucide-react';
 import { RequireAuth } from '@/components/auth/require-auth';
 import { Markdown } from '@/components/ai/markdown';
@@ -33,11 +34,15 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 function SimView() {
+  const searchParams = useSearchParams();
   const [account, setAccount] = useState<SimAccount | null>(null);
   const [positions, setPositions] = useState<SimPosition[]>([]);
   const [orders, setOrders] = useState<SimOrder[]>([]);
   const [trades, setTrades] = useState<SimTrade[]>([]);
-  const [code, setCode] = useState('600000');
+  const [code, setCode] = useState(() => {
+    const raw = searchParams.get('code')?.trim() || '600000';
+    return raw.replace(/\.(SH|SZ|BJ)$/i, '') || '600000';
+  });
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   const [orderType, setOrderType] = useState<'limit' | 'market'>('limit');
   const [qty, setQty] = useState(100);
@@ -48,6 +53,12 @@ function SimView() {
   const [review, setReview] = useState('');
   const [reviewing, setReviewing] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    const raw = searchParams.get('code')?.trim();
+    if (!raw) return;
+    setCode(raw.replace(/\.(SH|SZ|BJ)$/i, '') || raw);
+  }, [searchParams]);
 
   const refresh = useCallback(async () => {
     try {
@@ -436,7 +447,9 @@ function SimView() {
 export default function SimPage() {
   return (
     <RequireAuth>
-      <SimView />
+      <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">加载模拟交易…</div>}>
+        <SimView />
+      </Suspense>
     </RequireAuth>
   );
 }

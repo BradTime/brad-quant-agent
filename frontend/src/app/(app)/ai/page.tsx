@@ -1,5 +1,7 @@
 'use client';
 
+import { Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Sparkles } from 'lucide-react';
 import { RequireAuth } from '@/components/auth/require-auth';
 import { ChatPanel } from '@/components/ai/chat-panel';
@@ -12,6 +14,24 @@ const SUGGESTIONS = [
   '帮我找成交额超过 50 亿的活跃股',
 ];
 
+function AiChat() {
+  const searchParams = useSearchParams();
+  const code = searchParams.get('code')?.trim();
+  const contextHint = code
+    ? `用户从驾驶舱关注标的 ${code} 进入；优先基于该标的取数作答，勿编造数值。`
+    : undefined;
+  const suggestions = code
+    ? [
+        `${code} 现在的股价和涨跌幅？`,
+        `${code} 最近的财务摘要怎么样？`,
+        `${code} 最近资金流如何？`,
+        ...SUGGESTIONS.slice(0, 2),
+      ]
+    : SUGGESTIONS;
+
+  return <ChatPanel suggestions={suggestions} contextHint={contextHint} enableDeepResearch />;
+}
+
 export default function AiPage() {
   return (
     <RequireAuth>
@@ -23,14 +43,16 @@ export default function AiPage() {
           <div>
             <h1 className="font-display text-2xl tracking-tight">AI 看盘问答</h1>
             <p className="text-sm text-muted-foreground">
-              自然语言提问，AI 调用行情 / K线 / 财务 / 资金流 / 选股工具，基于真实落库数据流式作答；
+              自然语言提问，AI 调用行情 / K线 / 财务 / 资金流 / 选股 / 回测工具，基于真实落库数据流式作答；
               「深度研究」模式下自主规划并分步调研后成稿
             </p>
           </div>
         </div>
 
         <div className="flex-1 overflow-hidden rounded-2xl border border-border bg-card">
-          <ChatPanel suggestions={SUGGESTIONS} enableDeepResearch />
+          <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">加载对话…</div>}>
+            <AiChat />
+          </Suspense>
         </div>
       </div>
     </RequireAuth>

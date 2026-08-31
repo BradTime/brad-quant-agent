@@ -713,6 +713,9 @@ export function ChatPanel({
           messages.map((m, i) => (
             <div
               key={m.id}
+              data-testid={
+                m.role === 'assistant' ? 'ai-assistant-message' : 'ai-user-message'
+              }
               className={cn(
                 'flex',
                 m.role === 'user' ? 'justify-end' : 'justify-start'

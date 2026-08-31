@@ -5,7 +5,7 @@ import { test, expect, type Page } from '@playwright/test';
  * 这套用例若早就存在，能直接抓到"前端默认连 :3001 旧后端致全链路 Network Error"的回归。
  */
 
-/** 注册唯一账号后显式登录（同时验证前端能真正打到后端 :8000）。 */
+/** 注册唯一账号后显式登录（同源 /api/v1 rewrite + HttpOnly Cookie 会话）。 */
 async function registerFresh(page: Page): Promise<{ email: string; password: string }> {
   const ts = Date.now() + Math.floor(Math.random() * 1000);
   const email = `e2e_${ts}@test.com`;
@@ -59,9 +59,16 @@ test('登录后关键页可正常渲染', async ({ page }) => {
 // 可选：真实 AI 流冒烟（会调用 DeepSeek，默认跳过；设 RUN_AI_E2E=1 才跑）
 test('AI 问答可流式作答', async ({ page }) => {
   test.skip(!process.env.RUN_AI_E2E, '默认跳过：会真实调用 LLM。设 RUN_AI_E2E=1 启用。');
+  test.setTimeout(90_000);
   await registerFresh(page);
   await page.goto('/ai');
   await page.getByRole('textbox').fill('上证、深证、创业板现在多少点？');
   await page.getByRole('textbox').press('Enter');
-  await expect(page.getByText('不构成投资建议', { exact: false })).toBeVisible({ timeout: 60_000 });
+  // 页脚免责声明常驻且多处出现，不能用作流式完成信号；等助手气泡出现实质内容。
+  const assistant = page.getByTestId('ai-assistant-message').first();
+  await expect(assistant).toBeVisible({ timeout: 15_000 });
+  await expect
+    .poll(async () => (await assistant.innerText()).trim().length, { timeout: 60_000 })
+    .toBeGreaterThan(10);
+  await expect(assistant).not.toHaveText(/^(思考中…|规划中…)$/);
 });

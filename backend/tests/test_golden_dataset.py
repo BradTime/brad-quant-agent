@@ -43,7 +43,23 @@ def test_expected_tools_exist():
             assert tool in valid, f"{q['id']} 引用了未知工具 {tool}"
 
 
+_NUMERIC_SOURCES = {
+    "get_quotes",
+    "get_market_overview",
+    "get_financials",
+    "get_capital_flow",
+}
+
+
+def test_expect_numeric_from_is_valid():
+    for q in _load():
+        source = q.get("expectNumericFrom")
+        if source is None:
+            continue
+        assert source in _NUMERIC_SOURCES, f"{q['id']} 非法 expectNumericFrom={source}"
+
+
 def test_covers_core_categories():
     cats = {q["category"] for q in _load()}
-    for required in ["大盘指数", "报价", "K线", "财务摘要", "资金流", "选股", "合规"]:
+    for required in ["大盘指数", "报价", "K线", "财务摘要", "资金流", "选股", "合规", "回测"]:
         assert required in cats, f"缺少分类：{required}"

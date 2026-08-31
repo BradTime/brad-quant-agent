@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
+import { authApi } from '@/lib/api/auth';
 import { useAuthStore } from '@/stores/useAuthStore';
 
 const noopSubscribe = () => () => {};
@@ -10,14 +11,6 @@ function useHydrated(): boolean {
   return useSyncExternalStore(
     noopSubscribe,
     () => true,
-    () => false,
-  );
-}
-
-function useAuthHydrated(): boolean {
-  return useSyncExternalStore(
-    (cb) => useAuthStore.persist.onFinishHydration(cb),
-    () => useAuthStore.persist.hasHydrated(),
     () => false,
   );
 }
@@ -43,32 +36,49 @@ function AuthGateFallback() {
 }
 
 /**
- * 权限守卫组件，保护需要认证的路由。
+ * 客户端权限守卫（M20）。
  *
- * 认证状态来自持久化的 Zustand store：服务端渲染时为未登录（无 localStorage），
- * 客户端首帧 store 已从 localStorage 恢复。若直接据此分支渲染，会导致首帧
- * 服务端/客户端 DOM 不一致触发 hydration 报错。因此用 hydration 门控：
- * 服务端与客户端首帧都先渲染占位，挂载后再根据真实登录态渲染/跳转。
+ * SSR 门控由 middleware 检查 HttpOnly Cookie；此处用 /auth/me 引导用户态，
+ * 不再依赖 localStorage JWT hydrate。保留短 loading，避免闪烁。
  */
 export function RequireAuth({ children, requiredRole }: RequireAuthProps) {
   const router = useRouter();
-  const { isAuthenticated, user } = useAuthStore();
+  const { isAuthenticated, user, setAuth, clearAuth } = useAuthStore();
   const mounted = useHydrated();
-  const authHydrated = useAuthHydrated();
-  const ready = mounted && authHydrated;
+  const [bootstrapped, setBootstrapped] = useState(false);
 
   useEffect(() => {
-    if (!ready) return;
-    if (!isAuthenticated) {
-      router.push('/login');
-      return;
-    }
-    if (!meetsRole(user?.role, requiredRole)) {
-      router.push('/dashboard');
-    }
-  }, [ready, isAuthenticated, user, requiredRole, router]);
+    if (!mounted) return;
+    let cancelled = false;
 
-  if (!ready) {
+    async function bootstrap() {
+      try {
+        const me = await authApi.getMe();
+        if (cancelled) return;
+        setAuth(me);
+      } catch {
+        if (cancelled) return;
+        clearAuth();
+        router.replace('/login');
+      } finally {
+        if (!cancelled) setBootstrapped(true);
+      }
+    }
+
+    void bootstrap();
+    return () => {
+      cancelled = true;
+    };
+  }, [mounted, setAuth, clearAuth, router]);
+
+  useEffect(() => {
+    if (!bootstrapped || !isAuthenticated) return;
+    if (!meetsRole(user?.role, requiredRole)) {
+      router.replace('/dashboard');
+    }
+  }, [bootstrapped, isAuthenticated, user, requiredRole, router]);
+
+  if (!mounted || !bootstrapped) {
     return <AuthGateFallback />;
   }
 

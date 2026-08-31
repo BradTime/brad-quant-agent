@@ -117,9 +117,12 @@ def test_refresh_rotates_version_and_invalidates_old_refresh(token_env) -> None:
         json={"refreshToken": data["refreshToken"]},
     )
     assert first.status_code == 200
-    body = first.json()["data"]
-    assert body["refreshToken"] != data["refreshToken"]
-    new_payload = security.decode_token(body["refreshToken"])
+    assert "user" in first.json()["data"]
+    assert "refreshToken" not in (first.json()["data"] or {})
+    new_refresh = first.cookies.get("qa_refresh")
+    assert new_refresh
+    assert new_refresh != data["refreshToken"]
+    new_payload = security.decode_token(new_refresh)
     assert new_payload is not None
     assert new_payload["tv"] == 1
 
@@ -134,10 +137,12 @@ def test_refresh_rotates_version_and_invalidates_old_refresh(token_env) -> None:
     # 新 refresh 可用并再次轮换
     second = client.post(
         "/api/v1/auth/refresh",
-        json={"refreshToken": body["refreshToken"]},
+        json={"refreshToken": new_refresh},
     )
     assert second.status_code == 200
-    assert security.decode_token(second.json()["data"]["refreshToken"])["tv"] == 2
+    rotated = second.cookies.get("qa_refresh")
+    assert rotated
+    assert security.decode_token(rotated)["tv"] == 2
 
 
 def test_ws_rejects_revoked_token_on_next_message(token_env) -> None:

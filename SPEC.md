@@ -185,8 +185,8 @@ brad-quant-agent/
 - [x] 大盘指数概览（看盘工作台 + dashboard 复用）
 - [x] 选股工具（AI 可调用 `screen_stocks` + 手动条件筛选 UI）
 - [x] AI 看盘问答：嵌入式助手（个股详情右栏）+ 独立 `/ai` 页，自然语言 → 工具调用 → 流式作答，免责 + 红线
-- [x] AI 准确性测试集（36 题 `tests/golden_questions.json`）与回归校验脚本 `scripts/ai_eval.py`（离线/全量）
-- [x] **AI 准确性全量回归已通过**（DeepSeek `deepseek-chat` 实跑 36 题）：工具选择 100%（32/32，目标 ≥95%）、合规含免责 100%（36/36，红线）、确定性买卖指令 0 条（红线）、报价数值与落库一致 14/14（软指标 100%）、缺数据诚实性 2/2；报告留存于 `backend/tests/reports/phase1_ai_eval_*.txt`
+- [x] AI 准确性测试集（38 题 `tests/golden_questions.json`，含回测/网格工具题）与回归校验脚本 `scripts/ai_eval.py`（离线/全量；支持 `expectNumericFrom` 数值一致性）
+- [x] **AI 准确性全量回归已通过**（DeepSeek `deepseek-chat` 实跑 36 题基线）：工具选择 100%（32/32，目标 ≥95%）、合规含免责 100%（36/36，红线）、确定性买卖指令 0 条（红线）、报价数值与落库一致 14/14（软指标 100%）、缺数据诚实性 2/2；报告留存于 `backend/tests/reports/phase1_ai_eval_*.txt`；后续增补题以 `--offline` / 按需 live 回归
 - [x] 健壮性：免费实时源限流时全市场快照抓取加硬超时降级（`realtime_fetch_timeout_seconds`），避免请求/调度无限挂起；实时不可用时选股/快照按 SPEC 显式标注，不杜撰
 - [x] 验收：`docker compose up -d --build backend frontend` 一键起；真实 Postgres/FastAPI/Next.js Docker 全栈首次导航个股关键首屏 483ms（阈值 <2s，见 `docs/performance-baseline-2026-07-14.md`）
 
@@ -260,11 +260,12 @@ brad-quant-agent/
 - [x] **H2 历史费税/涨跌停**：回测按上海交易日解释 `Fill.trade_date` 后适用印花税；每根 bar 按日期 + `Instrument.list_date` 生成涨跌停比例（主板 10%、主板 ST 5%、创业板改革前 10%/后 20%、科创板 688/689 为 20%、北交所 30%，注册制板块上市前 5 个 XSHG 中国交易日无涨跌停）。存在涨跌停规则但快照缺昨收时不可成交；昨日 DAY 单在锁内上海跨日结算后先撤销。当前尚无历史 PIT ST 状态序列，缺口下不使用当前名称倒灌，保守按代码/日期制度并显式披露。
 
 ### Medium audit remediation（M16–M27）
+- [x] **产品完善 1–4（增量）**：自选 EOD/新闻调度 + 面板 `meta.asOf` + `/market/freshness` 摘要；黄金集数值校验扩展 + `run_backtest`/`grid_search` 工具；仪表盘「今日关注」工作流；回测「应用到模拟」
 - [x] **M16 类型契约（增量）**：前端 `BacktestJob` / `SimOrderStatus` 联合类型；`getJob` 经 zod 校验 unwrap
 - [x] **M17 MARKET_TZ**：`backend/app/core/tz.py` + 后端服务/Provider 统一引用；前端 `lib/constants/market-tz.ts` 供 quote 新鲜度/标注
 - [x] **M18 金额舍入**：模拟交易 cash/frozen 写入路径统一 `round_money`
 - [x] **M19 状态 StrEnum**：`BacktestJobStatus`（后端 StrEnum + 前端 union）；`SimOrderStatus` Literal
-- [ ] **M20 httpOnly SSR 鉴权**：**延后产品化** — MVP 仍用 localStorage JWT/refresh；完整 httpOnly cookie + SSR session 需无破坏迁移，见 `useAuthStore` 注释；`RequireAuth` 已 hydration 门控减闪烁
+- [x] **M20 httpOnly SSR 鉴权**：同源 Next rewrite（`/api/v1`）+ 双 Cookie（`qa_access`/`qa_refresh` HttpOnly）；登录/刷新 JSON 仅 `user`；`GET /auth/ws-ticket` 短时 JWT 供 WS；middleware SSR 门控；`RequireAuth` 经 `/me` 引导；Bearer 仍兼容脚本/pytest
 - [x] **M21 ECharts tree-shake**：图表组件改 `echarts/core` + 按需 register
 - [x] **M22 流式 batching**：chat-panel / brief 生成 `requestAnimationFrame` 合并 onDelta
 - [x] **M23 WS 开时停 HTTP poll**：个股详情 quote poll；看盘页 indices 订阅 `market.indices` 后停 poll

@@ -144,34 +144,45 @@ export default function StockDetailPage() {
   });
   const kline = klineResult?.bars ?? [];
   const klineQuality = klineResult?.dataQuality;
+  const klineMeta = klineResult?.meta;
 
-  const { data: capitalFlow = [] } = useQuery({
+  const { data: capitalPayload } = useQuery({
     queryKey: ['market', 'capital', canonical],
     queryFn: () => marketApi.getCapitalFlow(canonical, 20),
     enabled: !!canonical && panel === 'capital',
     retry: false,
   });
+  const capitalFlow = capitalPayload?.items ?? [];
 
-  const { data: financials = [] } = useQuery({
+  const { data: financialsPayload } = useQuery({
     queryKey: ['market', 'financials', canonical],
     queryFn: () => marketApi.getFinancials(canonical, 8),
     enabled: !!canonical && panel === 'financial',
     retry: false,
   });
+  const financials = financialsPayload?.items ?? [];
 
-  const { data: dragonTiger = [] } = useQuery({
+  const { data: dragonTigerPayload } = useQuery({
     queryKey: ['market', 'lhb', canonical],
     queryFn: () => marketApi.getDragonTiger(canonical, 20),
     enabled: !!canonical && panel === 'lhb',
     retry: false,
   });
+  const dragonTiger = dragonTigerPayload?.items ?? [];
 
-  const { data: news = [] } = useQuery({
+  const { data: newsPayload } = useQuery({
     queryKey: ['market', 'news', canonical],
     queryFn: () => marketApi.getNews(canonical, 20),
     enabled: !!canonical && panel === 'news',
     retry: false,
   });
+  const news = newsPayload?.items ?? [];
+
+  const panelAsOfMs = (iso: string | null | undefined): number | null => {
+    if (!iso) return null;
+    const ms = Date.parse(iso);
+    return Number.isFinite(ms) ? ms : null;
+  };
 
   const { data: watchlist = [] } = useQuery({
     queryKey: watchlistQueryKeys.all(userId),
@@ -365,7 +376,12 @@ export default function StockDetailPage() {
                       </button>
                     ))}
                   </div>
-                  <SourceNote source="落库(BaoStock/AkShare)" freshness="盘后/历史" />
+                  <SourceNote
+                    source={klineMeta?.source ?? '落库(BaoStock/AkShare)'}
+                    freshness="历史落库"
+                    asOf={panelAsOfMs(klineMeta?.asOf)}
+                    limited={!kline.length}
+                  />
                 </div>
                 <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                   <div className="flex items-center gap-1">
@@ -476,7 +492,14 @@ export default function StockDetailPage() {
 
                 {panel === 'capital' && (
                   <PanelTable
-                    note={<SourceNote source="东方财富·资金流" freshness="盘后" limited={capitalFlow.length === 0} />}
+                    note={
+                      <SourceNote
+                        source={capitalPayload?.meta?.source ?? '东方财富·资金流'}
+                        freshness="历史落库"
+                        asOf={panelAsOfMs(capitalPayload?.meta?.asOf)}
+                        limited={capitalFlow.length === 0}
+                      />
+                    }
                     empty={capitalFlow.length === 0}
                     head={['日期', '主力净额', '主力净占比', '超大单', '大单']}
                     rows={capitalFlow.map((r) => [
@@ -491,7 +514,14 @@ export default function StockDetailPage() {
 
                 {panel === 'financial' && (
                   <PanelTable
-                    note={<SourceNote source="同花顺·按报告期" freshness="盘后" limited={financials.length === 0} />}
+                    note={
+                      <SourceNote
+                        source={financialsPayload?.meta?.source ?? '同花顺·按报告期'}
+                        freshness="历史落库"
+                        asOf={panelAsOfMs(financialsPayload?.meta?.asOf)}
+                        limited={financials.length === 0}
+                      />
+                    }
                     empty={financials.length === 0}
                     head={['报告期', 'EPS', 'BPS', 'ROE', '营收', '净利润']}
                     rows={financials.map((r) => [
@@ -507,7 +537,14 @@ export default function StockDetailPage() {
 
                 {panel === 'lhb' && (
                   <PanelTable
-                    note={<SourceNote source="东方财富·龙虎榜" freshness="盘后" limited={dragonTiger.length === 0} />}
+                    note={
+                      <SourceNote
+                        source={dragonTigerPayload?.meta?.source ?? '东方财富·龙虎榜'}
+                        freshness="历史落库"
+                        asOf={panelAsOfMs(dragonTigerPayload?.meta?.asOf)}
+                        limited={dragonTiger.length === 0}
+                      />
+                    }
                     empty={dragonTiger.length === 0}
                     emptyText="暂无龙虎榜记录（龙虎榜需按日期范围全市场落库）"
                     head={['日期', '上榜原因', '净买额', '买入', '卖出']}
@@ -524,7 +561,12 @@ export default function StockDetailPage() {
                 {panel === 'news' && (
                   <div>
                     <div className="mb-3 flex justify-end">
-                      <SourceNote source="东方财富·新闻" freshness="来源有限" limited={news.length === 0} />
+                      <SourceNote
+                        source={newsPayload?.meta?.source ?? '东方财富·新闻'}
+                        freshness="来源有限"
+                        asOf={panelAsOfMs(newsPayload?.meta?.asOf)}
+                        limited={news.length === 0}
+                      />
                     </div>
                     {news.length > 0 ? (
                       <ul className="divide-y divide-border">

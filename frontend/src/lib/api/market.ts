@@ -49,6 +49,18 @@ export interface KlineData {
 export interface KlineResponse {
   bars: KlineData[];
   dataQuality: 'full' | 'missing' | 'invalid_ohlc';
+  meta?: PanelMeta;
+}
+
+export interface PanelMeta {
+  asOf: string | null;
+  source: string | null;
+  rowCount: number;
+}
+
+export interface PanelPayload<T> {
+  items: T[];
+  meta: PanelMeta;
 }
 
 export interface QuotesResponse {
@@ -204,37 +216,77 @@ export const marketApi = {
     return res.data;
   },
 
-  getCapitalFlow: async (code: string, limit = 30): Promise<CapitalFlowRow[]> => {
-    const res = await apiClient.get<CapitalFlowRow[]>('/market/capital-flow', {
+  getCapitalFlow: async (code: string, limit = 30): Promise<PanelPayload<CapitalFlowRow>> => {
+    const res = await apiClient.get<PanelPayload<CapitalFlowRow>>('/market/capital-flow', {
       params: { code, limit },
     });
     return res.data;
   },
 
-  getFinancials: async (code: string, limit = 12): Promise<FinancialRow[]> => {
-    const res = await apiClient.get<FinancialRow[]>('/market/financials', {
+  getFinancials: async (code: string, limit = 12): Promise<PanelPayload<FinancialRow>> => {
+    const res = await apiClient.get<PanelPayload<FinancialRow>>('/market/financials', {
       params: { code, limit },
     });
     return res.data;
   },
 
-  getDragonTiger: async (code: string, limit = 20): Promise<DragonTigerRow[]> => {
-    const res = await apiClient.get<DragonTigerRow[]>('/market/dragon-tiger', {
+  getDragonTiger: async (code: string, limit = 20): Promise<PanelPayload<DragonTigerRow>> => {
+    const res = await apiClient.get<PanelPayload<DragonTigerRow>>('/market/dragon-tiger', {
       params: { code, limit },
     });
     return res.data;
   },
 
-  getNews: async (code: string, limit = 20): Promise<NewsRow[]> => {
-    const res = await apiClient.get<NewsRow[]>('/market/news', {
+  getNews: async (code: string, limit = 20): Promise<PanelPayload<NewsRow>> => {
+    const res = await apiClient.get<PanelPayload<NewsRow>>('/market/news', {
       params: { code, limit },
     });
     return res.data;
   },
 
-  /** 行情缓存新鲜度（ms 时间戳；0 表示暂无快照） */
-  getFreshness: async (): Promise<{ quotesTs: number }> => {
-    const res = await apiClient.get<{ quotesTs: number }>('/market/freshness');
+  /** 行情缓存新鲜度 + 关键调度/回填摘要 */
+  getFreshness: async (): Promise<{
+    quotesTs: number;
+    quotesAgeMs: number | null;
+    jobs: Record<
+      string,
+      {
+        lastSuccessAt: number | null;
+        lastFailureAt: number | null;
+        lastError: string | null;
+        consecutiveFailures: number;
+        successAgeSeconds: number | null;
+      }
+    >;
+    lastIngestion: {
+      id: string;
+      code: string;
+      status: string;
+      startedAt: string;
+      completedAt: string | null;
+    } | null;
+  }> => {
+    const res = await apiClient.get<{
+      quotesTs: number;
+      quotesAgeMs: number | null;
+      jobs: Record<
+        string,
+        {
+          lastSuccessAt: number | null;
+          lastFailureAt: number | null;
+          lastError: string | null;
+          consecutiveFailures: number;
+          successAgeSeconds: number | null;
+        }
+      >;
+      lastIngestion: {
+        id: string;
+        code: string;
+        status: string;
+        startedAt: string;
+        completedAt: string | null;
+      } | null;
+    }>('/market/freshness');
     return res.data;
   },
 

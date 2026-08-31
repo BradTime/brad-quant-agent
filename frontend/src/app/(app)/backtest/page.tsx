@@ -1,9 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { FlaskConical, Loader2 } from 'lucide-react';
 import { Markdown } from '@/components/ai/markdown';
 import { LineChart } from '@/components/charts';
+import { ApplyToSimButton, draftFromBacktest } from '@/components/backtest/apply-to-sim';
 import {
   backtestApi,
   streamBacktestReview,
@@ -95,12 +97,21 @@ export function DataQualityNotice({
 }
 
 export default function BacktestPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">加载回测…</div>}>
+      <BacktestPageInner />
+    </Suspense>
+  );
+}
+
+export function BacktestPageInner() {
+  const searchParams = useSearchParams();
   const [catalog, setCatalog] = useState<StrategyCatalogItem[]>([]);
   const [savedStrategies, setSavedStrategies] = useState<Strategy[]>([]);
   const [savedStrategyId, setSavedStrategyId] = useState('');
   const [strategyType, setStrategyType] = useState<BacktestStrategyType>('dual_ma');
   const [params, setParams] = useState<Record<string, number>>({});
-  const [codes, setCodes] = useState('600000.SH');
+  const [codes, setCodes] = useState(() => searchParams.get('code')?.trim() || '600000.SH');
   const [start, setStart] = useState(daysAgo(730));
   const [end, setEnd] = useState(today());
   const [capital, setCapital] = useState(1_000_000);
@@ -135,6 +146,11 @@ export default function BacktestPage() {
       /* 历史加载失败不阻塞主流程 */
     }
   }, []);
+
+  useEffect(() => {
+    const code = searchParams.get('code')?.trim();
+    if (code) setCodes(code);
+  }, [searchParams]);
 
   useEffect(() => {
     void (async () => {
@@ -821,17 +837,20 @@ export default function BacktestPage() {
               )}
 
               <div className="rounded-2xl border border-border bg-card p-4">
-                <div className="mb-2 flex items-center justify-between">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                   <p className="text-xs uppercase tracking-wider text-muted-foreground">
-                    AI 回测点评
+                    AI 回测点评 / 模拟
                   </p>
-                  <button
-                    onClick={aiReview}
-                    disabled={reviewing}
-                    className="rounded-lg border border-border px-3 py-1.5 text-xs transition-colors hover:border-brand/50 disabled:opacity-60"
-                  >
-                    {reviewing ? '点评中…' : 'AI 点评'}
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <ApplyToSimButton draft={draftFromBacktest(result)} />
+                    <button
+                      onClick={aiReview}
+                      disabled={reviewing}
+                      className="rounded-lg border border-border px-3 py-1.5 text-xs transition-colors hover:border-brand/50 disabled:opacity-60"
+                    >
+                      {reviewing ? '点评中…' : 'AI 点评'}
+                    </button>
+                  </div>
                 </div>
                 {reviewText ? (
                   <Markdown content={reviewText} />

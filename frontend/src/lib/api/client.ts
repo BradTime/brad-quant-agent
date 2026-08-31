@@ -2,28 +2,16 @@ import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'ax
 import type { ApiResponse } from '@/types';
 import { API_BASE_URL, API_TIMEOUT, ERROR_CODES } from '@/lib/constants';
 import { useAuthStore } from '@/stores/useAuthStore';
+
 const createClient = (): AxiosInstance => {
   const client = axios.create({
     baseURL: API_BASE_URL,
     timeout: API_TIMEOUT,
+    withCredentials: true,
     headers: {
       'Content-Type': 'application/json',
     },
   });
-
-  // 请求拦截器
-  client.interceptors.request.use(
-    (config: InternalAxiosRequestConfig) => {
-      const token = useAuthStore.getState().token;
-      if (token && config.headers) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-      return config;
-    },
-    (error) => {
-      return Promise.reject(error);
-    }
-  );
 
   // 响应拦截器
   client.interceptors.response.use(
@@ -34,43 +22,37 @@ const createClient = (): AxiosInstance => {
     async (error: AxiosError<ApiResponse>) => {
       const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
-      // 处理 401 未授权错误
+      // 处理 401：凭 Cookie 刷新会话后重试（M20，不再依赖 localStorage JWT）
       if (error.response?.status === ERROR_CODES.UNAUTHORIZED && !originalRequest._retry) {
         originalRequest._retry = true;
-
-        // 尝试刷新 token
-        const refreshToken = useAuthStore.getState().refreshToken;
-        if (refreshToken) {
-          try {
-            const response = await axios.post<ApiResponse<{ token: string; refreshToken: string }>>(
-              `${API_BASE_URL}/auth/refresh`,
-              { refreshToken }
-            );
-            const payload = response.data.data;
-            if (!payload?.token) {
-              throw new Error('refresh failed');
-            }
-            const user = useAuthStore.getState().user;
-            if (!user) {
-              throw new Error('missing user');
-            }
-            useAuthStore.getState().setAuth(user, payload.token, payload.refreshToken);
-            originalRequest.headers.Authorization = `Bearer ${payload.token}`;
-            return client(originalRequest);
-          } catch (refreshError) {
-            // 刷新失败，清除认证信息并跳转到登录页
-            useAuthStore.getState().clearAuth();
-            if (typeof window !== 'undefined') {
-              window.location.href = '/login';
-            }
-            return Promise.reject(refreshError);
+        const url = originalRequest.url || '';
+        if (url.includes('/auth/login') || url.includes('/auth/refresh')) {
+          useAuthStore.getState().clearAuth();
+          if (typeof window !== 'undefined' && !url.includes('/auth/login')) {
+            window.location.href = '/login';
           }
-        } else {
-          // 没有 refreshToken，清除认证信息
+          return Promise.reject(error.response?.data || error);
+        }
+
+        try {
+          const response = await axios.post<ApiResponse<{ user: unknown }>>(
+            `${API_BASE_URL}/auth/refresh`,
+            {},
+            { withCredentials: true }
+          );
+          const user = response.data.data?.user as
+            | Parameters<ReturnType<typeof useAuthStore.getState>['setAuth']>[0]
+            | undefined;
+          if (user) {
+            useAuthStore.getState().setAuth(user);
+          }
+          return client(originalRequest);
+        } catch (refreshError) {
           useAuthStore.getState().clearAuth();
           if (typeof window !== 'undefined') {
             window.location.href = '/login';
           }
+          return Promise.reject(refreshError);
         }
       }
 
@@ -90,4 +72,3 @@ const createClient = (): AxiosInstance => {
 };
 
 export const apiClient = createClient();
-

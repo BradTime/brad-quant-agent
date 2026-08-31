@@ -12,7 +12,6 @@ import type {
   TradeRecord,
 } from '@/types/backtest';
 import { z } from 'zod';
-import { useAuthStore } from '@/stores/useAuthStore';
 import { apiClient } from './client';
 import { createSSEParser, StreamInterruptedError } from './sse';
 
@@ -237,12 +236,11 @@ export async function streamBacktestReview(
   id: string,
   { onDelta, onError, signal }: ReviewHandlers,
 ): Promise<void> {
-  const token = useAuthStore.getState().token;
   const res = await fetch(`${API_BASE_URL}/backtest/${id}/review`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     signal,
   });

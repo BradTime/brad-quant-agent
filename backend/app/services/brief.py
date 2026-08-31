@@ -183,7 +183,8 @@ def build_data_pack(user_id: str | None) -> dict:
 
     capital_flow: list[dict] = []
     for it in items[:12]:
-        rows = market.get_capital_flow(it["code"], limit=1)
+        payload = market.get_capital_flow(it["code"], limit=1)
+        rows = payload.get("items") or []
         if rows:
             r0 = rows[0]
             capital_flow.append(

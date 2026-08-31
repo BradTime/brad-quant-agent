@@ -157,9 +157,9 @@ def test_as_of_returns_old_vintage_and_hides_future_revision(
     )
     current = market.get_financials("600000.SH")
 
-    assert historical[0]["eps"] == 1.0
-    assert historical[0]["availableAt"] == "2026-03-10T00:00:00+00:00"
-    assert current[0]["eps"] == 1.2
+    assert historical["items"][0]["eps"] == 1.0
+    assert historical["items"][0]["availableAt"] == "2026-03-10T00:00:00+00:00"
+    assert current["items"][0]["eps"] == 1.2
 
 
 def test_announced_at_precedes_provider_availability_and_fetch_time(
@@ -257,9 +257,9 @@ def test_date_only_announcement_is_hidden_intraday_and_visible_after_close(
         as_of=datetime(2026, 3, 5, 7, 0, tzinfo=UTC),
     )
 
-    assert before_close == []
-    assert at_close[0]["availableAt"] == "2026-03-05T07:00:00+00:00"
-    assert at_close[0]["availabilityQuality"] == "source_announced_date_close"
+    assert before_close["items"] == []
+    assert at_close["items"][0]["availableAt"] == "2026-03-05T07:00:00+00:00"
+    assert at_close["items"][0]["availabilityQuality"] == "source_announced_date_close"
 
 
 def test_large_financial_decimals_quantize_without_float_round_trip() -> None:
@@ -417,9 +417,12 @@ def test_ai_financial_tool_accepts_historical_as_of(
 
     def fake_get_financials(
         code: str, limit: int, as_of: datetime | None = None
-    ) -> list[dict]:
+    ) -> dict:
         captured.update(code=code, limit=limit, as_of=as_of)
-        return [{"eps": 1.0}]
+        return {
+            "items": [{"eps": 1.0}],
+            "meta": {"asOf": None, "source": "test", "rowCount": 1},
+        }
 
     monkeypatch.setattr(ai_tools.market, "get_financials", fake_get_financials)
 
@@ -428,7 +431,10 @@ def test_ai_financial_tool_accepts_historical_as_of(
         {"code": "600000.SH", "limit": 4, "asOf": "2026-03-05T14:30:00+08:00"},
     )
 
-    assert result == {"financials": [{"eps": 1.0}]}
+    assert result == {
+        "financials": [{"eps": 1.0}],
+        "meta": {"asOf": None, "source": "test", "rowCount": 1},
+    }
     assert captured == {
         "code": "600000.SH",
         "limit": 4,
@@ -440,7 +446,9 @@ def test_financials_api_rejects_invalid_as_of_with_400(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id="test-user")
-    monkeypatch.setattr(market, "get_financials", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        market, "get_financials", lambda *_args, **_kwargs: {"items": [], "meta": {}}
+    )
     try:
         with TestClient(app) as client:
             response = client.get(

@@ -1,5 +1,4 @@
 import { API_BASE_URL } from '@/lib/constants';
-import { useAuthStore } from '@/stores/useAuthStore';
 import { apiClient } from './client';
 import { createSSEParser, StreamInterruptedError } from './sse';
 
@@ -35,7 +34,7 @@ interface StreamHandlers {
 
 /**
  * 调用 `/ai/chat`（SSE 流式）。先解析 `sessionId` 帧，再处理 `delta`，
- * 遇到 `data: [DONE]` 结束。需要登录态（Bearer token）。
+ * 遇到 `data: [DONE]` 结束。需要登录态（Cookie 会话）。
  */
 export async function streamChat(
   messages: ChatMessage[],
@@ -49,12 +48,11 @@ export async function streamChat(
     contextHint,
   }: StreamHandlers
 ): Promise<void> {
-  const token = useAuthStore.getState().token;
   const res = await fetch(`${API_BASE_URL}/ai/chat`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify({
       messages,
@@ -252,12 +250,11 @@ export async function streamDeepResearch(
   question: string,
   { onPlan, onStep, onDelta, onError, signal, contextHint }: ResearchHandlers
 ): Promise<void> {
-  const token = useAuthStore.getState().token;
   const res = await fetch(`${API_BASE_URL}/ai/research`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify({
       question,

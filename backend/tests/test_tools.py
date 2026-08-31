@@ -60,7 +60,10 @@ def test_tool_rejects_oversized_codes_and_limits():
 
 
 def test_tool_clamps_valid_bounds_and_dispatches():
-    with patch("app.ai.tools.market.get_kline", return_value={"bars": [], "dataQuality": {}}) as mock_k:
+    with patch(
+        "app.ai.tools.market.get_kline",
+        return_value={"bars": [], "dataQuality": "missing", "meta": {}},
+    ) as mock_k:
         out = execute_tool("get_kline", {"symbol": "600000.SH", "count": 500})
     assert "error" not in out
     mock_k.assert_called_once_with("600000.SH", "day", 500)
@@ -69,3 +72,74 @@ def test_tool_clamps_valid_bounds_and_dispatches():
         out = execute_tool("search_knowledge", {"query": "政策", "k": 5})
     assert out["results"] == [{"text": "x"}]
     mock_retrieve.assert_called_once_with("政策", 5)
+
+
+def test_run_backtest_rejects_unknown_strategy_and_dispatches():
+    bad = execute_tool(
+        "run_backtest",
+        {
+            "strategyType": "magic",
+            "code": "600000.SH",
+            "start": "2024-01-01",
+            "end": "2024-06-01",
+        },
+    )
+    assert bad["error"] == "工具参数无效"
+
+    with patch(
+        "app.backtest.runner.run_backtest",
+        return_value={
+            "metrics": {"sharpeRatio": 1.2, "totalReturnPercent": 10.0},
+            "dataQuality": {"600000.SH": "full"},
+        },
+    ) as mock_run:
+        out = execute_tool(
+            "run_backtest",
+            {
+                "strategyType": "dual_ma",
+                "code": "600000.SH",
+                "start": "2024-01-01",
+                "end": "2024-06-01",
+                "params": {"fast": 5, "slow": 20},
+            },
+        )
+    assert "error" not in out or out.get("error") is None
+    assert out["metrics"]["sharpeRatio"] == 1.2
+    mock_run.assert_called_once()
+
+
+def test_grid_search_rejects_oversized_grid_and_returns_top():
+    huge = execute_tool(
+        "grid_search",
+        {
+            "code": "600000.SH",
+            "start": "2024-01-01",
+            "end": "2024-06-01",
+            "paramGrid": {"fast": list(range(1, 11)), "slow": list(range(20, 30))},
+        },
+    )
+    assert huge["error"] == "工具参数无效"
+
+    with patch(
+        "app.services.backtest_run.grid_search",
+        return_value={
+            "results": [
+                {"params": {"fast": 5, "slow": 20}, "metrics": {"sharpeRatio": 1.5}},
+                {"params": {"fast": 10, "slow": 60}, "metrics": {"sharpeRatio": 0.8}},
+            ],
+            "best": {"params": {"fast": 5, "slow": 20}, "metrics": {"sharpeRatio": 1.5}},
+        },
+    ):
+        out = execute_tool(
+            "grid_search",
+            {
+                "code": "600000.SH",
+                "start": "2024-01-01",
+                "end": "2024-06-01",
+                "paramGrid": {"fast": [5, 10], "slow": [20, 60]},
+                "topN": 1,
+            },
+        )
+    assert len(out["top"]) == 1
+    assert out["best"]["params"]["fast"] == 5
+

@@ -2,9 +2,11 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
 import { RequireAuth } from '@/components/auth/require-auth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { LineChart, PieChart } from '@/components/charts';
+import { TodayFocus } from '@/components/dashboard/today-focus';
 import { dashboardApi } from '@/lib/api/dashboard';
 import { marketApi } from '@/lib/api/market';
 import { ageQuote, formatQuoteFreshness } from '@/lib/api/quote-selection';
@@ -48,6 +50,7 @@ export default function DashboardPage() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const freshnessNow = useFreshnessClock();
   const userId = useAuthStore((state) => state.user?.id);
+  const router = useRouter();
 
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ['dashboard', userId ?? 'anonymous', 'stats'],
@@ -139,6 +142,8 @@ export default function DashboardPage() {
           <h1 className="text-3xl font-bold">仪表盘</h1>
           <p className="text-muted-foreground">欢迎来到量化投资 Agent 平台</p>
         </div>
+
+        <TodayFocus />
 
         {/* 市场指数概览 */}
         {agedOverview.length > 0 && (
@@ -236,7 +241,11 @@ export default function DashboardPage() {
                     </TableHeader>
                     <TableBody>
                       {stockQuotes.map((stock) => (
-                        <TableRow key={stock.code}>
+                        <TableRow
+                          key={stock.code}
+                          className="cursor-pointer hover:bg-muted/50"
+                          onClick={() => router.push(`/market/${encodeURIComponent(stock.code)}`)}
+                        >
                           <TableCell className="font-mono">{stock.code}</TableCell>
                           <TableCell className="font-medium">{stock.name}</TableCell>
                           <TableCell className="text-right font-semibold tnum">

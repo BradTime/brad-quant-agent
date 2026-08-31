@@ -1,5 +1,4 @@
 import { API_BASE_URL } from '@/lib/constants';
-import { useAuthStore } from '@/stores/useAuthStore';
 import { apiClient } from './client';
 import { createSSEParser, StreamInterruptedError } from './sse';
 
@@ -127,12 +126,11 @@ export async function streamGenerateBrief({
   onDone,
   signal,
 }: GenerateHandlers): Promise<void> {
-  const token = useAuthStore.getState().token;
   const res = await fetch(`${API_BASE_URL}/brief/generate`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     signal,
   });

@@ -38,10 +38,9 @@ export interface RegisterRequest {
   name: string;
 }
 
+/** M20: login/refresh JSON returns user only; JWTs live in HttpOnly cookies. */
 export interface AuthResponse {
   user: User;
-  token: string;
-  refreshToken: string;
 }
 
 export interface RegistrationAccepted {

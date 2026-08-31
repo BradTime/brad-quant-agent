@@ -98,7 +98,7 @@ def news(code: str, limit: int = 20) -> dict:
 
 @router.get("/freshness")
 def freshness() -> dict:
-    return success({"quotesTs": market.quote_freshness_ms()})
+    return success(market.freshness_snapshot())
 
 
 @router.post("/screen")

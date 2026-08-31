@@ -25,9 +25,13 @@ brad-quant-agent/
 ### 前端
 ```bash
 cd frontend
+cp .env.example .env.local   # 默认 NEXT_PUBLIC_API_BASE_URL=/api/v1（同源 Cookie）
 npm install
-npm run dev   # http://localhost:3000
+npm run dev   # http://localhost:3000 —— API 经 Next rewrite 代理到 :8000
 ```
+
+浏览器会话使用 HttpOnly Cookie（`qa_access` / `qa_refresh`），不再把 JWT 写入 localStorage。
+WebSocket 仍直连 `ws://localhost:8000`，握手前由 `/api/v1/auth/ws-ticket` 领取短时 access。
 
 ### 后端
 ```bash
@@ -86,8 +90,9 @@ python -m app.cli ingest-minute --code 600000.SH --period 5 --start 2025-12-01 -
 ### AI 准确性回归（SPEC §5.7，黄金测试集 ≥30 题）
 ```bash
 cd backend && source .venv/bin/activate
-python scripts/ai_eval.py --offline      # 离线校验数据集结构与工具名
-python scripts/ai_eval.py                # 全量：调用 DeepSeek 打分（工具准确率/合规/诚实性）
+python scripts/ai_eval.py --offline      # 离线校验数据集结构与工具名（含 expectNumericFrom）
+python scripts/ai_eval.py                # 全量：调用 DeepSeek 打分（工具准确率/合规/诚实性/数值一致性）
+python scripts/ai_eval.py --only q04,q13 # 只跑指定题目
 python -m pytest tests/                   # 离线单测
 ```
 回归报告留存于 `backend/tests/reports/`。

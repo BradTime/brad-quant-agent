@@ -42,7 +42,7 @@ export default function LoginPage() {
     mutationFn: (data: LoginRequest) => authApi.login(data),
     onSuccess: (data) => {
       queryClient.clear();
-      setAuth(data.user, data.token, data.refreshToken);
+      setAuth(data.user);
       router.push('/dashboard');
     },
     onError: (error: unknown) => {

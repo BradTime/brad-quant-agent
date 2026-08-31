@@ -513,6 +513,27 @@ def get_indexes_as_stockquotes() -> list[dict]:
     ]
 
 
+def _panel_meta(
+    *,
+    as_of: datetime | None,
+    source: str | None,
+    row_count: int,
+) -> dict:
+    return {
+        "asOf": _as_utc(as_of).isoformat() if as_of is not None else None,
+        "source": source,
+        "rowCount": row_count,
+    }
+
+
+def _max_fetched_at(rows: list) -> datetime | None:
+    stamps = [getattr(row, "fetched_at", None) for row in rows]
+    stamps = [stamp for stamp in stamps if stamp is not None]
+    if not stamps:
+        return None
+    return max(_as_utc(stamp) for stamp in stamps)
+
+
 def _collect_valid_kline_rows(
     session,
     stmt,
@@ -520,14 +541,20 @@ def _collect_valid_kline_rows(
     code: str,
     time_field: str,
     count: int,
+    source_label: str,
 ) -> dict:
     target = max(0, count)
     if target == 0:
-        return {"bars": [], "dataQuality": "missing"}
+        return {
+            "bars": [],
+            "dataQuality": "missing",
+            "meta": _panel_meta(as_of=None, source=source_label, row_count=0),
+        }
     newest_bars: list[dict] = []
     invalid = False
     offset = 0
     batch_size = max(32, min(target * 2, 500))
+    latest_fetched: datetime | None = None
     while len(newest_bars) < target:
         rows = list(
             session.execute(stmt.offset(offset).limit(batch_size)).scalars().all()
@@ -552,6 +579,11 @@ def _collect_valid_kline_rows(
                 invalid = True
                 _warn_invalid_bar("过滤非法历史行情", exc)
                 continue
+            fetched = getattr(row, "fetched_at", None)
+            if fetched is not None:
+                fetched_utc = _as_utc(fetched)
+                if latest_fetched is None or fetched_utc > latest_fetched:
+                    latest_fetched = fetched_utc
             newest_bars.append(
                 {
                     "time": bar_time.isoformat(),
@@ -575,7 +607,26 @@ def _collect_valid_kline_rows(
         if invalid
         else ("full" if newest_bars else "missing")
     )
-    return {"bars": list(reversed(newest_bars)), "dataQuality": quality}
+    as_of = latest_fetched
+    if as_of is None and newest_bars:
+        # 回退到最新 bar 时间（日线按收盘解释）
+        last_time = newest_bars[0]["time"]
+        try:
+            as_of = datetime.fromisoformat(last_time)
+            if as_of.tzinfo is None and "T" not in last_time:
+                as_of = datetime.combine(as_of.date(), dt_time(15, 0), tzinfo=MARKET_TZ)
+            as_of = _as_utc(as_of)
+        except ValueError:
+            as_of = None
+    return {
+        "bars": list(reversed(newest_bars)),
+        "dataQuality": quality,
+        "meta": _panel_meta(
+            as_of=as_of,
+            source=source_label,
+            row_count=len(newest_bars),
+        ),
+    }
 
 
 def get_kline(symbol: str, period: str = "day", count: int = 100) -> dict:
@@ -593,6 +644,7 @@ def get_kline(symbol: str, period: str = "day", count: int = 100) -> dict:
                 code=canonical,
                 time_field="trade_date",
                 count=count,
+                source_label="落库(BaoStock/AkShare)",
             )
         period_code = _PERIOD_MIN.get(period, "5")
         stmt = (
@@ -606,6 +658,7 @@ def get_kline(symbol: str, period: str = "day", count: int = 100) -> dict:
             code=canonical,
             time_field="dt",
             count=count,
+            source_label="落库(BaoStock)",
         )
 
 
@@ -634,7 +687,7 @@ def _canonical(code: str) -> str:
     return code if '.' in code else symbols.to_canonical(symbols.to_six(code))
 
 
-def get_capital_flow(code: str, limit: int = 30) -> list[dict]:
+def get_capital_flow(code: str, limit: int = 30) -> dict:
     canonical = _canonical(code)
     with SessionLocal() as session:
         stmt = (
@@ -643,8 +696,8 @@ def get_capital_flow(code: str, limit: int = 30) -> list[dict]:
             .order_by(CapitalFlow.trade_date.desc())
             .limit(limit)
         )
-        rows = list(session.execute(stmt).scalars().all())[::-1]
-        return [
+        orm_rows = list(session.execute(stmt).scalars().all())
+        items = [
             {
                 "date": r.trade_date.isoformat(),
                 "mainNet": _f(r.main_net),
@@ -654,15 +707,24 @@ def get_capital_flow(code: str, limit: int = 30) -> list[dict]:
                 "mediumNet": _f(r.medium_net),
                 "smallNet": _f(r.small_net),
             }
-            for r in rows
+            for r in reversed(orm_rows)
         ]
+        source = next((r.source for r in orm_rows if r.source), "东方财富·资金流")
+        return {
+            "items": items,
+            "meta": _panel_meta(
+                as_of=_max_fetched_at(orm_rows),
+                source=source,
+                row_count=len(items),
+            ),
+        }
 
 
 def get_financials(
     code: str,
     limit: int = 12,
     as_of: datetime | None = None,
-) -> list[dict]:
+) -> dict:
     """Return the latest available vintage for each report date.
 
     ``as_of`` is an absolute instant. API date-only and timezone interpretation
@@ -697,7 +759,7 @@ def get_financials(
             .limit(limit)
         )
         rows = list(session.execute(stmt).mappings())
-        return [
+        items = [
             {
                 "reportDate": r["report_date"].isoformat(),
                 "eps": _f(r["eps"]),
@@ -725,9 +787,24 @@ def get_financials(
             }
             for r in rows
         ]
+        latest_fetched = None
+        for r in rows:
+            if r["fetched_at"] is not None:
+                stamp = _as_utc(r["fetched_at"])
+                if latest_fetched is None or stamp > latest_fetched:
+                    latest_fetched = stamp
+        source = next((r["source"] for r in rows if r["source"]), "同花顺·按报告期")
+        return {
+            "items": items,
+            "meta": _panel_meta(
+                as_of=latest_fetched,
+                source=source,
+                row_count=len(items),
+            ),
+        }
 
 
-def get_dragon_tiger(code: str, limit: int = 20) -> list[dict]:
+def get_dragon_tiger(code: str, limit: int = 20) -> dict:
     canonical = _canonical(code)
     with SessionLocal() as session:
         stmt = (
@@ -736,8 +813,8 @@ def get_dragon_tiger(code: str, limit: int = 20) -> list[dict]:
             .order_by(DragonTiger.trade_date.desc())
             .limit(limit)
         )
-        rows = session.execute(stmt).scalars().all()
-        return [
+        orm_rows = list(session.execute(stmt).scalars().all())
+        items = [
             {
                 "date": r.trade_date.isoformat(),
                 "name": r.name,
@@ -746,11 +823,20 @@ def get_dragon_tiger(code: str, limit: int = 20) -> list[dict]:
                 "buy": _f(r.buy_amount),
                 "sell": _f(r.sell_amount),
             }
-            for r in rows
+            for r in orm_rows
         ]
+        source = next((r.source for r in orm_rows if r.source), "东方财富·龙虎榜")
+        return {
+            "items": items,
+            "meta": _panel_meta(
+                as_of=_max_fetched_at(orm_rows),
+                source=source,
+                row_count=len(items),
+            ),
+        }
 
 
-def get_news(code: str, limit: int = 20) -> list[dict]:
+def get_news(code: str, limit: int = 20) -> dict:
     canonical = _canonical(code)
     with SessionLocal() as session:
         stmt = (
@@ -759,8 +845,8 @@ def get_news(code: str, limit: int = 20) -> list[dict]:
             .order_by(NewsItem.published_at.desc().nullslast())
             .limit(limit)
         )
-        rows = session.execute(stmt).scalars().all()
-        return [
+        orm_rows = list(session.execute(stmt).scalars().all())
+        items = [
             {
                 "title": r.title,
                 "url": r.url,
@@ -768,8 +854,25 @@ def get_news(code: str, limit: int = 20) -> list[dict]:
                 "publishedAt": r.published_at.isoformat() if r.published_at else None,
                 "summary": (r.summary[:200] if r.summary else None),
             }
-            for r in rows
+            for r in orm_rows
         ]
+        as_of = _max_fetched_at(orm_rows)
+        if as_of is None:
+            published = [r.published_at for r in orm_rows if r.published_at is not None]
+            if published:
+                as_of = max(_as_utc(p) for p in published)
+        source = next(
+            (r.source_name for r in orm_rows if r.source_name),
+            "东方财富·新闻",
+        )
+        return {
+            "items": items,
+            "meta": _panel_meta(
+                as_of=as_of,
+                source=source,
+                row_count=len(items),
+            ),
+        }
 
 
 def get_stock_profile(code: str) -> dict:
@@ -913,6 +1016,55 @@ def quote_freshness_ms() -> int:
     """缓存快照的更新时间（ms）；0 表示尚无数据。"""
     ts = quote_cache.cache.status().get("stocks_ts") or 0.0
     return int(ts * 1000)
+
+
+def freshness_snapshot() -> dict:
+    """行情缓存年龄 + 关键调度任务 + 最近一次 ingestion 摘要。"""
+    from app.models.ingestion import IngestionRun
+    from app.services import job_health
+
+    quotes_ts = quote_freshness_ms()
+    now_ms = int(time.time() * 1000)
+    interesting = {
+        "refresh_quotes",
+        "refresh_indices",
+        "ingest_dragon_tiger",
+        "watchlist_eod_backfill",
+        "watchlist_news_refresh",
+    }
+    jobs = {
+        job_id: row
+        for job_id, row in job_health.snapshot().items()
+        if job_id in interesting
+    }
+    last_ingestion = None
+    try:
+        with SessionLocal() as session:
+            if inspect(session.get_bind()).has_table(IngestionRun.__tablename__):
+                row = session.execute(
+                    select(IngestionRun).order_by(IngestionRun.started_at.desc()).limit(1)
+                ).scalar_one_or_none()
+                if row is not None:
+                    last_ingestion = {
+                        "id": row.id,
+                        "code": row.code,
+                        "status": row.status,
+                        "startedAt": _as_utc(row.started_at).isoformat(),
+                        "completedAt": (
+                            _as_utc(row.completed_at).isoformat()
+                            if row.completed_at is not None
+                            else None
+                        ),
+                    }
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("读取最近 ingestion 失败：%s", exc)
+
+    return {
+        "quotesTs": quotes_ts,
+        "quotesAgeMs": (now_ms - quotes_ts) if quotes_ts else None,
+        "jobs": jobs,
+        "lastIngestion": last_ingestion,
+    }
 
 
 # ---- scheduler jobs (guarded; failures are logged, never crash the loop) ----

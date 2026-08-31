@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import { ArrowLeft, FlaskConical, Loader2 } from 'lucide-react';
 import { Markdown } from '@/components/ai/markdown';
 import { LineChart } from '@/components/charts';
+import { ApplyToSimButton, draftFromBacktest } from '@/components/backtest/apply-to-sim';
 import {
   backtestApi,
   streamBacktestReview,
@@ -252,15 +253,18 @@ export default function BacktestResultPage() {
       )}
 
       <div className="rounded-2xl border border-border bg-card p-4">
-        <div className="mb-2 flex items-center justify-between">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">AI 回测点评</p>
-          <button
-            onClick={aiReview}
-            disabled={reviewing}
-            className="rounded-lg border border-border px-3 py-1.5 text-xs transition-colors hover:border-brand/50 disabled:opacity-60"
-          >
-            {reviewing ? '点评中…' : 'AI 点评'}
-          </button>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs uppercase tracking-wider text-muted-foreground">AI 回测点评 / 模拟</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <ApplyToSimButton draft={draftFromBacktest(result)} />
+            <button
+              onClick={aiReview}
+              disabled={reviewing}
+              className="rounded-lg border border-border px-3 py-1.5 text-xs transition-colors hover:border-brand/50 disabled:opacity-60"
+            >
+              {reviewing ? '点评中…' : 'AI 点评'}
+            </button>
+          </div>
         </div>
         {reviewText ? (
           <Markdown content={reviewText} />

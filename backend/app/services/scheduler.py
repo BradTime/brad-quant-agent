@@ -121,7 +121,7 @@ def start_scheduler():
         try:
             _ingest_dragon_tiger_tracked()
         except Exception as exc:  # noqa: BLE001
-            logger.debug("龙虎榜落库失败（忽略）：%s", exc)
+            logger.warning("龙虎榜落库失败（忽略）：%s", exc)
 
     scheduler.add_job(
         _ingest_dragon_tiger_job,
@@ -133,6 +133,81 @@ def start_scheduler():
         coalesce=True,
         misfire_grace_time=1800,
     )
+
+    # 收盘后增量回填自选股（日K + 复权 + 资金流 + 财务 + 新闻；不含分钟）
+    if settings.enable_watchlist_eod_backfill:
+
+        @job_health.tracked("watchlist_eod_backfill")
+        def _watchlist_eod_tracked() -> None:
+            from datetime import date, timedelta
+
+            from app.services import ingest
+
+            codes = ingest.watchlist_codes()
+            if not codes:
+                logger.info("自选股 EOD 回填跳过：自选为空")
+                return
+            end = date.today()
+            start = end - timedelta(days=max(settings.watchlist_eod_lookback_days, 1))
+            ingest.backfill_codes(
+                codes,
+                start.isoformat(),
+                end.isoformat(),
+                include_dragon_tiger=False,
+            )
+
+        def _watchlist_eod_job() -> None:
+            try:
+                _watchlist_eod_tracked()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("自选股 EOD 回填失败（忽略）：%s", exc)
+
+        scheduler.add_job(
+            _watchlist_eod_job,
+            "cron",
+            hour=settings.watchlist_eod_cron_hour,
+            minute=settings.watchlist_eod_cron_minute,
+            id="watchlist_eod_backfill",
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=1800,
+        )
+
+    # 自选股新闻：盘前 + 盘后各一次
+    if settings.enable_watchlist_news_refresh:
+
+        @job_health.tracked("watchlist_news_refresh")
+        def _watchlist_news_tracked() -> None:
+            from app.services import ingest
+
+            codes = ingest.watchlist_codes()
+            if not codes:
+                logger.info("自选股新闻刷新跳过：自选为空")
+                return
+            limit = max(settings.watchlist_news_limit, 1)
+            for code in codes:
+                try:
+                    ingest.ingest_news(code, limit)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("自选股新闻刷新失败 code=%s: %s", code, exc)
+
+        def _watchlist_news_job() -> None:
+            try:
+                _watchlist_news_tracked()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("自选股新闻刷新失败（忽略）：%s", exc)
+
+        for hour, job_id in ((7, "watchlist_news_refresh_am"), (18, "watchlist_news_refresh_pm")):
+            scheduler.add_job(
+                _watchlist_news_job,
+                "cron",
+                hour=hour,
+                minute=0,
+                id=job_id,
+                max_instances=1,
+                coalesce=True,
+                misfire_grace_time=1800,
+            )
 
     if settings.enable_brief_scheduler:
         from app.services import brief

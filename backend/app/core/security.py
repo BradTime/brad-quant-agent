@@ -15,6 +15,8 @@ from app.core.config import settings
 pwd_context = CryptContext(schemes=["pbkdf2_sha256", "bcrypt"], deprecated="auto")
 
 _REFRESH_TOKEN_MINUTES = 60 * 24 * 7  # 7 天
+REFRESH_TOKEN_EXPIRE_MINUTES = _REFRESH_TOKEN_MINUTES
+
 _DUMMY_PBKDF2_HASH = (
     "$pbkdf2-sha256$29000$oFSqdU4JoRSilFJq7b23tg$"
     "Gl18dLb6eC45wD8ylPkEdr6L2H7EW8UILaMnOutALOQ"

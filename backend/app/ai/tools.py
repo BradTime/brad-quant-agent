@@ -128,6 +128,36 @@ class ScreenStocksArgs(_Strict):
         return value
 
 
+class RunBacktestArgs(_Strict):
+    """有界单标的同步回测（不落库、不下单）。"""
+
+    strategyType: Literal["dual_ma", "rsi", "boll", "momentum"] = "dual_ma"
+    code: str = Field(min_length=1, max_length=_MAX_CODE_LEN)
+    start: str = Field(min_length=8, max_length=10)
+    end: str = Field(min_length=8, max_length=10)
+    params: dict[str, float | int] = Field(default_factory=dict)
+
+
+class GridSearchArgs(_Strict):
+    """有界参数网格（默认 dual_ma，组合数由 schema 上限约束）。"""
+
+    strategyType: Literal["dual_ma", "rsi", "boll", "momentum"] = "dual_ma"
+    code: str = Field(min_length=1, max_length=_MAX_CODE_LEN)
+    start: str = Field(min_length=8, max_length=10)
+    end: str = Field(min_length=8, max_length=10)
+    paramGrid: dict[str, list[float | int]]
+    sortBy: Literal[
+        "totalReturnPercent",
+        "annualReturnPercent",
+        "sharpeRatio",
+        "maxDrawdownPercent",
+        "winRate",
+        "totalTrades",
+        "excessReturnPercent",
+    ] = "sharpeRatio"
+    topN: int = Field(default=5, ge=1, le=10)
+
+
 _ARG_MODELS: dict[str, type[BaseModel]] = {
     "get_market_overview": EmptyArgs,
     "get_quotes": GetQuotesArgs,
@@ -140,6 +170,8 @@ _ARG_MODELS: dict[str, type[BaseModel]] = {
     "get_stock_profile": GetStockProfileArgs,
     "search_knowledge": SearchKnowledgeArgs,
     "screen_stocks": ScreenStocksArgs,
+    "run_backtest": RunBacktestArgs,
+    "grid_search": GridSearchArgs,
 }
 
 
@@ -399,6 +431,92 @@ TOOLS: list[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_backtest",
+            "description": (
+                "对单只 A 股同步跑一次策略回测（默认双均线），返回绩效摘要。"
+                "仅研究用途；不自动下单，不下模拟单。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "strategyType": {
+                        "type": "string",
+                        "enum": ["dual_ma", "rsi", "boll", "momentum"],
+                        "description": "策略类型，默认 dual_ma",
+                    },
+                    "code": {
+                        "type": "string",
+                        "maxLength": _MAX_CODE_LEN,
+                        "description": "股票代码，如 600000.SH",
+                    },
+                    "start": {"type": "string", "description": "起始日 YYYY-MM-DD"},
+                    "end": {"type": "string", "description": "结束日 YYYY-MM-DD"},
+                    "params": {
+                        "type": "object",
+                        "description": "策略参数，如 dual_ma 的 {fast:5, slow:20}",
+                        "additionalProperties": {"type": "number"},
+                    },
+                },
+                "required": ["code", "start", "end"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "grid_search",
+            "description": (
+                "对单只 A 股做策略参数网格寻优（默认 dual_ma），返回按指标排名的前几组。"
+                "仅研究用途；不自动下单。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "strategyType": {
+                        "type": "string",
+                        "enum": ["dual_ma", "rsi", "boll", "momentum"],
+                    },
+                    "code": {"type": "string", "maxLength": _MAX_CODE_LEN},
+                    "start": {"type": "string"},
+                    "end": {"type": "string"},
+                    "paramGrid": {
+                        "type": "object",
+                        "description": "参数候选，如 {fast:[5,10], slow:[20,60]}；组合数上限 64",
+                        "additionalProperties": {
+                            "type": "array",
+                            "items": {"type": "number"},
+                            "minItems": 1,
+                            "maxItems": 10,
+                        },
+                    },
+                    "sortBy": {
+                        "type": "string",
+                        "enum": [
+                            "totalReturnPercent",
+                            "annualReturnPercent",
+                            "sharpeRatio",
+                            "maxDrawdownPercent",
+                            "winRate",
+                            "totalTrades",
+                            "excessReturnPercent",
+                        ],
+                    },
+                    "topN": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10,
+                        "description": "返回前 N 组，默认 5",
+                    },
+                },
+                "required": ["code", "start", "end", "paramGrid"],
+                "additionalProperties": False,
+            },
+        },
+    },
 ]
 
 _SCREEN_KEYS = {
@@ -447,22 +565,36 @@ def execute_tool(name: str, arguments: dict[str, Any] | None = None) -> dict:
         }
     if name == "get_capital_flow":
         assert isinstance(args, GetCapitalFlowArgs)
-        return {"capitalFlow": market.get_capital_flow(args.code, args.limit)}
+        payload = market.get_capital_flow(args.code, args.limit)
+        return {
+            "capitalFlow": payload.get("items") or [],
+            "meta": payload.get("meta"),
+        }
     if name == "get_financials":
         assert isinstance(args, GetFinancialsArgs)
+        payload = market.get_financials(
+            args.code,
+            args.limit,
+            parse_as_of(args.asOf) if args.asOf else None,
+        )
         return {
-            "financials": market.get_financials(
-                args.code,
-                args.limit,
-                parse_as_of(args.asOf) if args.asOf else None,
-            )
+            "financials": payload.get("items") or [],
+            "meta": payload.get("meta"),
         }
     if name == "get_dragon_tiger":
         assert isinstance(args, GetDragonTigerArgs)
-        return {"dragonTiger": market.get_dragon_tiger(args.code, args.limit)}
+        payload = market.get_dragon_tiger(args.code, args.limit)
+        return {
+            "dragonTiger": payload.get("items") or [],
+            "meta": payload.get("meta"),
+        }
     if name == "get_news":
         assert isinstance(args, CodeLimitArgs)
-        return {"news": market.get_news(args.code, args.limit)}
+        payload = market.get_news(args.code, args.limit)
+        return {
+            "news": payload.get("items") or [],
+            "meta": payload.get("meta"),
+        }
     if name == "get_stock_profile":
         assert isinstance(args, GetStockProfileArgs)
         return {"profile": market.get_stock_profile(args.code)}
@@ -481,4 +613,109 @@ def execute_tool(name: str, arguments: dict[str, Any] | None = None) -> dict:
             args.sortBy,
             args.sortOrder,
         )
+    if name == "run_backtest":
+        assert isinstance(args, RunBacktestArgs)
+        return _run_backtest_tool(args)
+    if name == "grid_search":
+        assert isinstance(args, GridSearchArgs)
+        return _grid_search_tool(args)
     return {"error": f"未知工具: {name}"}
+
+
+def _run_backtest_tool(args: RunBacktestArgs) -> dict:
+    from app.backtest.runner import run_backtest
+    from app.schemas.backtest import RunBacktestRequest
+
+    try:
+        req = RunBacktestRequest.model_validate(
+            {
+                "strategyType": args.strategyType,
+                "codes": [args.code],
+                "start": args.start,
+                "end": args.end,
+                "params": args.params or {},
+            }
+        )
+    except ValidationError as exc:
+        return _validation_error(exc)
+
+    from app.backtest.base import BacktestConfig
+
+    cfg = BacktestConfig(
+        strategy_type=req.strategyType,
+        params=req.params,
+        codes=req.codes,
+        start=req.start.isoformat(),
+        end=req.end.isoformat(),
+        initial_capital=req.initialCapital,
+        slippage=req.slippage,
+        engine=req.engine,
+        frequency=req.frequency,
+    )
+    out = run_backtest(cfg)
+    metrics = out.get("metrics") or {}
+    return {
+        "strategyType": req.strategyType,
+        "params": req.params,
+        "codes": req.codes,
+        "start": req.start.isoformat(),
+        "end": req.end.isoformat(),
+        "error": out.get("error"),
+        "metrics": {
+            "totalReturnPercent": metrics.get("totalReturnPercent"),
+            "annualReturnPercent": metrics.get("annualReturnPercent"),
+            "sharpeRatio": metrics.get("sharpeRatio"),
+            "maxDrawdownPercent": metrics.get("maxDrawdownPercent"),
+            "winRate": metrics.get("winRate"),
+            "totalTrades": metrics.get("totalTrades"),
+            "excessReturnPercent": metrics.get("excessReturnPercent"),
+        },
+        "dataQuality": out.get("dataQuality"),
+        "note": "仅研究用途，不构成投资建议；如需模拟下单请在回测页点击「应用到模拟」。",
+    }
+
+
+def _grid_search_tool(args: GridSearchArgs) -> dict:
+    from app.backtest.base import BacktestConfig
+    from app.schemas.backtest import GridSearchRequest
+    from app.services import backtest_run
+
+    try:
+        req = GridSearchRequest.model_validate(
+            {
+                "strategyType": args.strategyType,
+                "codes": [args.code],
+                "start": args.start,
+                "end": args.end,
+                "paramGrid": args.paramGrid,
+                "sortBy": args.sortBy,
+            }
+        )
+    except ValidationError as exc:
+        return _validation_error(exc)
+
+    config = BacktestConfig(
+        strategy_type=req.strategyType,
+        params={},
+        codes=req.codes,
+        start=req.start.isoformat(),
+        end=req.end.isoformat(),
+        initial_capital=req.initialCapital,
+        slippage=req.slippage,
+        engine=req.engine,
+        frequency=req.frequency,
+    )
+    result = backtest_run.grid_search(config, req.paramGrid, req.sortBy)
+    rows = list(result.get("results") or [])[: args.topN]
+    return {
+        "strategyType": req.strategyType,
+        "codes": req.codes,
+        "start": req.start.isoformat(),
+        "end": req.end.isoformat(),
+        "sortBy": req.sortBy,
+        "comboCount": len(result.get("results") or []),
+        "top": rows,
+        "best": result.get("best"),
+        "error": result.get("error"),
+        "note": "仅研究用途；最佳参数可在回测页应用，模拟下单须用户确认。",
+    }

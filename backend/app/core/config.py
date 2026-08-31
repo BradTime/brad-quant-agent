@@ -115,6 +115,14 @@ class Settings(BaseSettings):
     enable_brief_scheduler: bool = True
     brief_cron_hour: int = 8
     brief_cron_minute: int = 30
+    # 自选股 EOD 回填（日K/复权/资金流/财务/新闻，不含分钟）
+    enable_watchlist_eod_backfill: bool = True
+    watchlist_eod_cron_hour: int = 15
+    watchlist_eod_cron_minute: int = 45
+    watchlist_eod_lookback_days: int = 5
+    # 自选股新闻定时刷新（07:00 / 18:00）
+    enable_watchlist_news_refresh: bool = True
+    watchlist_news_limit: int = 20
     # 早报「近期新闻」主窗口（小时）；窗口内无数据再按 max_fallback 回退
     brief_news_window_hours: int = 48
     # 回退最大年龄（小时）；再旧则标 recentMissing，禁止当近期新闻

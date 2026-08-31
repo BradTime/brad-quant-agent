@@ -1,15 +1,23 @@
-"""Auth endpoints: register / login / logout / refresh / me.
+"""Auth endpoints: register / login / logout / refresh / me / ws-ticket.
 
 Valid registration requests always return the same accepted response and never
 issue tokens, preventing email enumeration. Bad credentials use one message;
 401 on protected routes keeps the standard status for the client interceptor.
+
+M20: browser sessions use HttpOnly cookies (qa_access / qa_refresh). JSON bodies
+return ``user`` only; Bearer remains accepted for tests and scripts.
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response
 
 from app.api.deps import get_current_user
+from app.core.auth_cookies import (
+    REFRESH_COOKIE,
+    clear_auth_cookies,
+    set_auth_cookies,
+)
 from app.core.client_ip import resolve_client_ip
 from app.core.config import settings
 from app.core.response import error, success
@@ -43,6 +51,12 @@ def _client_ip(request: Request) -> str:
     )
 
 
+def _issue_session(response: Response, auth_payload: dict) -> dict:
+    """Write cookies and return the public session payload (user only)."""
+    set_auth_cookies(response, auth_payload["token"], auth_payload["refreshToken"])
+    return {"user": auth_payload["user"]}
+
+
 @router.post("/register", status_code=202)
 def register(body: RegisterRequest, request: Request, background_tasks: BackgroundTasks):
     store = AuthThrottleStore(SessionLocal)
@@ -70,7 +84,7 @@ def register(body: RegisterRequest, request: Request, background_tasks: Backgrou
 
 
 @router.post("/login")
-def login(body: LoginRequest, request: Request):
+def login(body: LoginRequest, request: Request, response: Response):
     store = AuthThrottleStore(SessionLocal)
     now = utc_now()
     ip_bucket = store.login_ip_bucket(_client_ip(request))
@@ -103,7 +117,7 @@ def login(body: LoginRequest, request: Request):
             request=request,
         )
     store.clear(account_bucket)
-    return success(data, message="登录成功")
+    return success(_issue_session(response, data), message="登录成功")
 
 
 @router.post("/verify")
@@ -129,15 +143,27 @@ def verify_email(body: VerifyEmailRequest, request: Request):
 
 
 @router.post("/logout")
-def logout(user: User = Depends(get_current_user)):
+def logout(response: Response, user: User = Depends(get_current_user)):
     auth_service.revoke_user_tokens(user.id)
+    clear_auth_cookies(response)
     return success(None, message="已登出")
 
 
 @router.post("/refresh")
-def refresh(body: RefreshRequest):
-    """Refresh 族轮换：消费当前 refresh 并递增 token_version，旧 refresh 立即失效。"""
-    payload = decode_token(body.refreshToken)
+def refresh(
+    request: Request,
+    response: Response,
+    body: RefreshRequest | None = None,
+):
+    """Refresh 族轮换：优先 Cookie，body.refreshToken 仅作回退；旧 refresh 立即失效。"""
+    raw = None
+    if body is not None and body.refreshToken:
+        raw = body.refreshToken
+    if not raw:
+        raw = request.cookies.get(REFRESH_COOKIE)
+    if not raw:
+        return error("refresh token 无效或已过期", code=10003, http_status=401)
+    payload = decode_token(raw)
     if not payload or payload.get("type") != "refresh":
         return error("refresh token 无效或已过期", code=10003, http_status=401)
     subject = str(payload.get("sub"))
@@ -148,12 +174,17 @@ def refresh(body: RefreshRequest):
     if user is None:
         return error("用户不存在或令牌已失效", code=10003, http_status=401)
     version = int(user.token_version or 0)
-    return success(
-        {
-            "token": create_access_token(subject, version),
-            "refreshToken": create_refresh_token(subject, version),
-        }
-    )
+    access = create_access_token(subject, version)
+    new_refresh = create_refresh_token(subject, version)
+    set_auth_cookies(response, access, new_refresh)
+    return success({"user": auth_service.serialize_user(user)})
+
+
+@router.get("/ws-ticket")
+def ws_ticket(user: User = Depends(get_current_user)):
+    """短时 access JWT，仅供 WebSocket 握手（内存使用，勿持久化）。"""
+    version = int(user.token_version or 0)
+    return success({"token": create_access_token(user.id, version)})
 
 
 @router.get("/me")

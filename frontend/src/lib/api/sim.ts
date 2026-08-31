@@ -1,5 +1,4 @@
 import { API_BASE_URL } from '@/lib/constants';
-import { useAuthStore } from '@/stores/useAuthStore';
 import { apiClient } from './client';
 import { createSSEParser, StreamInterruptedError } from './sse';
 
@@ -101,12 +100,11 @@ interface ReviewHandlers {
 
 /** AI 账户复盘（SSE 流式，delta/[DONE]）。 */
 export async function streamSimReview({ onDelta, onError, signal }: ReviewHandlers): Promise<void> {
-  const token = useAuthStore.getState().token;
   const res = await fetch(`${API_BASE_URL}/sim/review`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     signal,
   });

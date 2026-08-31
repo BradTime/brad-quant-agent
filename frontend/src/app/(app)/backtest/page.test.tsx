@@ -1,9 +1,18 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import BacktestPage, { DataQualityNotice } from './page';
+import BacktestPage, { BacktestPageInner, DataQualityNotice } from './page';
+
+vi.mock('next/navigation', () => ({
+  useSearchParams: () => ({ get: () => null }),
+}));
 
 vi.mock('@/components/charts', () => ({
   LineChart: () => null,
+}));
+
+vi.mock('@/components/backtest/apply-to-sim', () => ({
+  ApplyToSimButton: () => null,
+  draftFromBacktest: () => null,
 }));
 
 vi.mock('@/lib/api/backtest', () => ({
@@ -25,7 +34,7 @@ vi.mock('@/lib/api/strategies', () => ({
 
 describe('BacktestPage', () => {
   it('offers every supported daily and minute frequency', () => {
-    const html = renderToStaticMarkup(<BacktestPage />);
+    const html = renderToStaticMarkup(<BacktestPageInner />);
 
     expect(html).toContain('回测周期');
     for (const frequency of ['1d', '5m', '15m', '30m', '60m']) {
@@ -34,11 +43,15 @@ describe('BacktestPage', () => {
   });
 
   it('offers native and backtrader engines', () => {
-    const html = renderToStaticMarkup(<BacktestPage />);
+    const html = renderToStaticMarkup(<BacktestPageInner />);
 
     expect(html).toContain('回测引擎');
     expect(html).toContain('value="native"');
     expect(html).toContain('value="backtrader"');
+  });
+
+  it('default export remains BacktestPage', () => {
+    expect(typeof BacktestPage).toBe('function');
   });
 
   it('warns that an untracked ingestion snapshot is allowed only for compatibility', () => {

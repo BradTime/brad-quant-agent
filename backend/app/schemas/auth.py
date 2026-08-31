@@ -96,4 +96,5 @@ class VerifyEmailRequest(BaseModel):
 class RefreshRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    refreshToken: str
+    # Cookie 优先；body 仅供测试 / 非浏览器客户端回退。
+    refreshToken: str | None = None

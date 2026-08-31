@@ -66,7 +66,10 @@ def test_build_data_pack_scopes_news_to_watchlist_codes():
     with (
         patch("app.services.brief.market.indices_snapshot", return_value=[]),
         patch("app.services.brief.watchlist.list_items", return_value=watch_items),
-        patch("app.services.brief.market.get_capital_flow", return_value=[]),
+        patch(
+            "app.services.brief.market.get_capital_flow",
+            return_value={"items": [], "meta": {"asOf": None, "source": None, "rowCount": 0}},
+        ),
         patch("app.services.brief._recent_dragon_tiger", return_value=[]),
         patch("app.services.brief._recent_news", return_value=empty_news) as news,
     ):
