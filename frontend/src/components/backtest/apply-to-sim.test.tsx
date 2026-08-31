@@ -19,4 +19,13 @@ describe('draftFromBacktest', () => {
 
     expect(draftFromBacktest({ config: { codes: [] }, trades: [] })).toBeNull();
   });
+
+  it('safely ignores non-array codes from an API config record', () => {
+    expect(
+      draftFromBacktest({
+        config: { engine: 'native', codes: '600000.SH' },
+        trades: [],
+      }),
+    ).toBeNull();
+  });
 });

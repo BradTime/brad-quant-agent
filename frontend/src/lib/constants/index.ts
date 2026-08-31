@@ -11,8 +11,27 @@ export const API_TIMEOUT = 30000; // 30秒
 /**
  * WebSocket 配置
  */
-export const WS_BASE_URL =
-  process.env.NEXT_PUBLIC_WS_BASE_URL || 'ws://localhost:8000/ws/v1';
+interface BrowserLocation {
+  protocol: string;
+  host: string;
+}
+
+export function resolveWsBaseUrl(
+  configured: string | undefined,
+  location: BrowserLocation | null,
+): string {
+  if (configured?.trim()) return configured.trim();
+  if (!location) return 'ws://localhost:8000/ws/v1';
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${location.host}/ws/v1`;
+}
+
+export function getWsBaseUrl(): string {
+  return resolveWsBaseUrl(
+    process.env.NEXT_PUBLIC_WS_BASE_URL,
+    typeof window === 'undefined' ? null : window.location,
+  );
+}
 
 /**
  * 错误码定义

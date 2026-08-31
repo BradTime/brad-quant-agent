@@ -41,6 +41,8 @@ requirements.lock
 .env
 .env.*
 !.env.example
+deploy/production.env
+backups/
 
 # ===== vercel =====
 .vercel

@@ -74,10 +74,13 @@ export function ApplyToSimButton({ draft }: { draft: ApplyToSimDraft | null }) {
 
 /** 从回测配置/成交推断模拟下单草稿；默认买入首码或最近回合标的。 */
 export function draftFromBacktest(result: {
-  config?: { codes?: string[] } | null;
+  config?: Record<string, unknown> | null;
   trades?: Array<{ symbol?: string }> | null;
 }): ApplyToSimDraft | null {
-  const codes = result.config?.codes ?? [];
+  const rawCodes = result.config?.codes;
+  const codes = Array.isArray(rawCodes)
+    ? rawCodes.filter((code): code is string => typeof code === 'string')
+    : [];
   const trades = result.trades ?? [];
   const last = trades.length > 0 ? trades[trades.length - 1] : null;
   const code = last?.symbol || codes[0];

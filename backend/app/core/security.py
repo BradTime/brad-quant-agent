@@ -77,14 +77,21 @@ def _create_token(
     expires_minutes: int,
     token_type: str,
     token_version: int = 0,
+    *,
+    expires_seconds: int | None = None,
 ) -> str:
     now = datetime.now(UTC)
+    expires = (
+        timedelta(seconds=expires_seconds)
+        if expires_seconds is not None
+        else timedelta(minutes=expires_minutes)
+    )
     payload = {
         "sub": subject,
         "type": token_type,
         "tv": int(token_version),
         "iat": now,
-        "exp": now + timedelta(minutes=expires_minutes),
+        "exp": now + expires,
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
@@ -97,6 +104,17 @@ def create_access_token(subject: str, token_version: int = 0) -> str:
 
 def create_refresh_token(subject: str, token_version: int = 0) -> str:
     return _create_token(subject, _REFRESH_TOKEN_MINUTES, "refresh", token_version)
+
+
+def create_ws_ticket(subject: str, token_version: int = 0) -> str:
+    seconds = max(30, min(int(settings.ws_ticket_expire_seconds), 120))
+    return _create_token(
+        subject,
+        0,
+        "ws",
+        token_version,
+        expires_seconds=seconds,
+    )
 
 
 def decode_token(token: str) -> dict | None:

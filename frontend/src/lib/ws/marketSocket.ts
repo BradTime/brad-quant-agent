@@ -1,4 +1,4 @@
-import { WS_BASE_URL } from '@/lib/constants';
+import { getWsBaseUrl } from '@/lib/constants';
 
 export type WsStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'error';
 
@@ -118,7 +118,8 @@ class MarketSocket {
   private open(): void {
     if (typeof window === 'undefined') return;
     this.setStatus('connecting');
-    const url = this.token ? `${WS_BASE_URL}?token=${encodeURIComponent(this.token)}` : WS_BASE_URL;
+    const baseUrl = getWsBaseUrl();
+    const url = this.token ? `${baseUrl}?token=${encodeURIComponent(this.token)}` : baseUrl;
     let ws: WebSocket;
     try {
       ws = new WebSocket(url);

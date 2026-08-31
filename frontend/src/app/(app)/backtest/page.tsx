@@ -99,19 +99,24 @@ export function DataQualityNotice({
 export default function BacktestPage() {
   return (
     <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">加载回测…</div>}>
-      <BacktestPageInner />
+      <BacktestPageFromSearch />
     </Suspense>
   );
 }
 
-export function BacktestPageInner() {
+function BacktestPageFromSearch() {
   const searchParams = useSearchParams();
+  const initialCode = searchParams?.get('code')?.trim() || '600000.SH';
+  return <BacktestPageInner key={initialCode} initialCode={initialCode} />;
+}
+
+export function BacktestPageInner({ initialCode = '600000.SH' }: { initialCode?: string }) {
   const [catalog, setCatalog] = useState<StrategyCatalogItem[]>([]);
   const [savedStrategies, setSavedStrategies] = useState<Strategy[]>([]);
   const [savedStrategyId, setSavedStrategyId] = useState('');
   const [strategyType, setStrategyType] = useState<BacktestStrategyType>('dual_ma');
   const [params, setParams] = useState<Record<string, number>>({});
-  const [codes, setCodes] = useState(() => searchParams.get('code')?.trim() || '600000.SH');
+  const [codes, setCodes] = useState(initialCode);
   const [start, setStart] = useState(daysAgo(730));
   const [end, setEnd] = useState(today());
   const [capital, setCapital] = useState(1_000_000);
@@ -146,11 +151,6 @@ export function BacktestPageInner() {
       /* 历史加载失败不阻塞主流程 */
     }
   }, []);
-
-  useEffect(() => {
-    const code = searchParams.get('code')?.trim();
-    if (code) setCodes(code);
-  }, [searchParams]);
 
   useEffect(() => {
     void (async () => {

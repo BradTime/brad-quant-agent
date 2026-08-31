@@ -8,6 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.core import security
 from app.core.auth_cookies import ACCESS_COOKIE, REFRESH_COOKIE
 from app.db.base import Base
 from app.main import app
@@ -94,16 +95,24 @@ def test_logout_clears_cookies(cookie_client: TestClient):
     assert cookie_client.get("/api/v1/auth/me").status_code == 401
 
 
-def test_ws_ticket_requires_session(cookie_client: TestClient):
+def test_ws_ticket_requires_session(
+    cookie_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
     denied = cookie_client.get("/api/v1/auth/ws-ticket")
     assert denied.status_code == 401
     cookie_client.post(
         "/api/v1/auth/login",
         json={"email": "cookie@example.com", "password": "ValidPass1!"},
     )
+    monkeypatch.setattr(security.settings, "ws_ticket_expire_seconds", 999)
     ticket = cookie_client.get("/api/v1/auth/ws-ticket")
     assert ticket.status_code == 200
-    assert ticket.json()["data"]["token"]
+    token = ticket.json()["data"]["token"]
+    payload = security.decode_token(token)
+    assert payload is not None
+    assert payload["type"] == "ws"
+    assert payload["exp"] - payload["iat"] == 120
 
 
 def test_bearer_still_works_for_scripts(cookie_client: TestClient):

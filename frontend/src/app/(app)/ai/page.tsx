@@ -16,7 +16,7 @@ const SUGGESTIONS = [
 
 function AiChat() {
   const searchParams = useSearchParams();
-  const code = searchParams.get('code')?.trim();
+  const code = searchParams?.get('code')?.trim();
   const contextHint = code
     ? `用户从驾驶舱关注标的 ${code} 进入；优先基于该标的取数作答，勿编造数值。`
     : undefined;

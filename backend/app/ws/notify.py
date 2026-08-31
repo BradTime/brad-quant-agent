@@ -46,12 +46,15 @@ def notify_user_threadsafe(user_id: str, event_type: str, payload: object) -> bo
     loop = manager.loop()
     if loop is None or not user_id:
         return False
+    coroutine = notify_user(user_id, event_type, payload)
     try:
-        fut = asyncio.run_coroutine_threadsafe(
-            notify_user(user_id, event_type, payload), loop
-        )
-        fut.add_done_callback(_observe_future)
-        return True
+        fut = asyncio.run_coroutine_threadsafe(coroutine, loop)
     except Exception as exc:  # noqa: BLE001
+        # Scheduling can fail when the application loop is closing. The
+        # coroutine has not been transferred to a task in that case and must
+        # be closed explicitly to avoid a RuntimeWarning/resource leak.
+        coroutine.close()
         logger.warning("私有 WS 推送排程失败: %s", exc)
         return False
+    fut.add_done_callback(_observe_future)
+    return True

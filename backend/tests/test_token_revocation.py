@@ -147,8 +147,9 @@ def test_refresh_rotates_version_and_invalidates_old_refresh(token_env) -> None:
 
 def test_ws_rejects_revoked_token_on_next_message(token_env) -> None:
     data = _register_and_login("ws-revoke@example.com")
+    ticket = security.create_ws_ticket(data["user"]["id"], 0)
     client = TestClient(app)
-    with client.websocket_connect(f"/ws/v1?token={data['token']}") as ws:
+    with client.websocket_connect(f"/ws/v1?token={ticket}") as ws:
         welcome = ws.receive_json()
         assert welcome["type"] == "welcome"
         assert welcome["payload"]["privateChannel"] is True
@@ -158,3 +159,12 @@ def test_ws_rejects_revoked_token_on_next_message(token_env) -> None:
         error = ws.receive_json()
         assert error["type"] == "error"
         assert "失效" in error["payload"]["message"]
+
+
+def test_ws_rejects_regular_access_token(token_env) -> None:
+    data = _register_and_login("ws-access@example.com")
+    client = TestClient(app)
+    with client.websocket_connect(f"/ws/v1?token={data['token']}") as ws:
+        error = ws.receive_json()
+        assert error["type"] == "error"
+        assert "无效" in error["payload"]["message"]

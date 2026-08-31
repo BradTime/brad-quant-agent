@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from app.ws.manager import ConnectionManager
 from app.ws.notify import _envelope
 
@@ -49,3 +51,21 @@ def test_envelope_shape():
     assert env["type"] == "trade.fill"
     assert env["payload"] == {"orderId": "o1"}
     assert isinstance(env["timestamp"], int)
+
+
+def test_threadsafe_notify_closes_coroutine_when_scheduling_fails(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from app.ws import notify
+
+    coroutine = notify.notify_user("userA", "trade.fill", {"orderId": "o1"})
+    monkeypatch.setattr(notify.manager, "loop", lambda: object())
+    monkeypatch.setattr(notify, "notify_user", lambda *_args: coroutine)
+
+    def fail_schedule(_coroutine, _loop):
+        raise RuntimeError("loop closed")
+
+    monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", fail_schedule)
+
+    assert notify.notify_user_threadsafe("userA", "trade.fill", {}) is False
+    assert coroutine.cr_frame is None

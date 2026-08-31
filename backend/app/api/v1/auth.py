@@ -24,6 +24,7 @@ from app.core.response import error, success
 from app.core.security import (
     create_access_token,
     create_refresh_token,
+    create_ws_ticket,
     decode_token,
     token_version_of,
 )
@@ -182,9 +183,9 @@ def refresh(
 
 @router.get("/ws-ticket")
 def ws_ticket(user: User = Depends(get_current_user)):
-    """短时 access JWT，仅供 WebSocket 握手（内存使用，勿持久化）。"""
+    """短时 ``ws`` JWT，仅供 WebSocket 握手（内存使用，勿持久化）。"""
     version = int(user.token_version or 0)
-    return success({"token": create_access_token(user.id, version)})
+    return success({"token": create_ws_ticket(user.id, version)})
 
 
 @router.get("/me")

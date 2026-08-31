@@ -50,9 +50,9 @@ lock + row lock 保证多 worker 原子更新。默认忽略 `X-Forwarded-For`�
 后时，仅将代理网段以 CIDR 写入 `AUTH_TRUSTED_PROXIES`。解析会从 XFF 右向左剥离
 
 **M20 Cookie 会话**：`POST /auth/login` / `refresh` 设置 HttpOnly `qa_access` + `qa_refresh`
-（JSON 仅返回 `user`）；`GET /auth/ws-ticket` 签发短时 access 供 WebSocket 握手；
+（JSON 仅返回 `user`）；`GET /auth/ws-ticket` 签发最长 120 秒的独立 `ws` JWT 供 WebSocket 握手；
 `get_current_user` 仍接受 `Authorization: Bearer`（脚本/pytest）。前端经同源
-`/api/v1` rewrite，使 Cookie 落在前端域并由 Next middleware SSR 门控。
+`/api/v1` rewrite，使 Cookie 落在前端域并由 Next `proxy.ts` SSR 门控。
 可信代理，采用首个不可信 hop；直连 peer 不在可信网段或 XFF 含无效地址时忽略整个头。
 
 注册接口采用防枚举响应：合法请求无论邮箱是否已存在都返回 HTTP 202 与相同
@@ -146,7 +146,7 @@ AI `get_financials` 工具接受并复用相同的可选 `asOf`。
 
 调度器把数据源刷新进内存缓存；一个异步推送循环每 `WS_PUSH_SECONDS`（默认 3s）把订阅主题的最新缓存推给客户端（只读缓存、不发起网络请求，故不阻塞）。
 
-- 连接：`ws://localhost:8000/ws/v1`（可选 `?token=<access JWT>`；浏览器经 `GET /auth/ws-ticket` 领取短时票，提供且无效则关闭）
+- 连接：`ws://localhost:8000/ws/v1`（可选 `?token=<ws JWT>`；浏览器经 `GET /auth/ws-ticket` 领取最长 120 秒短时票，普通 access JWT 不接受）
 - 客户端 → 服务端：`{"type":"subscribe","payload":{"topics":[...]}}` / `unsubscribe` / `{"type":"ping"}`
 - 服务端 → 客户端：`{"type":"update","topic","payload","timestamp"}` / `pong` / `subscribed` / `welcome` / `error`
 - 主题：`market.indices`（指数概览）、`market.quote.<code>`（如 `market.quote.600000.SH`）

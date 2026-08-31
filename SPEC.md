@@ -265,7 +265,7 @@ brad-quant-agent/
 - [x] **M17 MARKET_TZ**：`backend/app/core/tz.py` + 后端服务/Provider 统一引用；前端 `lib/constants/market-tz.ts` 供 quote 新鲜度/标注
 - [x] **M18 金额舍入**：模拟交易 cash/frozen 写入路径统一 `round_money`
 - [x] **M19 状态 StrEnum**：`BacktestJobStatus`（后端 StrEnum + 前端 union）；`SimOrderStatus` Literal
-- [x] **M20 httpOnly SSR 鉴权**：同源 Next rewrite（`/api/v1`）+ 双 Cookie（`qa_access`/`qa_refresh` HttpOnly）；登录/刷新 JSON 仅 `user`；`GET /auth/ws-ticket` 短时 JWT 供 WS；middleware SSR 门控；`RequireAuth` 经 `/me` 引导；Bearer 仍兼容脚本/pytest
+- [x] **M20 httpOnly SSR 鉴权**：同源 Next rewrite（`/api/v1`）+ 双 Cookie（`qa_access`/`qa_refresh` HttpOnly）；登录/刷新 JSON 仅 `user`；`GET /auth/ws-ticket` 签发最长 120 秒的独立 `ws` JWT（普通 access 不可握手）；Next `proxy.ts` SSR 门控；`RequireAuth` 经 `/me` 引导；Bearer 仍兼容脚本/pytest
 - [x] **M21 ECharts tree-shake**：图表组件改 `echarts/core` + 按需 register
 - [x] **M22 流式 batching**：chat-panel / brief 生成 `requestAnimationFrame` 合并 onDelta
 - [x] **M23 WS 开时停 HTTP poll**：个股详情 quote poll；看盘页 indices 订阅 `market.indices` 后停 poll

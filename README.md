@@ -31,7 +31,8 @@ npm run dev   # http://localhost:3000 —— API 经 Next rewrite 代理到 :800
 ```
 
 浏览器会话使用 HttpOnly Cookie（`qa_access` / `qa_refresh`），不再把 JWT 写入 localStorage。
-WebSocket 仍直连 `ws://localhost:8000`，握手前由 `/api/v1/auth/ws-ticket` 领取短时 access。
+本地 WebSocket 直连 `ws://localhost:8000`；生产环境自动跟随当前页面的 `wss://` 域名。
+握手前由 `/api/v1/auth/ws-ticket` 领取最长 120 秒的独立 `ws` JWT。
 
 ### 后端
 ```bash
@@ -63,6 +64,22 @@ docker compose --profile seed up seed   # 迁移 + seed_demo.py（幂等，可�
 `python -m app.cli init-db` 仅保留给临时开发库兼容使用；持久库、容器和 CI 均以
 Alembic revision 为唯一迁移流程。Baseline 会为全新 Postgres 建完整 schema，也会
 安全接管历史 `create_all` 数据库而不删除已有数据。
+
+### 生产部署
+
+仓库提供云厂商中立的单机生产基线：Caddy 自动 HTTPS + 同源 API/WS 反代 +
+Next.js + FastAPI + 私有 PostgreSQL/pgvector。配置、备份、更新与回滚步骤见
+[`deploy/README.md`](./deploy/README.md)。
+
+```bash
+cp deploy/production.env.example deploy/production.env
+docker compose --env-file deploy/production.env \
+  -f docker-compose.production.yml up -d postgres
+docker compose --env-file deploy/production.env \
+  -f docker-compose.production.yml --profile ops run --rm --build migrate
+docker compose --env-file deploy/production.env \
+  -f docker-compose.production.yml up -d --build backend frontend caddy
+```
 
 ### 落库行情数据（看盘/AI 需要）
 ```bash

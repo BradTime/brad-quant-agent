@@ -6,7 +6,7 @@ Protocol (JSON text frames):
 - server -> client: ``{"type":"update","topic","payload","timestamp"}`` /
   ``pong`` / ``subscribed`` / ``unsubscribed`` / ``error`` / ``welcome``
 
-Auth: optional ``?token=`` (access JWT). If provided and invalid, the socket is
+Auth: optional ``?token=`` (short-lived ``ws`` JWT). If provided and invalid, the socket is
 closed; if absent, the connection is accepted (read-only market data).
 Authenticated sockets re-validate ``token_version`` on each client message and
 close with 1008 after logout / forced revocation.
@@ -51,7 +51,7 @@ async def ws_v1(websocket: WebSocket, token: str | None = None) -> None:
         subject = str(payload.get("sub")) if payload else ""
         if (
             not payload
-            or payload.get("type") != "access"
+            or payload.get("type") != "ws"
             or tv is None
             or not subject
             or not _token_still_valid(subject, tv)

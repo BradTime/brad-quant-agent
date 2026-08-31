@@ -33,16 +33,17 @@ const STATUS_LABEL: Record<string, string> = {
   partial: '部分成交',
 };
 
-function SimView() {
-  const searchParams = useSearchParams();
+function normalizeSimCode(raw: string | null | undefined): string {
+  const code = raw?.trim() || '600000';
+  return code.replace(/\.(SH|SZ|BJ)$/i, '') || '600000';
+}
+
+function SimView({ initialCode }: { initialCode: string }) {
   const [account, setAccount] = useState<SimAccount | null>(null);
   const [positions, setPositions] = useState<SimPosition[]>([]);
   const [orders, setOrders] = useState<SimOrder[]>([]);
   const [trades, setTrades] = useState<SimTrade[]>([]);
-  const [code, setCode] = useState(() => {
-    const raw = searchParams.get('code')?.trim() || '600000';
-    return raw.replace(/\.(SH|SZ|BJ)$/i, '') || '600000';
-  });
+  const [code, setCode] = useState(initialCode);
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   const [orderType, setOrderType] = useState<'limit' | 'market'>('limit');
   const [qty, setQty] = useState(100);
@@ -53,12 +54,6 @@ function SimView() {
   const [review, setReview] = useState('');
   const [reviewing, setReviewing] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
-
-  useEffect(() => {
-    const raw = searchParams.get('code')?.trim();
-    if (!raw) return;
-    setCode(raw.replace(/\.(SH|SZ|BJ)$/i, '') || raw);
-  }, [searchParams]);
 
   const refresh = useCallback(async () => {
     try {
@@ -448,8 +443,14 @@ export default function SimPage() {
   return (
     <RequireAuth>
       <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">加载模拟交易…</div>}>
-        <SimView />
+        <SimViewFromSearch />
       </Suspense>
     </RequireAuth>
   );
+}
+
+function SimViewFromSearch() {
+  const searchParams = useSearchParams();
+  const initialCode = normalizeSimCode(searchParams?.get('code'));
+  return <SimView key={initialCode} initialCode={initialCode} />;
 }
