@@ -1,7 +1,7 @@
 # AI 原生 A 股个人投研平台 — SPEC v1（定稿）
 
 - 状态：定稿（Approved）
-- 日期：2026-05-29（进度更新 2026-07-15）
+- 日期：2026-05-29（进度更新 2026-08-31）
 - 适用范围：本仓库后续所有开发的总纲；与 `前端开发需求文档.md`（旧版纯前端需求）冲突时，以本 SPEC 为准。
 - **实现进度**：Phase 0–4 + AI 增强（RAG 含 HNSW/混合检索、多智能体、MCP、可删除会话/偏好记忆 MVP）+ 工程化基线**均已完成**。剩余小项：微调（明确后置）；「产品化扩展期」（RBAC / 多市场 / i18n / 真实时）按规划后置。
 
@@ -257,7 +257,7 @@ brad-quant-agent/
 - [x] **用户策略持久化**：内置策略参数 ORM（`user_id` 隔离）+ CRUD / 启停 / 复制 API 与页面；回测页可加载已保存策略并预填类型和参数
 - [x] **分钟级回测**：5/15/30/60 分钟后复权加载、下一根开盘撮合、自然交易日 T+1、昨收涨跌停、单次/网格/API/前端/历史配置全链路
 - [x] **Backtrader Cerebro 调度适配**：Cerebro + PandasData 装载后复权日/分钟 bars，包装统一 `Context` 策略语义并保持下一 bar 开盘；默认 BackBroker 无法精确表达本项目全部 A 股规则，因此适配器显式复用共享 A 股执行账本（不调用 `NativeEngine`）。对拍验证的是 Cerebro 与 native 的调度/时间轴一致性，**不作为独立撮合正确性证明**
-- [x] **H2 历史费税/涨跌停**：回测按上海交易日解释 `Fill.trade_date` 后适用印花税；每根 bar 按日期 + `Instrument.list_date` 生成涨跌停比例（主板 10%、主板 ST 5%、创业板改革前 10%/后 20%、科创板 688/689 为 20%、北交所 30%，注册制板块上市前 5 个 XSHG 中国交易日无涨跌停）。存在涨跌停规则但快照缺昨收时不可成交；昨日 DAY 单在锁内上海跨日结算后先撤销。当前尚无历史 PIT ST 状态序列，缺口下不使用当前名称倒灌，保守按代码/日期制度并显式披露。
+- [x] **H2 历史费税/涨跌停**：回测按上海交易日解释 `Fill.trade_date` 后适用印花税；每根 bar 按日期 + `Instrument.list_date` + `instrument_status_history` 生效区间生成涨跌停比例（主板 10%、主板 ST 5%、创业板改革前 10%/后 20%、科创板 688/689 为 20%、北交所 30%，注册制板块上市前 5 个 XSHG 中国交易日无涨跌停）。历史 ST 区间经可插拔 `status_history` Provider 拉取：默认将 BaoStock 日线 `isST` 压缩为区间，可选 Tushare `namechange` 完整单标的查询且不按公告日期切片；未回填覆盖通过 `ruleQuality.historicalST=partial|unavailable` 显式披露，绝不拿当前名称倒灌。存在涨跌停规则但快照缺昨收时不可成交；昨日 DAY 单在锁内上海跨日结算后先撤销。
 
 ### Medium audit remediation（M16–M27）
 - [x] **产品完善 1–4（增量）**：自选 EOD/新闻调度 + 面板 `meta.asOf` + `/market/freshness` 摘要；黄金集数值校验扩展 + `run_backtest`/`grid_search` 工具；仪表盘「今日关注」工作流；回测「应用到模拟」

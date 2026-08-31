@@ -64,6 +64,11 @@ def test_price_limit_ratio_by_board_and_reform_date():
     assert r.price_limit_ratio("830799.BJ") == 0.30
     assert r.price_limit_ratio("920001.BJ") == 0.30
     assert r.price_limit_ratio("600000.SH", "ST浦发") == 0.05  # ST
+    assert r.price_limit_ratio("600000.SH", is_st=True) == 0.05
+    # Explicit PIT status overrides a misleading current-day name.
+    assert r.price_limit_ratio("600000.SH", "ST浦发", is_st=False) == 0.10
+    # Registration boards retain their board limit while under risk warning.
+    assert r.price_limit_ratio("300750.SZ", is_st=True) == 0.20
 
 
 def test_gem_reform_boundary_uses_shanghai_date_for_aware_datetime():

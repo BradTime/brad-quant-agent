@@ -117,11 +117,12 @@ def price_limit_ratio(
     name: str = "",
     trade_date: date | datetime | None = None,
     list_date: date | datetime | None = None,
+    is_st: bool | None = None,
 ) -> float | None:
     """返回当日涨跌停比例；上市前五个交易日无涨跌停时返回 ``None``。
 
-    ``name`` 只应传入当日可得的 PIT 名称/状态。历史状态缺失时不要传当前名称，
-    以免把当前 ST 倒灌到历史。
+    优先传 ``is_st``（来自生效区间表）；兼容调用方也可传当日 PIT ``name``。
+    历史状态缺失时两者都不要传，避免把当前 ST 倒灌到历史。
     """
     six = code.split(".")[0]
     day = _as_date(trade_date)
@@ -143,7 +144,7 @@ def price_limit_ratio(
             else PRICE_LIMIT_STAR_GEM
         )
         registration_board = day is None or day >= GEM_REFORM_DATE
-    elif "ST" in (name or "").upper():
+    elif is_st is True or (is_st is None and "ST" in (name or "").upper()):
         ratio = PRICE_LIMIT_ST
         registration_board = False
     else:

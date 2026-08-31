@@ -46,7 +46,8 @@ FINANCIAL_PIT_REVISION = "20260717_0002"
 AUTH_THROTTLE_REVISION = "20260717_0003"
 EMAIL_VERIFICATION_REVISION = "20260717_0004"
 BACKTEST_JOBS_REVISION = "20260717_0010"
-HEAD_REVISION = BACKTEST_JOBS_REVISION
+STATUS_HISTORY_REVISION = "20260831_0011"
+HEAD_REVISION = STATUS_HISTORY_REVISION
 HNSW_INDEX = "ix_documents_embedding_hnsw"
 LEGACY_TABLES = frozenset(
     {
@@ -81,6 +82,7 @@ POST_BASELINE_TABLES = frozenset(
         "email_verifications",
         "verification_email_outbox",
         "backtest_jobs",
+        "instrument_status_history",
     }
 )
 
@@ -351,6 +353,11 @@ def test_standard_alembic_layout_is_present() -> None:
         ALEMBIC_DIR
         / "versions"
         / f"{EMAIL_VERIFICATION_REVISION}_email_verification.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{STATUS_HISTORY_REVISION}_instrument_status_history.py"
     ).is_file()
 
 

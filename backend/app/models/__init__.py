@@ -8,7 +8,13 @@ from app.models.document import Document
 from app.models.extra import CapitalFlow, DragonTiger, FinancialSummary, NewsItem
 from app.models.ingestion import IngestionRun
 from app.models.job import BacktestJob
-from app.models.market import AdjustFactor, DailyBar, Instrument, MinuteBar
+from app.models.market import (
+    AdjustFactor,
+    DailyBar,
+    Instrument,
+    InstrumentStatusHistory,
+    MinuteBar,
+)
 from app.models.research import ResearchReport
 from app.models.strategy import Strategy
 from app.models.trading import SimAccount, SimOrder, SimPosition, SimTrade
@@ -21,6 +27,7 @@ __all__ = [
     "EmailVerification",
     "VerificationEmailOutbox",
     "Instrument",
+    "InstrumentStatusHistory",
     "DailyBar",
     "MinuteBar",
     "AdjustFactor",

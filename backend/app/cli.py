@@ -49,6 +49,24 @@ def main(argv: list[str] | None = None) -> int:
     p_adj.add_argument("--end", required=True)
     p_adj.add_argument("--provider", default=None)
 
+    p_status = sub.add_parser(
+        "ingest-status-history",
+        help="拉取单标的历史简称/ST 生效区间（PIT 回测）",
+    )
+    p_status.add_argument("--code", required=True)
+    p_status.add_argument("--provider", default=None)
+
+    p_status_batch = sub.add_parser(
+        "backfill-status-history",
+        help="批量回填历史 ST 状态；缺省处理所有自选股",
+    )
+    p_status_batch.add_argument(
+        "--codes",
+        default=None,
+        help="逗号分隔，如 600848.SH,000001.SZ；缺省=所有自选股",
+    )
+    p_status_batch.add_argument("--provider", default=None)
+
     p_q = sub.add_parser("quotes", help="拉取实时快照（不落库，用于连通性验证）")
     p_q.add_argument("--codes", required=True, help="逗号分隔，如 600000.SH,000001.SZ")
     p_q.add_argument("--provider", default=None)
@@ -104,6 +122,31 @@ def main(argv: list[str] | None = None) -> int:
         alembic.command.upgrade(config, "head")
         print("✅ Alembic 数据库迁移已升级到 head")
         return 0
+
+    if args.cmd == "backfill-status-history":
+        from app.services import ingest
+
+        codes = (
+            [code.strip() for code in args.codes.split(",") if code.strip()]
+            if args.codes
+            else ingest.watchlist_codes()
+        )
+        if not codes:
+            print("没有可回填的标的（自选股为空，且未提供 --codes）")
+            return 1
+        rows = 0
+        errors = 0
+        for code in codes:
+            try:
+                count = ingest.ingest_status_history(code, args.provider)
+                rows += count
+                print(f"- {code}: {count} 个状态区间")
+            except Exception as exc:  # noqa: BLE001
+                errors += 1
+                print(f"- {code}: 失败（{exc}）")
+        prefix = "✅" if not errors else "❌"
+        print(f"{prefix} 历史 ST 回填：{rows} 个区间；失败 {errors}")
+        return 1 if errors else 0
 
     if args.cmd == "backfill":
         from datetime import date, timedelta
@@ -193,6 +236,9 @@ def main(argv: list[str] | None = None) -> int:
     elif args.cmd == "ingest-adjust":
         n = ingest.ingest_adjust(args.code, args.start, args.end, args.provider)
         print(f"✅ {args.code} 复权因子落库 {n} 条")
+    elif args.cmd == "ingest-status-history":
+        n = ingest.ingest_status_history(args.code, args.provider)
+        print(f"✅ {args.code} 历史简称/ST 状态区间落库 {n} 条")
     elif args.cmd == "quotes":
         codes = [c.strip() for c in args.codes.split(",") if c.strip()]
         quotes = ingest.fetch_quotes(codes, args.provider)

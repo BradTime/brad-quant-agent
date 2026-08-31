@@ -27,6 +27,7 @@ CAP_FINANCIALS = "financials"
 CAP_DRAGON_TIGER = "dragon_tiger"
 CAP_NEWS = "news"
 CAP_PROFILE = "profile"
+CAP_STATUS_HISTORY = "status_history"
 
 
 class ProviderError(Exception):
@@ -125,6 +126,18 @@ class AdjustFactorDTO(BaseModel):
     back_adjust_factor: float | None = None
 
 
+class InstrumentStatusDTO(BaseModel):
+    """Effective-dated name and risk-warning status from a historical source."""
+
+    code: str
+    start_date: date
+    end_date: date | None = None
+    name: str = ""
+    status_type: Literal["normal", "st", "star_st"] = "normal"
+    change_reason: str | None = None
+    announced_date: date | None = None
+
+
 class CapitalFlowDTO(BaseModel):
     code: str
     trade_date: date
@@ -198,6 +211,9 @@ class DataProvider(ABC):
     def get_adjust_factors(
         self, code: str, start: str, end: str
     ) -> list[AdjustFactorDTO]:
+        raise NotImplementedError
+
+    def get_status_history(self, code: str) -> list[InstrumentStatusDTO]:
         raise NotImplementedError
 
     def get_capital_flow(self, code: str) -> list[CapitalFlowDTO]:

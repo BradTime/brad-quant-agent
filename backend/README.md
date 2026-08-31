@@ -95,6 +95,13 @@ python -m app.cli ingest-daily  --code 600000.SH --start 2024-01-01 --end 2024-1
 python -m app.cli ingest-adjust --code 600000.SH --start 2020-01-01 --end 2024-12-31
 python -m app.cli ingest-minute --code 600000.SH --period 5 --start 2024-12-01 --end 2024-12-31
 
+# 历史 ST 生效区间（默认 BaoStock，免费且无需 Token）
+python -m app.cli ingest-status-history --code 600848.SH
+# 批量回填自选股（也可用 --codes 显式指定）
+python -m app.cli backfill-status-history
+# 可选更丰富的名称变更源（需在 .env 配 TUSHARE_TOKEN）
+python -m app.cli ingest-status-history --code 600848.SH --provider tushare
+
 # 实时快照（不落库，验证连通性）
 python -m app.cli quotes --codes 600000.SH,000001.SZ
 
@@ -105,6 +112,12 @@ python -m app.cli ingest-dragon-tiger --start 2025-01-01 --end 2025-12-31
 调度器每日 16:05（Asia/Shanghai）也会自动落库近 7 日龙虎榜；个股详情「刷新数据」会顺带回填同期龙虎榜。
 
 数据说明：日/分钟K线落库为**不复权**原始价，复权由 `adjust_factors` 表按需计算，以保证回测的时点正确性（PIT）。
+
+历史风险警示由 `instrument_status_history` 保存生效区间。默认从 BaoStock 日线
+`isST` 压缩为连续区间；可选 Tushare `namechange` 的完整单标的结果，调用时刻意不传
+日期过滤条件，避免早期 `ann_date` 为空的有效区间被上游静默过滤。回测按每根 bar 的交易日查询当时状态：
+主板 ST/*ST 使用 5%，创业板/科创板/北交所仍优先采用各自板块制度。未回填区间会在
+`ruleQuality.historicalST` 标记为 `partial`/`unavailable`，不会拿当前简称倒灌历史。
 
 财务摘要使用追加式 PIT 版本模型。规范化指标的 SHA-256 为 `vintage`；同一报告期
 同值重抓只更新最近抓取审计且保留最早 `available_at`，指标变化则新增版本。数据源有

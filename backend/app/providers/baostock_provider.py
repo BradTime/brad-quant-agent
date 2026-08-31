@@ -9,15 +9,20 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import date
 
 from app.core.dtutil import parse_baostock_time, parse_date, parse_datetime
 from app.core.numeric import to_float
+from app.core.tz import market_now
 from app.providers import symbols
 from app.providers.base import (
     AdjustFactorDTO,
     BarDTO,
     DataProvider,
     InstrumentDTO,
+    InstrumentStatusDTO,
+    ProviderSchemaError,
+    ProviderUnavailable,
 )
 
 
@@ -38,12 +43,17 @@ def _collect(rs) -> list[list[str]]:
     rows: list[list[str]] = []
     while rs.error_code == "0" and rs.next():
         rows.append(rs.get_row_data())
+    if getattr(rs, "error_code", "0") != "0":
+        raise ProviderUnavailable(
+            "baostock",
+            f"查询失败: {getattr(rs, 'error_msg', 'unknown')}",
+        )
     return rows
 
 
 class BaoStockProvider(DataProvider):
     name = "baostock"
-    capabilities = {"instruments", "daily", "minute", "adjust"}
+    capabilities = {"instruments", "daily", "minute", "adjust", "status_history"}
 
     _MINUTE_FREQ = {"5", "15", "30", "60"}
 
@@ -165,4 +175,62 @@ class BaoStockProvider(DataProvider):
                     adjust_factor=to_float(adj),
                 )
             )
+        return out
+
+    def get_status_history(self, code: str) -> list[InstrumentStatusDTO]:
+        """Compress BaoStock's daily ``isST`` observations into PIT intervals."""
+        canonical = f"{symbols.to_six(code)}.{symbols.split_canonical(code)[1]}"
+        with _bs_session() as bs:
+            rs = bs.query_history_k_data_plus(
+                symbols.to_baostock(canonical),
+                "date,isST",
+                start_date="1990-01-01",
+                end_date=market_now().date().isoformat(),
+                frequency="d",
+                adjustflag="3",
+            )
+            rows = _collect(rs)
+
+        observations: list[tuple[date, bool]] = []
+        for row in rows:
+            if len(row) < 2:
+                continue
+            day = parse_date(row[0])
+            raw = str(row[1]).strip()
+            if day is None:
+                continue
+            if raw not in {"0", "1"}:
+                raise ProviderSchemaError(
+                    self.name,
+                    f"isST 非法值: {canonical} {day}={raw!r}",
+                )
+            observations.append((day, raw == "1"))
+        observations.sort(key=lambda item: item[0])
+        if not observations:
+            return []
+
+        out: list[InstrumentStatusDTO] = []
+        interval_start, current_st = observations[0]
+        previous_day = interval_start
+        for day, is_st in observations[1:]:
+            if is_st != current_st:
+                out.append(
+                    InstrumentStatusDTO(
+                        code=canonical,
+                        start_date=interval_start,
+                        end_date=previous_day,
+                        status_type="st" if current_st else "normal",
+                    )
+                )
+                interval_start = day
+                current_st = is_st
+            previous_day = day
+        out.append(
+            InstrumentStatusDTO(
+                code=canonical,
+                start_date=interval_start,
+                end_date=None,
+                status_type="st" if current_st else "normal",
+            )
+        )
         return out

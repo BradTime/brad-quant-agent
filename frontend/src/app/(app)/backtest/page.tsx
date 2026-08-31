@@ -685,9 +685,14 @@ export function BacktestPageInner() {
                 </p>
               )}
               <DataQualityNotice dataQuality={gridResult?.dataQuality} />
-              {gridResult?.ruleQuality?.historicalST === 'unavailable' && (
+              {gridResult?.ruleQuality?.historicalST &&
+                gridResult.ruleQuality.historicalST !== 'full' && (
                 <p className="mb-3 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
-                  历史 ST 状态暂无 PIT 数据；涨跌停按板块规则计算，未将当前名称倒灌到历史。
+                  历史 ST 状态
+                  {gridResult.ruleQuality.historicalST === 'partial'
+                    ? '仅部分区间有 PIT 数据'
+                    : '暂无 PIT 数据'}
+                  ；缺失区间按板块规则计算，未将当前名称倒灌到历史。
                 </p>
               )}
               {gridResult && gridResult.results.length > 0 ? (
@@ -753,9 +758,14 @@ export function BacktestPageInner() {
                   : ''}
               </p>
               <DataQualityNotice dataQuality={result.dataQuality} />
-              {result.ruleQuality?.historicalST === 'unavailable' && (
+              {result.ruleQuality?.historicalST &&
+                result.ruleQuality.historicalST !== 'full' && (
                 <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
-                  历史 ST 状态暂无 PIT 数据；涨跌停按板块规则计算，未将当前名称倒灌到历史。
+                  历史 ST 状态
+                  {result.ruleQuality.historicalST === 'partial'
+                    ? '仅部分区间有 PIT 数据'
+                    : '暂无 PIT 数据'}
+                  ；缺失区间按板块规则计算，未将当前名称倒灌到历史。
                 </p>
               )}
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

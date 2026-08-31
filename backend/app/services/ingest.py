@@ -22,7 +22,7 @@ from functools import partial
 from threading import Lock, RLock
 from uuid import uuid4
 
-from sqlalchemy import case, func, or_, select, text
+from sqlalchemy import case, delete, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
@@ -33,8 +33,20 @@ from app.core.tz import MARKET_TZ
 from app.db.session import SessionLocal
 from app.models.extra import CapitalFlow, DragonTiger, FinancialSummary, NewsItem
 from app.models.ingestion import IngestionRun
-from app.models.market import AdjustFactor, DailyBar, Instrument, MinuteBar
-from app.providers.base import FinancialSummaryDTO, QuoteDTO
+from app.models.market import (
+    AdjustFactor,
+    DailyBar,
+    Instrument,
+    InstrumentStatusHistory,
+    MinuteBar,
+)
+from app.providers import symbols
+from app.providers.base import (
+    FinancialSummaryDTO,
+    InstrumentStatusDTO,
+    ProviderUnavailable,
+    QuoteDTO,
+)
 from app.providers.registry import get_provider, get_provider_for
 
 logger = logging.getLogger(__name__)
@@ -91,7 +103,13 @@ def _now():
 
 
 def _resolve(provider_name: str | None, capability: str):
-    return get_provider(provider_name) if provider_name else get_provider_for(capability)
+    provider = get_provider(provider_name) if provider_name else get_provider_for(capability)
+    if capability not in provider.capabilities:
+        raise ProviderUnavailable(
+            provider.name,
+            f"不支持数据能力: {capability}",
+        )
+    return provider
 
 
 def _utc_datetime(value: datetime) -> datetime:
@@ -505,6 +523,69 @@ def ingest_instruments(provider_name: str | None = None) -> int:
         )
         session.commit()
     return n
+
+
+def _validate_status_intervals(items: list[InstrumentStatusDTO], code: str) -> None:
+    ordered = sorted(items, key=lambda item: item.start_date)
+    for index, item in enumerate(ordered):
+        if item.code != code:
+            raise ValueError(
+                f"status history code mismatch: requested={code} got={item.code}"
+            )
+        if item.end_date is not None and item.end_date < item.start_date:
+            raise ValueError(
+                f"status history interval inverted: {code} "
+                f"{item.start_date}..{item.end_date}"
+            )
+        if index:
+            previous = ordered[index - 1]
+            if previous.end_date is None or previous.end_date >= item.start_date:
+                raise ValueError(
+                    f"status history intervals overlap: {code} "
+                    f"{previous.start_date}..{previous.end_date} and "
+                    f"{item.start_date}..{item.end_date}"
+                )
+
+
+def ingest_status_history(
+    code: str,
+    provider_name: str | None = None,
+) -> int:
+    """Atomically replace one symbol's complete effective-dated status series."""
+    provider = _resolve(provider_name, "status_history")
+    six, exchange = symbols.split_canonical(code)
+    canonical = f"{six}.{exchange}"
+    items = provider.get_status_history(canonical)
+    if not items:
+        raise EmptyDatasetError(
+            f"{provider.name} returned no status history for {canonical}; "
+            "existing PIT rows were preserved"
+        )
+    _validate_status_intervals(items, canonical)
+    now = _now()
+    rows = [
+        {
+            "code": item.code,
+            "start_date": item.start_date,
+            "end_date": item.end_date,
+            "name": item.name,
+            "status_type": item.status_type,
+            "change_reason": item.change_reason,
+            "announced_date": item.announced_date,
+            "source": provider.name,
+            "fetched_at": now,
+        }
+        for item in items
+    ]
+    with SessionLocal() as session:
+        session.execute(
+            delete(InstrumentStatusHistory).where(
+                InstrumentStatusHistory.code == canonical
+            )
+        )
+        session.add_all(InstrumentStatusHistory(**row) for row in rows)
+        session.commit()
+    return len(rows)
 
 
 def _ingest_daily_raw(

@@ -21,7 +21,13 @@ from sqlalchemy.orm import Session
 from app.core.ohlc import InvalidOHLCError, validate_ohlc, validate_previous_close
 from app.db.session import SessionLocal
 from app.models.ingestion import IngestionRun
-from app.models.market import AdjustFactor, DailyBar, Instrument, MinuteBar
+from app.models.market import (
+    AdjustFactor,
+    DailyBar,
+    Instrument,
+    InstrumentStatusHistory,
+    MinuteBar,
+)
 from app.services import trading_rules as rules
 
 
@@ -37,6 +43,7 @@ class Bar:
     amount: float | None
     previous_close: float | None = None
     limit_ratio: float | None = None
+    status_type: str | None = None
 
 
 def trading_calendar(start: str, end: str) -> list[date]:
@@ -564,6 +571,53 @@ def _instrument_list_date(session: Session, code: str) -> date | None:
         return None
 
 
+def _status_timeline(
+    session: Session,
+    code: str,
+    start: date,
+    end: date,
+) -> tuple[list[date], list[InstrumentStatusHistory]]:
+    """Load intervals overlapping a backtest window; missing table degrades safely."""
+    try:
+        if not inspect(session.get_bind()).has_table(
+            InstrumentStatusHistory.__tablename__
+        ):
+            return [], []
+        rows = list(
+            session.execute(
+                select(InstrumentStatusHistory)
+                .where(
+                    InstrumentStatusHistory.code == code,
+                    InstrumentStatusHistory.start_date <= end,
+                    or_(
+                        InstrumentStatusHistory.end_date.is_(None),
+                        InstrumentStatusHistory.end_date >= start,
+                    ),
+                )
+                .order_by(InstrumentStatusHistory.start_date)
+            )
+            .scalars()
+            .all()
+        )
+        return [row.start_date for row in rows], rows
+    except (OperationalError, ProgrammingError):
+        return [], []
+
+
+def _status_at(
+    starts: list[date],
+    rows: list[InstrumentStatusHistory],
+    on: date,
+) -> str | None:
+    index = bisect.bisect_right(starts, on) - 1
+    if index < 0:
+        return None
+    row = rows[index]
+    if row.end_date is not None and on > row.end_date:
+        return None
+    return row.status_type
+
+
 def _load_hfq_bars_in_session(
     session: Session,
     code: str,
@@ -594,9 +648,13 @@ def _load_hfq_bars_in_session(
         points = _adjust_points(session, code, start, end)
     except InvalidOHLCError:
         return [], "invalid_ohlc"
-    # Historical ST status is not present in the current PIT schema. Never
-    # apply today's name backwards; use only list_date plus code/date rules.
     list_date = _instrument_list_date(session, code)
+    status_starts, status_rows = _status_timeline(
+        session,
+        code,
+        date.fromisoformat(start[:10]),
+        date.fromisoformat(end[:10]),
+    )
     point_days = [d for d, _ in points]
     coverage = "full" if points else "none"
     # 归一化基准：以区间首个 bar 适用的因子为基准，使后复权价从原始价量级起算
@@ -605,6 +663,7 @@ def _load_hfq_bars_in_session(
     bars: list[Bar] = []
     try:
         for row, checked in zip(rows, checked_rows, strict=True):
+            status_type = _status_at(status_starts, status_rows, row.trade_date)
             factor = (
                 _factor_at(points, point_days, row.trade_date) / base if points else 1.0
             )
@@ -638,7 +697,13 @@ def _load_hfq_bars_in_session(
                         code,
                         trade_date=row.trade_date,
                         list_date=list_date,
+                        is_st=(
+                            status_type in {"st", "star_st"}
+                            if status_type is not None
+                            else None
+                        ),
                     ),
+                    status_type=status_type,
                 )
             )
     except InvalidOHLCError:
@@ -707,6 +772,12 @@ def _load_minute_bars_in_session(
     except InvalidOHLCError:
         return [], "invalid_ohlc"
     list_date = _instrument_list_date(session, code)
+    status_starts, status_rows = _status_timeline(
+        session,
+        code,
+        date.fromisoformat(start[:10]),
+        date.fromisoformat(end[:10]),
+    )
     previous_row = (
         _previous_close_row(session, code, rows[0].dt.date())
         if rows
@@ -748,6 +819,7 @@ def _load_minute_bars_in_session(
         for index, (row, checked) in enumerate(
             zip(rows, checked_rows, strict=True)
         ):
+            status_type = _status_at(status_starts, status_rows, row.dt.date())
             factor = (
                 _factor_at(points, point_days, row.dt.date()) / base
                 if points
@@ -788,7 +860,13 @@ def _load_minute_bars_in_session(
                         code,
                         trade_date=row.dt.date(),
                         list_date=list_date,
+                        is_st=(
+                            status_type in {"st", "star_st"}
+                            if status_type is not None
+                            else None
+                        ),
                     ),
+                    status_type=status_type,
                 )
             )
     except InvalidOHLCError:

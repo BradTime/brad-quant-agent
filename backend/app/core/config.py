@@ -63,6 +63,13 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql+psycopg2://postgres:postgres@localhost:5432/quant_agent"
 
+    # Optional paid PIT source. Historical status ingestion uses the compact
+    # per-symbol namechange endpoint and never date-filters it (older rows may
+    # have null announcement dates).
+    tushare_token: str = ""
+    tushare_base_url: str = "https://api.tushare.pro"
+    tushare_timeout_seconds: float = 20.0
+
     # DeepSeek（OpenAI 兼容）
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"

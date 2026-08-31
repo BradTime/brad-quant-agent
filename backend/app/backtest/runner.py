@@ -17,10 +17,24 @@ from app.backtest.registry import get_engine
 from app.backtest.strategies import get_strategy
 
 _BENCHMARK_INDEX = "000300.SH"
-_RULE_QUALITY = {
-    "historicalST": "unavailable",
-    "priceLimit": "board-rules; ST 5% only when a per-bar PIT limit ratio is supplied",
-}
+
+
+def _rule_quality(bars_by_code: dict[str, list[Bar]]) -> dict[str, str]:
+    bars = [bar for rows in bars_by_code.values() for bar in rows]
+    known = sum(bar.status_type is not None for bar in bars)
+    historical_st = (
+        "full"
+        if bars and known == len(bars)
+        else ("partial" if known else "unavailable")
+    )
+    return {
+        "historicalST": historical_st,
+        "priceLimit": (
+            "board/date rules + PIT ST intervals"
+            if historical_st == "full"
+            else "board/date rules; PIT ST coverage incomplete"
+        ),
+    }
 
 
 def load_bars(config: BacktestConfig) -> tuple[dict[str, list[Bar]], dict[str, str]]:
@@ -60,6 +74,7 @@ def run_on_bars(
     benchmark_quality: str | None = None,
 ) -> dict:
     """在**已加载**的行情上跑单次回测（网格寻优对每组参数复用同一份数据）。"""
+    rule_quality = _rule_quality(bars_by_code)
     if benchmark_bars is None:
         benchmark_bars, loaded_quality = load_benchmark_with_quality(
             config.start,
@@ -77,7 +92,7 @@ def run_on_bars(
             "equityCurve": [],
             "trades": [],
             "dataQuality": result_quality,
-            "ruleQuality": {**_RULE_QUALITY, "benchmarkData": benchmark_quality},
+            "ruleQuality": {**rule_quality, "benchmarkData": benchmark_quality},
             "error": "沪深300基准数据不可信，已拒绝回测",
         }
     aligned_bars, actual_range = _align_bars_to_common_range(bars_by_code)
@@ -127,7 +142,7 @@ def run_on_bars(
     _attach_benchmark(computed, aligned_bars, config.start, config.end, benchmark_bars)
     computed["dataQuality"] = result_quality
     computed["ruleQuality"] = {
-        **_RULE_QUALITY,
+        **rule_quality,
         **(
             {"benchmarkData": benchmark_quality}
             if benchmark_quality is not None
@@ -209,7 +224,10 @@ def run_backtest(config: BacktestConfig) -> dict:
             "equityCurve": [],
             "trades": [],
             "dataQuality": {**data_quality, benchmark_key: benchmark_quality},
-            "ruleQuality": {**_RULE_QUALITY, "benchmarkData": benchmark_quality},
+            "ruleQuality": {
+                **_rule_quality(bars_by_code),
+                "benchmarkData": benchmark_quality,
+            },
             "error": "沪深300基准数据不可信，已拒绝回测",
         }
     return run_on_bars(
