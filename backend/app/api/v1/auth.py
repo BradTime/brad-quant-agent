@@ -10,7 +10,7 @@ return ``user`` only; Bearer remains accepted for tests and scripts.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 
 from app.api.deps import get_current_user
 from app.core.auth_cookies import (
@@ -148,6 +148,14 @@ def logout(response: Response, user: User = Depends(get_current_user)):
     auth_service.revoke_user_tokens(user.id)
     clear_auth_cookies(response)
     return success(None, message="已登出")
+
+
+@router.delete("/account")
+def delete_account(response: Response, user: User = Depends(get_current_user)):
+    if not auth_service.delete_account(str(user.id)):
+        raise HTTPException(status_code=404, detail="账户不存在")
+    clear_auth_cookies(response)
+    return success({"deleted": True}, message="账户及训练数据已删除")
 
 
 @router.post("/refresh")

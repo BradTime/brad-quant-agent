@@ -30,6 +30,12 @@ interface StreamHandlers {
   sessionId?: string;
   /** 界面上下文（如当前个股）；后端会按不可信元数据处理。 */
   contextHint?: string;
+  trainingConsent?: boolean;
+  onComplete?: (result: {
+    userMessageId: string;
+    assistantMessageId: string;
+    traceId: string | null;
+  }) => void;
 }
 
 /**
@@ -46,6 +52,8 @@ export async function streamChat(
     signal,
     sessionId,
     contextHint,
+    trainingConsent,
+    onComplete,
   }: StreamHandlers
 ): Promise<void> {
   const res = await fetch(`${API_BASE_URL}/ai/chat`, {
@@ -58,6 +66,7 @@ export async function streamChat(
       messages,
       ...(sessionId ? { sessionId } : {}),
       ...(contextHint?.trim() ? { contextHint: contextHint.trim() } : {}),
+      trainingConsent: trainingConsent === true,
     }),
     signal,
   });
@@ -97,6 +106,10 @@ export async function streamChat(
         delta?: string;
         error?: string;
         code?: string | number;
+        complete?: boolean;
+        userMessageId?: string;
+        assistantMessageId?: string;
+        traceId?: string | null;
       };
       try {
         obj = JSON.parse(payload);
@@ -105,6 +118,17 @@ export async function streamChat(
         continue;
       }
       if (obj.sessionId) onSession?.(obj.sessionId);
+      if (
+        obj.complete &&
+        obj.userMessageId &&
+        obj.assistantMessageId
+      ) {
+        onComplete?.({
+          userMessageId: obj.userMessageId,
+          assistantMessageId: obj.assistantMessageId,
+          traceId: obj.traceId ?? null,
+        });
+      }
       if (obj.error) {
         if (obj.code === SESSION_NOT_FOUND_CODE) onSessionInvalid?.();
         onError?.(obj.error);

@@ -37,13 +37,12 @@ def _aware(value: datetime) -> datetime:
 
 
 def serialize_user(user: User) -> dict:
-    # avatar / 非 user 的 role 为产品化预留；MVP 不暴露头像入口，role 恒为 user。
     return {
         "id": user.id,
         "email": user.email,
         "name": user.name,
         "avatar": None,
-        "role": "user",
+        "role": user.role,
         "createdAt": user.created_at.isoformat() if user.created_at else None,
         "updatedAt": user.updated_at.isoformat() if user.updated_at else None,
     }
@@ -210,6 +209,50 @@ def get_user_by_id(user_id: str) -> User | None:
         return session.execute(
             select(User).where(User.id == user_id)
         ).scalar_one_or_none()
+
+
+def delete_account(user_id: str) -> bool:
+    """Delete training artifacts first, then remove the account record."""
+    from app.models.backtest import BacktestRun
+    from app.models.brief import MorningBrief
+    from app.models.chat import ChatSession, UserMemory
+    from app.models.job import BacktestJob
+    from app.models.research import ResearchReport
+    from app.models.strategy import Strategy
+    from app.models.trading import SimAccount, SimOrder, SimPosition, SimTrade
+    from app.models.watchlist import WatchlistItem
+    from app.services.training_data import erase_user_data
+
+    erase_user_data(user_id)
+    with SessionLocal.begin() as session:
+        user = session.get(User, user_id)
+        if user is None:
+            return False
+        for model in (
+            BacktestJob,
+            BacktestRun,
+            MorningBrief,
+            ResearchReport,
+            Strategy,
+            WatchlistItem,
+            UserMemory,
+            ChatSession,
+            SimTrade,
+            SimOrder,
+            SimPosition,
+            SimAccount,
+        ):
+            session.execute(delete(model).where(model.user_id == user_id))
+        session.execute(
+            delete(VerificationEmailOutbox).where(
+                VerificationEmailOutbox.recipient == user.email
+            )
+        )
+        session.execute(
+            delete(EmailVerification).where(EmailVerification.email == user.email)
+        )
+        session.delete(user)
+    return True
 
 
 def user_matches_token_version(user_id: str, token_version: int | None) -> User | None:

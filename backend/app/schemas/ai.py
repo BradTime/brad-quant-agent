@@ -26,6 +26,9 @@ class ChatRequest(BaseModel):
 
     messages: list[ChatMessage] = Field(min_length=1, max_length=1)
     sessionId: str | None = Field(default=None, min_length=1, max_length=36)
+    # Explicit opt-in evaluated before this turn starts. Omitted means use the
+    # existing session consent state (new sessions default to false).
+    trainingConsent: bool | None = None
     # 界面上下文（如当前个股）。服务端会作为不可信元数据包裹，绝不作为 system 指令。
     contextHint: str | None = Field(default=None, max_length=4_000)
 

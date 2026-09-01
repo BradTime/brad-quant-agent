@@ -334,6 +334,8 @@ def commit_chat_turn(turn: PreparedChatTurn, content: str) -> dict:
         )
     user_created_at = _now()
     assistant_created_at = user_created_at + timedelta(microseconds=1)
+    user_message_id = str(uuid4())
+    assistant_message_id = str(uuid4())
     with SessionLocal() as db:
         if turn.is_new:
             if db.get(ChatSession, turn.session_id) is not None:
@@ -356,7 +358,7 @@ def commit_chat_turn(turn: PreparedChatTurn, content: str) -> dict:
         db.add_all(
             (
                 ChatMessage(
-                    id=str(uuid4()),
+                    id=user_message_id,
                     session_id=turn.session_id,
                     user_id=turn.user_id,
                     role="user",
@@ -364,7 +366,7 @@ def commit_chat_turn(turn: PreparedChatTurn, content: str) -> dict:
                     created_at=user_created_at,
                 ),
                 ChatMessage(
-                    id=str(uuid4()),
+                    id=assistant_message_id,
                     session_id=turn.session_id,
                     user_id=turn.user_id,
                     role="assistant",
@@ -375,7 +377,11 @@ def commit_chat_turn(turn: PreparedChatTurn, content: str) -> dict:
         )
         db.commit()
         db.refresh(chat_session)
-        return _session_summary(chat_session)
+        return {
+            **_session_summary(chat_session),
+            "userMessageId": user_message_id,
+            "assistantMessageId": assistant_message_id,
+        }
 
 
 def list_sessions(user_id: str, limit: int = 50) -> list[dict]:

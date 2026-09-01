@@ -43,6 +43,7 @@ requirements.lock
 !.env.example
 deploy/production.env
 backups/
+backend/var/
 
 # ===== vercel =====
 .vercel

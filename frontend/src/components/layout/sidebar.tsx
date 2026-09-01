@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   Activity,
+  Database,
   FlaskConical,
   LayoutDashboard,
   Layers,
@@ -14,12 +15,14 @@ import {
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/stores/useAuthStore';
 
 interface NavItem {
   href: string;
   label: string;
   en: string;
   icon: typeof LayoutDashboard;
+  adminOnly?: boolean;
 }
 
 const NAV: NavItem[] = [
@@ -30,6 +33,13 @@ const NAV: NavItem[] = [
   { href: '/strategies', label: '策略', en: 'Strategies', icon: Layers },
   { href: '/backtest', label: '回测', en: 'Backtest', icon: FlaskConical },
   { href: '/ai', label: 'AI 问答', en: 'Copilot', icon: Sparkles },
+  {
+    href: '/admin/training',
+    label: '训练数据',
+    en: 'Training',
+    icon: Database,
+    adminOnly: true,
+  },
 ];
 
 interface SidebarProps {
@@ -43,6 +53,7 @@ export const Sidebar = forwardRef<HTMLElement, SidebarProps>(function Sidebar(
   ref,
 ) {
   const pathname = usePathname() ?? '';
+  const user = useAuthStore((state) => state.user);
   const isDrawer = isMobile && mobileOpen;
 
   return (
@@ -95,7 +106,9 @@ export const Sidebar = forwardRef<HTMLElement, SidebarProps>(function Sidebar(
 
         {/* 导航 */}
         <nav className="relative flex-1 space-y-1 px-3">
-          {NAV.map((item) => {
+          {NAV.filter(
+            (item) => !item.adminOnly || user?.role === 'admin'
+          ).map((item) => {
             const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
             const Icon = item.icon;
             return (

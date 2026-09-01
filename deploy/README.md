@@ -161,6 +161,12 @@ Run it from host cron/systemd and copy backups to independent object storage.
 Regularly test restoration into a disposable database; an untested backup is
 not a recovery plan.
 
+Training dataset files live in the private `trainingdata` volume and are not
+included in `pg_dump`. They are reproducible from approved database candidates,
+but a frozen artifact used for an external training job must be copied with its
+`manifest.json` and verified against `checksumSha256`. Never place these files
+under a web-served directory or upload them to telemetry services.
+
 ## Operational notes
 
 - Caddy has fixed private address `172.30.0.10`; only its `/32` is trusted for
@@ -170,8 +176,8 @@ not a recovery plan.
   remain available; introduce structured redaction before enabling access logs.
 - Each container uses one Uvicorn worker. Scale the `backend` service by adding
   API containers behind Caddy; Redis shares cache, quotas, and private events.
-  Keep the `worker` service at one replica because email outbox scheduling is
-  not yet leader-elected (the market scheduler itself uses a renewable lease).
+  Worker replicas use one renewable scheduler lease; PostgreSQL distributes
+  backtest jobs safely and only the leader runs market/outbox/maintenance jobs.
 - `LLMQUANT_ENABLED=false` is the safe container default because the backend
   image does not include Node/npx. Add a pinned Node runtime before enabling it.
 - For managed PostgreSQL, retain pgvector support and automated backups, set

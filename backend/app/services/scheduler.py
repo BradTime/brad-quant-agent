@@ -32,6 +32,20 @@ def _add_outbox_job(scheduler) -> None:
     )
 
 
+def _add_training_maintenance_job(scheduler) -> None:
+    from app.services.training_data import purge_expired_traces
+
+    scheduler.add_job(
+        purge_expired_traces,
+        "interval",
+        hours=24,
+        id="purge_expired_training_traces",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
+
 def start_scheduler():
     global _scheduler
     if _scheduler is not None:
@@ -51,6 +65,7 @@ def start_scheduler():
     scheduler = BackgroundScheduler(timezone=MARKET_TZ)
     if not settings.enable_scheduler:
         _add_outbox_job(scheduler)
+        _add_training_maintenance_job(scheduler)
         scheduler.start()
         _scheduler = scheduler
         logger.info("认证邮件 outbox 调度器已启动")
@@ -271,6 +286,7 @@ def start_scheduler():
         )
 
     _add_outbox_job(scheduler)
+    _add_training_maintenance_job(scheduler)
     scheduler.start()
     _scheduler = scheduler
     logger.info("行情调度器已启动（行情 %ss / 指数 %ss）", quote_secs, index_secs)

@@ -12,6 +12,8 @@ describe('ChatPanel session and preference controls', () => {
     expect(html).toContain('新会话');
     expect(html).toContain('对话历史');
     expect(html).toContain('记忆偏好');
+    expect(html).toContain('允许本会话用于改进模型');
+    expect(html).not.toContain('checked=""');
   });
 
   it('keeps preference management off embedded chat panels', () => {

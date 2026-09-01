@@ -47,7 +47,8 @@ AUTH_THROTTLE_REVISION = "20260717_0003"
 EMAIL_VERIFICATION_REVISION = "20260717_0004"
 BACKTEST_JOBS_REVISION = "20260717_0010"
 STATUS_HISTORY_REVISION = "20260831_0011"
-HEAD_REVISION = STATUS_HISTORY_REVISION
+TRAINING_DATA_REVISION = "20260901_0012"
+HEAD_REVISION = TRAINING_DATA_REVISION
 HNSW_INDEX = "ix_documents_embedding_hnsw"
 LEGACY_TABLES = frozenset(
     {
@@ -83,6 +84,12 @@ POST_BASELINE_TABLES = frozenset(
         "verification_email_outbox",
         "backtest_jobs",
         "instrument_status_history",
+        "training_consents",
+        "ai_generation_traces",
+        "ai_training_feedback",
+        "training_candidates",
+        "training_datasets",
+        "training_dataset_items",
     }
 )
 
@@ -358,6 +365,11 @@ def test_standard_alembic_layout_is_present() -> None:
         ALEMBIC_DIR
         / "versions"
         / f"{STATUS_HISTORY_REVISION}_instrument_status_history.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{TRAINING_DATA_REVISION}_training_data_loop.py"
     ).is_file()
 
 

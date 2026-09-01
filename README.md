@@ -18,7 +18,7 @@ brad-quant-agent/
 - **前端**：Next.js 16 / React 19 / TypeScript / shadcn/ui / Tailwind / Zustand / React Query / ECharts
 - **后端**：Python / FastAPI / SQLAlchemy / Postgres / Redis（共享缓存、Pub/Sub、配额与选主）
 - **数据源**：AkShare + BaoStock + efinance（经 `DataProvider` 抽象，免费）
-- **AI**：DeepSeek（function calling 工具层）
+- **AI**：DeepSeek（function calling 工具层）+ 显式授权、脱敏审核、版本化数据集与回归门禁组成的训练数据闭环
 
 ## 快速开始
 

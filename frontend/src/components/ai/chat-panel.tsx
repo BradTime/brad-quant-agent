@@ -10,6 +10,8 @@ import {
   Sparkles,
   Square,
   Telescope,
+  ThumbsDown,
+  ThumbsUp,
   Trash2,
 } from 'lucide-react';
 import {
@@ -32,6 +34,11 @@ import {
   type UserMemory,
 } from '@/lib/api/ai';
 import { useRafBatchedString } from '@/hooks/useRafBatchedString';
+import {
+  getTrainingConsent,
+  setTrainingConsent as updateTrainingConsent,
+  submitTrainingFeedback,
+} from '@/lib/api/training';
 import { cn } from '@/lib/utils';
 import { Markdown } from './markdown';
 import { ResearchPlanCard } from './research-plan';
@@ -105,6 +112,9 @@ export interface DisplayMessage {
   /** 深度研究：逐步进度 */
   steps?: ResearchStep[];
   mode?: 'chat' | 'research';
+  persistedId?: string;
+  traceId?: string | null;
+  feedback?: 'up' | 'down';
 }
 
 export function patchDisplayMessageById(
@@ -237,6 +247,8 @@ export function ChatPanel({
   const [memoryValue, setMemoryValue] = useState('concise');
   const [memoryError, setMemoryError] = useState('');
   const [savingMemory, setSavingMemory] = useState(false);
+  const [trainingConsent, setTrainingConsent] = useState(false);
+  const [savingConsent, setSavingConsent] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const loadAbortRef = useRef<AbortController | null>(null);
   const activeTurnRef = useRef<{
@@ -349,9 +361,14 @@ export function ChatPanel({
             detail &&
             !interactedRef.current
           ) {
+            const consent = await getTrainingConsent(detail.id).catch(
+              () => null
+            );
             setSessionId(detail.id);
+            setTrainingConsent(consent?.enabled ?? false);
             const loaded = detail.messages.map((message) => ({
               id: message.id,
+              persistedId: message.id,
               role: message.role,
               content: message.content,
               mode: 'chat' as const,
@@ -399,6 +416,7 @@ export function ChatPanel({
     setLoadingSession(false);
     setChatError('');
     setSessionId(null);
+    setTrainingConsent(false);
     setMessages([]);
     setInput('');
     setDeepMode(false);
@@ -417,13 +435,16 @@ export function ChatPanel({
     try {
       const detail = await getChatSession(id, controller.signal);
       if (!detail || generation !== generationRef.current) return;
+      const consent = await getTrainingConsent(detail.id).catch(() => null);
       const loaded = detail.messages.map((message) => ({
         id: message.id,
+        persistedId: message.id,
         role: message.role,
         content: message.content,
         mode: 'chat' as const,
       }));
       setSessionId(detail.id);
+      setTrainingConsent(consent?.enabled ?? false);
       setDeepMode(false);
       setMessages((current) =>
         applyLoadedSessionByGeneration(
@@ -461,6 +482,7 @@ export function ChatPanel({
       setSessions((rows) => rows.filter((row) => row.id !== id));
       if (sessionId === id) {
         setSessionId(null);
+        setTrainingConsent(false);
         setMessages([]);
       }
     } catch {
@@ -529,6 +551,71 @@ export function ChatPanel({
       }
     } finally {
       if (generation === generationRef.current) setLoadingSession(false);
+    }
+  };
+
+  const toggleTrainingConsent = async (enabled: boolean) => {
+    if (savingConsent || streaming) return;
+    setSavingConsent(true);
+    setChatError('');
+    try {
+      if (sessionId) {
+        await updateTrainingConsent(sessionId, enabled);
+      }
+      setTrainingConsent(enabled);
+    } catch (error) {
+      setChatError(
+        typeof error === 'object' && error && 'message' in error
+          ? String(error.message)
+          : '更新训练数据授权失败'
+      );
+    } finally {
+      setSavingConsent(false);
+    }
+  };
+
+  const rateAnswer = async (
+    message: DisplayMessage,
+    rating: 'up' | 'down'
+  ) => {
+    if (!message.persistedId || !trainingConsent) return;
+    let comment = '';
+    const issueLabels: string[] = [];
+    if (rating === 'down') {
+      const label =
+        window.prompt(
+          '请选择问题标签：incorrect / unsupported / missing_data / wrong_tool / unsafe_advice / unclear / other',
+          'other'
+        ) ?? 'other';
+      const allowed = new Set([
+        'incorrect',
+        'unsupported',
+        'missing_data',
+        'wrong_tool',
+        'unsafe_advice',
+        'unclear',
+        'other',
+      ]);
+      issueLabels.push(allowed.has(label) ? label : 'other');
+      comment =
+        window.prompt('可选：请说明回答存在的问题（内容会先脱敏再保存）') ??
+        '';
+    }
+    try {
+      await submitTrainingFeedback(message.persistedId, {
+        rating,
+        issueLabels,
+        ...(comment.trim() ? { comment: comment.trim() } : {}),
+      });
+      setMessages((current) =>
+        patchDisplayMessageById(current, message.id, { feedback: rating })
+      );
+    } catch (error) {
+      setChatError(
+        typeof error === 'object' && error && 'message' in error
+          ? String(error.message)
+          : '提交反馈失败'
+      );
     }
   };
 
@@ -608,6 +695,7 @@ export function ChatPanel({
         signal: controller.signal,
         sessionId: startingSessionId ?? undefined,
         contextHint,
+        trainingConsent,
         onSession: (id) => {
           if (generation !== generationRef.current) return;
           setSessionId(id);
@@ -621,6 +709,12 @@ export function ChatPanel({
         },
         onSessionInvalid: () => {
           sessionInvalid = true;
+        },
+        onComplete: (result) => {
+          patchAssistant({
+            persistedId: result.assistantMessageId,
+            traceId: result.traceId,
+          });
         },
       });
     } catch (err) {
@@ -752,6 +846,39 @@ export function ChatPanel({
                       : '思考中…'
                     : '')
                 )}
+                {m.role === 'assistant' &&
+                  m.mode !== 'research' &&
+                  m.persistedId &&
+                  trainingConsent &&
+                  !streaming && (
+                    <div className="mt-2 flex items-center gap-1 border-t border-border/60 pt-2">
+                      <span className="mr-1 text-[10px] text-muted-foreground">
+                        评价并贡献此回答
+                      </span>
+                      <button
+                        type="button"
+                        aria-label="回答有帮助"
+                        onClick={() => void rateAnswer(m, 'up')}
+                        className={cn(
+                          'rounded p-1 text-muted-foreground hover:text-foreground',
+                          m.feedback === 'up' && 'text-brand'
+                        )}
+                      >
+                        <ThumbsUp className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="回答需改进"
+                        onClick={() => void rateAnswer(m, 'down')}
+                        className={cn(
+                          'rounded p-1 text-muted-foreground hover:text-foreground',
+                          m.feedback === 'down' && 'text-destructive'
+                        )}
+                      >
+                        <ThumbsDown className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
               </div>
             </div>
           ))
@@ -798,6 +925,21 @@ export function ChatPanel({
           >
             <Plus className="h-3 w-3" /> 新会话
           </button>
+
+          {!deepMode && (
+            <label className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={trainingConsent}
+                disabled={controlsBusy || savingConsent}
+                onChange={(event) =>
+                  void toggleTrainingConsent(event.target.checked)
+                }
+                className="accent-[var(--color-brand)]"
+              />
+              允许本会话用于改进模型
+            </label>
+          )}
 
           <div className="relative">
             <button

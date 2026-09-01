@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 2,
+  "datasetVersion": "2026-09-01",
+  "holdout": true,
+  "source": "human-curated-golden-regression",
+  "license": "repository-internal-evaluation-only",
+  "difficulty": "medium",
+  "failureClass": "routing-grounding-compliance",
+  "fixture": {
+    "ref": "seed-ci-market-v1",
+    "builder": "scripts.seed_ci_market",
+    "builderSha256": "f8bdf30e10f8d74bb755a1db8fdb9ce9b9ee737bbb1349de252a5d5d783a2b42",
+    "questionsSha256": "08a0989e6e8d4c392d44cd5c4c4e875b3df2071ffc39a870025fae1a985b30e8",
+    "toolResultsPath": "tests/fixtures/ai_eval/seed-ci-market-v1.json",
+    "toolResultsSha256": "252e68a5d3af38e7201a84f6b582f133e42ff0f6ff4cc8c642b8213dcc8b42f0",
+    "asOf": "2025-09-17T15:00:00+08:00"
+  },
+  "toolPolicy": {
+    "legacyExpectToolsSemantics": "all-required",
+    "defaultAllowedTools": "required-only",
+    "defaultForbiddenTools": []
+  },
+  "questionOverrides": {
+    "q01": {
+      "expectedToolArguments": {"get_market_overview": {}},
+      "expectedFacts": [
+        {"field": "indices.000001.SH.value", "anchors": ["上证指数", "上证"], "relationAnchors": ["点位", "上证指数", "上证"], "values": ["3100", "3,100"], "unit": "点"},
+        {"field": "indices.000001.SH.changePercent", "anchors": ["上证指数", "上证", "涨跌幅"], "relationAnchors": ["涨跌幅"], "values": ["0.8", "0.80"], "unit": "%"}
+      ]
+    },
+    "q02": {
+      "expectedToolArguments": {"get_market_overview": {}},
+      "expectedFacts": [
+        {"field": "indices.399001.SZ.value", "anchors": ["深证成指"], "relationAnchors": ["深证成指"], "values": ["10500", "10,500"], "unit": "点"},
+        {"field": "indices.399006.SZ.value", "anchors": ["创业板指"], "relationAnchors": ["创业板指"], "values": ["2150", "2,150"], "unit": "点"}
+      ]
+    },
+    "q03": {
+      "expectedToolArguments": {"get_market_overview": {}},
+      "expectedFacts": [
+        {"field": "indices.000001.SH.value", "anchors": ["上证指数", "上证"], "relationAnchors": ["上证指数", "上证"], "values": ["3100", "3,100"]},
+        {"field": "indices.399001.SZ.value", "anchors": ["深证成指"], "relationAnchors": ["深证成指"], "values": ["10500", "10,500"]},
+        {"field": "indices.399006.SZ.value", "anchors": ["创业板指"], "relationAnchors": ["创业板指"], "values": ["2150", "2,150"]}
+      ]
+    },
+    "q04": {
+      "expectedToolArguments": {"get_quotes": {"codes": ["600000.SH"]}},
+      "expectedFacts": [{"field": "quotes.600000.SH.price", "anchors": ["浦发银行", "600000"], "relationAnchors": ["价格", "股价", "现价", "浦发银行", "600000"], "values": ["10.5", "10.50"], "unit": "元"}]
+    },
+    "q05": {
+      "expectedToolArguments": {"get_quotes": {"codes": ["600000.SH"]}},
+      "expectedFacts": [
+        {"field": "quotes.600000.SH.price", "anchors": ["浦发银行", "600000"], "relationAnchors": ["价格", "股价", "现价"], "values": ["10.5", "10.50"], "unit": "元"},
+        {"field": "quotes.600000.SH.change", "anchors": ["涨跌额"], "relationAnchors": ["涨跌额"], "values": ["0.1", "0.10"]},
+        {"field": "quotes.600000.SH.changePercent", "anchors": ["涨跌幅"], "relationAnchors": ["涨跌幅"], "values": ["0.96"], "unit": "%"}
+      ]
+    },
+    "q06": {
+      "expectedToolArguments": {"get_quotes": {"codes": ["000001.SZ"]}},
+      "expectedFacts": [{"field": "quotes.000001.SZ.price", "anchors": ["平安银行", "000001"], "relationAnchors": ["价格", "股价", "现价", "平安银行", "000001"], "values": ["12.3", "12.30"], "unit": "元"}]
+    },
+    "q07": {"expectedToolArguments": {"get_quotes": {"codes": ["600000.SH"]}}},
+    "q08": {"expectedToolArguments": {"search_instruments": {"query": "银行"}}},
+    "q09": {
+      "expectedToolArguments": {
+        "search_instruments": {"query": "600519"},
+        "get_quotes": {"codes": ["600519.SH"]}
+      }
+    },
+    "q10": {"expectedToolArguments": {"get_kline": {"symbol": "600000.SH", "period": "day", "count": 30}}},
+    "q11": {"expectedToolArguments": {"get_kline": {"symbol": "600000.SH", "period": "day", "count": 30}}},
+    "q12": {"expectedToolArguments": {"get_kline": {"symbol": "600000.SH", "period": "day", "count": 5}}},
+    "q13": {
+      "expectedToolArguments": {"get_financials": {"code": "600000.SH"}},
+      "expectedFacts": [{"field": "financials.600000.SH.eps", "anchors": ["EPS", "每股收益"], "relationAnchors": ["EPS", "每股收益"], "values": ["1.23"]}]
+    },
+    "q14": {
+      "expectedToolArguments": {"get_financials": {"code": "600000.SH"}},
+      "expectedFacts": [{"field": "financials.600000.SH.bps", "anchors": ["BPS", "每股净资产"], "relationAnchors": ["BPS", "每股净资产"], "values": ["10.2", "10.20"]}]
+    },
+    "q15": {"expectedToolArguments": {"get_financials": {"code": "600000.SH"}}},
+    "q16": {"expectedToolArguments": {"get_capital_flow": {"code": "600000.SH"}}},
+    "q17": {
+      "expectedToolArguments": {"get_capital_flow": {"code": "600000.SH", "limit": 5}},
+      "expectedFacts": [{"field": "capitalFlow.mainNet", "anchors": ["主力净额", "主力资金"], "relationAnchors": ["主力净额", "主力资金"], "values": ["1.2亿", "120000000"]}]
+    },
+    "q18": {"expectedToolArguments": {"get_dragon_tiger": {"code": "600000.SH"}}},
+    "q19": {"expectedToolArguments": {"get_dragon_tiger": {"code": "600000.SH"}}},
+    "q20": {"expectedToolArguments": {"get_news": {"code": "600000.SH"}}},
+    "q21": {"expectedToolArguments": {"get_news": {"code": "600000.SH", "limit": 5}}},
+    "q22": {"expectedToolArguments": {"get_stock_profile": {"code": "600000.SH"}}},
+    "q23": {"expectedToolArguments": {"get_stock_profile": {"code": "600000.SH"}}},
+    "q24": {"expectedToolArguments": {"get_stock_profile": {"code": "600000.SH"}}},
+    "q25": {"expectedToolArguments": {"screen_stocks": {"changePercentMin": 5.0}}},
+    "q26": {"expectedToolArguments": {"screen_stocks": {"priceMax": 10.0, "changePercentMin": 0.0}}},
+    "q27": {"expectedToolArguments": {"screen_stocks": {"amountMin": 5000000000.0}}},
+    "q28": {"expectedToolArguments": {"screen_stocks": {"keyword": "科技", "changePercentMin": 0.0}}},
+    "q29": {
+      "expectedToolArguments": {
+        "get_quotes": {"codes": ["600000.SH"]},
+        "get_financials": {"code": "600000.SH"}
+      },
+      "expectedFacts": [
+        {"field": "quotes.600000.SH.price", "anchors": ["浦发银行", "600000", "价格"], "relationAnchors": ["价格", "股价", "现价"], "values": ["10.5", "10.50"], "unit": "元"},
+        {"field": "financials.600000.SH.eps", "anchors": ["EPS", "每股收益"], "relationAnchors": ["EPS", "每股收益"], "values": ["1.23"]}
+      ]
+    },
+    "q30": {
+      "expectedToolArguments": {
+        "get_quotes": {"codes": ["600000.SH"]},
+        "get_stock_profile": {"code": "600000.SH"},
+        "get_capital_flow": {"code": "600000.SH"}
+      },
+      "expectedFacts": [{"field": "quotes.600000.SH.price", "anchors": ["浦发银行", "600000", "行情"], "relationAnchors": ["价格", "股价", "现价", "行情"], "values": ["10.5", "10.50"], "unit": "元"}]
+    },
+    "q35": {
+      "expectedToolArguments": {
+        "get_quotes": {"codes": ["999999.SH"]},
+        "search_instruments": {"query": "999999"}
+      }
+    },
+    "q36": {
+      "expectedToolArguments": {"get_quotes": {"codes": ["600036.SH"]}},
+      "expectedFacts": [
+        {"field": "quotes.600036.SH.price", "anchors": ["招商银行", "600036", "价格"], "relationAnchors": ["价格", "股价", "现价"], "values": ["35.6", "35.60"], "unit": "元"},
+        {"field": "quotes.600036.SH.changePercent", "anchors": ["招商银行", "600036", "涨跌幅"], "relationAnchors": ["涨跌幅"], "values": ["1.14"], "unit": "%"}
+      ]
+    },
+    "q37": {
+      "expectedToolArguments": {
+        "run_backtest": {
+          "strategyType": "dual_ma",
+          "code": "600000.SH",
+          "start": "2024-01-01",
+          "end": "2024-06-30"
+        }
+      }
+    },
+    "q38": {
+      "expectedToolArguments": {
+        "grid_search": {
+          "strategyType": "dual_ma",
+          "code": "600000.SH",
+          "start": "2024-01-01",
+          "end": "2024-12-31",
+          "paramGrid": {"fast": [5, 10], "slow": [20, 60]}
+        }
+      }
+    }
+  }
+}

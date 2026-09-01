@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Iterator
+from dataclasses import dataclass, field
+from typing import Any
 
 from app.ai.compliance import (
     ADVICE_REDFLAGS,
@@ -43,6 +45,12 @@ _ROUTER_TOOLS = [
         },
     },
 ]
+
+
+@dataclass
+class ChatRunTrace:
+    tool_trace: list[dict[str, Any]] = field(default_factory=list)
+    exhausted: bool = False
 
 
 def _build_messages(user_messages: list[dict]) -> list[dict]:
@@ -99,9 +107,11 @@ def _append_tool_results(
     messages: list[dict],
     assistant_content: str | None,
     calls,
+    tool_executor=None,
 ) -> tuple[list[str], list[dict]]:
     tools_called: list[str] = []
     tool_results: list[dict] = []
+    executor = tool_executor or execute_tool
 
     messages.append(
         {
@@ -125,7 +135,7 @@ def _append_tool_results(
         except json.JSONDecodeError:
             args = {}
         try:
-            result = execute_tool(name, args)
+            result = executor(name, args)
         except Exception as exc:  # noqa: BLE001
             logger.warning("工具 %s 执行失败: %s", name, exc)
             result = {"error": f"工具执行失败: {exc}"}
@@ -140,10 +150,21 @@ def _append_tool_results(
     return tools_called, tool_results
 
 
-def _route_tools(client, messages: list[dict]) -> tuple[list[str], list[dict], bool]:
+def _usage(completion) -> dict[str, int]:
+    usage = getattr(completion, "usage", None)
+    return {
+        "promptTokens": int(getattr(usage, "prompt_tokens", 0) or 0),
+        "completionTokens": int(getattr(usage, "completion_tokens", 0) or 0),
+    }
+
+
+def _route_tools(
+    client, messages: list[dict], tool_executor=None
+) -> tuple[list[str], list[dict], bool, dict[str, int]]:
     """Run bounded required-tool routing shared by live and evaluation paths."""
     tools_called: list[str] = []
     tool_results: list[dict] = []
+    usage = {"promptTokens": 0, "completionTokens": 0}
     for _ in range(MAX_TOOL_ROUNDS):
         completion = client.chat.completions.create(
             model=settings.deepseek_model,
@@ -152,6 +173,11 @@ def _route_tools(client, messages: list[dict]) -> tuple[list[str], list[dict], b
             tool_choice="required",
             stream=False,
         )
+        response_usage = _usage(completion)
+        usage = {
+            key: usage[key] + response_usage[key]
+            for key in usage
+        }
         msg = completion.choices[0].message
         calls = [
             call
@@ -159,11 +185,13 @@ def _route_tools(client, messages: list[dict]) -> tuple[list[str], list[dict], b
             if call.function.name != _FINAL_ANSWER_TOOL
         ]
         if not calls:
-            return tools_called, tool_results, False
-        called, results = _append_tool_results(messages, None, calls)
+            return tools_called, tool_results, False, usage
+        called, results = _append_tool_results(
+            messages, None, calls, tool_executor=tool_executor
+        )
         tools_called.extend(called)
         tool_results.extend(results)
-    return tools_called, tool_results, True
+    return tools_called, tool_results, True, usage
 
 
 def run_completion_stream(system_prompt: str, user_content: str) -> Iterator[str]:
@@ -182,7 +210,12 @@ def run_completion_stream(system_prompt: str, user_content: str) -> Iterator[str
     yield from _guarded_model_stream(stream)
 
 
-def run_chat_collect(user_messages: list[dict], enforce: bool = True) -> dict:
+def run_chat_collect(
+    user_messages: list[dict],
+    enforce: bool = True,
+    *,
+    tool_executor=None,
+) -> dict:
     """Non-streaming variant for evaluation/regression.
 
     ``enforce=False`` skips the compliance final pass — used by the deep-research
@@ -196,7 +229,9 @@ def run_chat_collect(user_messages: list[dict], enforce: bool = True) -> dict:
     client = get_client()
     messages = _build_messages(user_messages)
 
-    tools_called, tool_results, exhausted = _route_tools(client, messages)
+    tools_called, tool_results, exhausted, usage = _route_tools(
+        client, messages, tool_executor=tool_executor
+    )
     if exhausted:
         messages.append(
             {
@@ -210,18 +245,26 @@ def run_chat_collect(user_messages: list[dict], enforce: bool = True) -> dict:
         stream=False,
     )
     answer = completion.choices[0].message.content or MAX_ROUNDS_NOTE
+    final_usage = _usage(completion)
+    usage = {key: usage[key] + final_usage[key] for key in usage}
 
     return {
         "answer": enforce_compliance(answer) if enforce else answer.strip(),
         "toolsCalled": tools_called,
         "toolResults": tool_results,
+        "usage": usage,
     }
 
 
-def run_chat_stream(user_messages: list[dict]) -> Iterator[str]:
+def run_chat_stream(
+    user_messages: list[dict], *, trace: ChatRunTrace | None = None
+) -> Iterator[str]:
     client = get_client()
     messages = _build_messages(user_messages)
-    _, _, exhausted = _route_tools(client, messages)
+    _, tool_results, exhausted, _usage_result = _route_tools(client, messages)
+    if trace is not None:
+        trace.tool_trace = tool_results
+        trace.exhausted = exhausted
     if exhausted:
         messages.append(
             {

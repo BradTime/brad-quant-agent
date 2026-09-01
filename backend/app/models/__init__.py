@@ -18,6 +18,14 @@ from app.models.market import (
 from app.models.research import ResearchReport
 from app.models.strategy import Strategy
 from app.models.trading import SimAccount, SimOrder, SimPosition, SimTrade
+from app.models.training import (
+    AIGenerationTrace,
+    AITrainingFeedback,
+    TrainingCandidate,
+    TrainingConsent,
+    TrainingDataset,
+    TrainingDatasetItem,
+)
 from app.models.user import User
 from app.models.watchlist import WatchlistItem
 
@@ -50,4 +58,10 @@ __all__ = [
     "SimOrder",
     "SimPosition",
     "SimTrade",
+    "TrainingConsent",
+    "AIGenerationTrace",
+    "AITrainingFeedback",
+    "TrainingCandidate",
+    "TrainingDataset",
+    "TrainingDatasetItem",
 ]

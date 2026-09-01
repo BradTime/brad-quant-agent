@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "Quant Agent Backend"
-    version: str = "1.0.3"
+    version: str = "1.0.4"
     port: int = 8000
     # 运行环境：dev / production —— 用于生产收紧安全默认（CORS、JWT 密钥校验）
     app_env: str = "dev"
@@ -198,6 +198,20 @@ class Settings(BaseSettings):
     ai_heavy_min_interval_sec: int = 5
     # 回测每用户每日配额（计算密集；<=0 不限）
     ai_daily_quota_backtest: int = 50
+
+    # Consent-bound training data loop. Artifacts must stay outside public/static
+    # roots and are never uploaded by the application.
+    training_consent_policy_version: str = "2026-09-01"
+    training_redaction_policy_version: str = "2026-09-01-v1"
+    training_artifact_dir: str = "./var/training"
+    training_trace_retention_days: int = 90
+    training_redaction_blocked_terms: str = ""
+    training_approved_tool_sources: str = (
+        "akshare,baostock,efinance,ci_fixture,database,cache"
+    )
+    training_readiness_min_approved: int = 500
+    training_readiness_min_per_task: int = 50
+    training_readiness_min_validation: int = 100
 
     # 可观测（Sentry）：仅当 sentry_dsn 非空时启用；默认关、零开销、不外联
     sentry_dsn: str = ""

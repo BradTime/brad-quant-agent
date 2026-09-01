@@ -148,6 +148,40 @@ AI `get_financials` 工具接受并复用相同的可选 `asOf`。
 邮箱激活由 `20260717_0004` 增加 `users.email_verified_at` 与 `email_verifications`；
 迁移时所有旧用户以 `email_verified_at=created_at` 标记为已验证，避免中断既有登录。
 
+## 训练数据闭环
+
+普通问答会话默认不采集训练轨迹。用户必须在生成前逐会话开启“允许本会话用于改进模型”；
+只有完整落库的回答才保存不可逆脱敏后的输入、输出与工具轨迹。用户可随时撤回授权，
+撤回会清空未冻结内容；若样本已进入数据集，则对应版本作废并删除 artifact。
+个性化早报、深研、回测/模拟复盘和投资行为数据不进入首期闭环。
+
+```bash
+# 审计已由管理员批准的候选（PII、重复、格式、工具契约）
+python -m app.cli training audit
+
+# 查看是否达到 500 条总量、每类 50 条、validation 100 条的微调门槛
+python -m app.cli training readiness
+
+# 构建不可覆盖的版本化 train/validation JSONL
+python -m app.cli training build --version dataset-2026-09-01
+python -m app.cli training export --version dataset-2026-09-01
+
+# 黄金集：结构校验；live 模式可输出 JSON/JUnit 并与基线比较
+python scripts/ai_eval.py --offline
+AI_EVAL_INPUT_COST_PER_MILLION=1 \
+AI_EVAL_OUTPUT_COST_PER_MILLION=2 \
+python scripts/ai_eval.py --json-output var/eval/current.json \
+  --junit-output var/eval/current.xml --baseline tests/reports/baseline.json
+```
+
+评测默认使用 checksum 固定的 `tests/fixtures/ai_eval/seed-ci-market-v1.json`，
+并对每题做精确规范化工具参数和字段锚定事实校验；只有显式传 `--live-tools`
+才访问当前数据库工具。真实价格必须按供应商账单配置，缺 token usage 或价格会直接阻断门禁。
+
+`TRAINING_ARTIFACT_DIR` 必须是非公开、仅服务进程可读写的持久目录。生产 Compose 使用
+私有 `trainingdata` volume。应用不会把训练 artifact 上传到 DeepSeek、LangSmith、Sentry
+或 embedding 服务；实际 SFT/LoRA 必须在独立审批后执行。
+
 ## WebSocket 行情推送（`/ws/v1`）
 
 调度器把数据源刷新进内存缓存；一个异步推送循环每 `WS_PUSH_SECONDS`（默认 3s）把订阅主题的最新缓存推给客户端（只读缓存、不发起网络请求，故不阻塞）。

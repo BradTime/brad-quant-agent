@@ -175,6 +175,14 @@ _ARG_MODELS: dict[str, type[BaseModel]] = {
 }
 
 
+def validate_tool_arguments(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Validate a stored tool call without executing it."""
+    model = _ARG_MODELS.get(name)
+    if model is None:
+        raise ValueError(f"未知工具: {name}")
+    return model.model_validate(arguments).model_dump(mode="json", by_alias=True)
+
+
 def _validation_error(exc: ValidationError) -> dict:
     return {
         "error": "工具参数无效",

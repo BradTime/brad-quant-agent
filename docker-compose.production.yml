@@ -79,6 +79,8 @@ services:
     init: true
     env_file:
       - ${PRODUCTION_ENV_FILE:-./deploy/production.env}
+    volumes:
+      - trainingdata:/app/var/training
     environment:
       APP_ENV: production
       PROCESS_ROLE: api
@@ -128,6 +130,8 @@ services:
     init: true
     env_file:
       - ${PRODUCTION_ENV_FILE:-./deploy/production.env}
+    volumes:
+      - trainingdata:/app/var/training
     environment:
       APP_ENV: production
       PROCESS_ROLE: worker
@@ -224,5 +228,6 @@ networks:
 volumes:
   pgdata:
   redisdata:
+  trainingdata:
   caddy_data:
   caddy_config:

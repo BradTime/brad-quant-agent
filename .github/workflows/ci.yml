@@ -61,6 +61,10 @@ jobs:
         run: alembic upgrade head
       - name: Check schema drift
         run: alembic check
+      - name: Training dataset privacy and schema audit
+        run: |
+          python scripts/ai_eval.py --offline
+          python -m app.cli training audit
       - name: Redis integration contracts
         env:
           REDIS_URL: redis://localhost:6379/15

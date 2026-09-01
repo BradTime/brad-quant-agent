@@ -15,6 +15,7 @@ from app.api.v1 import (
     market,
     sim,
     strategies,
+    training,
     watchlist,
 )
 from app.core.response import success
@@ -39,6 +40,7 @@ def api_root() -> dict:
                 "strategies",
                 "backtest",
                 "sim",
+                "training",
             ],
         },
         message="API v1 root",
@@ -54,3 +56,4 @@ api_router.include_router(brief.router, prefix="/brief", tags=["brief"])
 api_router.include_router(strategies.router, prefix="/strategies", tags=["strategies"])
 api_router.include_router(backtest.router, prefix="/backtest", tags=["backtest"])
 api_router.include_router(sim.router, prefix="/sim", tags=["sim"])
+api_router.include_router(training.router, prefix="/training", tags=["training"])

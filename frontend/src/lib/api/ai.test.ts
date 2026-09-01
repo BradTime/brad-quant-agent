@@ -29,25 +29,35 @@ describe('streamChat session frames', () => {
       .mockResolvedValue(
         sseResponse(
           'data: {"sessionId":"session-1"}\n\n',
-          'data: {"delta":"答"}\n\ndata: [DONE]\n\n'
+          'data: {"delta":"答"}\n\n',
+          'data: {"complete":true,"userMessageId":"u1","assistantMessageId":"a1","traceId":"t1"}\n\ndata: [DONE]\n\n'
         )
       );
     const onSession = vi.fn();
     const onDelta = vi.fn();
+    const onComplete = vi.fn();
 
     await streamChat([{ role: 'user', content: '本轮问题' }], {
       sessionId: 'session-1',
       onSession,
       onDelta,
+      onComplete,
+      trainingConsent: true,
     });
 
     const request = fetchMock.mock.calls[0][1] as RequestInit;
     expect(JSON.parse(String(request.body))).toMatchObject({
       sessionId: 'session-1',
       messages: [{ role: 'user', content: '本轮问题' }],
+      trainingConsent: true,
     });
     expect(onSession).toHaveBeenCalledWith('session-1');
     expect(onDelta).toHaveBeenCalledWith('答');
+    expect(onComplete).toHaveBeenCalledWith({
+      userMessageId: 'u1',
+      assistantMessageId: 'a1',
+      traceId: 't1',
+    });
   });
 
   it('treats EOF without DONE as an interrupted stream', async () => {

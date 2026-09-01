@@ -43,6 +43,8 @@ services:
     # PROCESS_ROLE=all（默认）= HTTP + 调度器 + embedding 预热同进程；生产可拆 api / worker 两容器。
     env_file:
       - ./backend/.env
+    volumes:
+      - trainingdata:/app/var/training
     environment:
       DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/quant_agent
       REDIS_URL: redis://redis:6379/0
@@ -84,3 +86,4 @@ services:
 volumes:
   pgdata:
   redisdata:
+  trainingdata:

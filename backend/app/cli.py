@@ -91,6 +91,15 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("rag-backfill", help="把已落库新闻/历史早报向量化灌入 RAG 检索库")
 
+    p_training = sub.add_parser("training", help="训练数据审计、构建与就绪检查")
+    training_sub = p_training.add_subparsers(dest="training_cmd", required=True)
+    training_sub.add_parser("audit", help="审计已批准训练候选")
+    training_sub.add_parser("readiness", help="检查是否达到进入微调的规模门槛")
+    p_training_build = training_sub.add_parser("build", help="构建并冻结数据集")
+    p_training_build.add_argument("--version", required=True)
+    p_training_export = training_sub.add_parser("export", help="验证并显示数据集位置")
+    p_training_export.add_argument("--version", required=True)
+
     p_bf = sub.add_parser(
         "backfill",
         help="批量回填一组标的的 日K+复权+资金流+财务+新闻(+可选分钟K/龙虎榜)",
@@ -221,6 +230,22 @@ def main(argv: list[str] | None = None) -> int:
         stats = rag.backfill_all()
         print(f"✅ RAG 回填完成：新闻 {stats['news']} 块、历史早报 {stats['briefs']} 块")
         return 0
+
+    if args.cmd == "training":
+        import json
+
+        from app.services import training_dataset
+
+        if args.training_cmd == "audit":
+            result = training_dataset.audit_candidates()
+        elif args.training_cmd == "readiness":
+            result = training_dataset.readiness()
+        elif args.training_cmd == "build":
+            result = training_dataset.build_dataset(args.version)
+        else:
+            result = training_dataset.dataset_info(args.version)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result.get("ok", result.get("checksumOk", True)) else 1
 
     from app.services import ingest
 
