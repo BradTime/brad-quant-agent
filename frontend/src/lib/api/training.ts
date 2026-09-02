@@ -81,11 +81,11 @@ const candidateSchema: z.ZodType<TrainingCandidate> = z.object({
 });
 
 export async function listTrainingCandidates(
-  status?: string
+  filters: { status?: string; taskType?: string; rating?: string } = {}
 ): Promise<TrainingCandidate[]> {
   const response = await apiClient.get<TrainingCandidate[]>(
     '/training/admin/candidates',
-    { params: status ? { status } : undefined }
+    { params: filters }
   );
   return z.array(candidateSchema).parse(response.data ?? []);
 }

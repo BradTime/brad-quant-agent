@@ -75,10 +75,19 @@ def feedback(
 @router.get("/admin/candidates")
 def candidates(
     status: str | None = Query(default=None),
+    task_type: str | None = Query(default=None, alias="taskType"),
+    rating: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=200),
     _admin: User = Depends(require_admin),
 ) -> dict:
-    return success(training_data.list_candidates(status, limit))
+    return success(
+        training_data.list_candidates(
+            status,
+            limit,
+            task_type=task_type,
+            rating=rating,
+        )
+    )
 
 
 @router.put("/admin/candidates/{candidate_id}")

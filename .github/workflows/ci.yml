@@ -63,7 +63,8 @@ jobs:
         run: alembic check
       - name: Training dataset privacy and schema audit
         run: |
-          python scripts/ai_eval.py --offline
+          python scripts/ai_eval.py --offline \
+            --baseline tests/reports/ai_eval_baseline_20260902.json
           python -m app.cli training audit
       - name: Redis integration contracts
         env:

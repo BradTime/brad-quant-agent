@@ -10,8 +10,6 @@ import {
   Sparkles,
   Square,
   Telescope,
-  ThumbsDown,
-  ThumbsUp,
   Trash2,
 } from 'lucide-react';
 import {
@@ -37,11 +35,11 @@ import { useRafBatchedString } from '@/hooks/useRafBatchedString';
 import {
   getTrainingConsent,
   setTrainingConsent as updateTrainingConsent,
-  submitTrainingFeedback,
 } from '@/lib/api/training';
 import { cn } from '@/lib/utils';
 import { Markdown } from './markdown';
 import { ResearchPlanCard } from './research-plan';
+import { MessageFeedback } from './message-feedback';
 
 function fmtTime(iso: string | null): string {
   if (!iso) return '';
@@ -574,51 +572,6 @@ export function ChatPanel({
     }
   };
 
-  const rateAnswer = async (
-    message: DisplayMessage,
-    rating: 'up' | 'down'
-  ) => {
-    if (!message.persistedId || !trainingConsent) return;
-    let comment = '';
-    const issueLabels: string[] = [];
-    if (rating === 'down') {
-      const label =
-        window.prompt(
-          '请选择问题标签：incorrect / unsupported / missing_data / wrong_tool / unsafe_advice / unclear / other',
-          'other'
-        ) ?? 'other';
-      const allowed = new Set([
-        'incorrect',
-        'unsupported',
-        'missing_data',
-        'wrong_tool',
-        'unsafe_advice',
-        'unclear',
-        'other',
-      ]);
-      issueLabels.push(allowed.has(label) ? label : 'other');
-      comment =
-        window.prompt('可选：请说明回答存在的问题（内容会先脱敏再保存）') ??
-        '';
-    }
-    try {
-      await submitTrainingFeedback(message.persistedId, {
-        rating,
-        issueLabels,
-        ...(comment.trim() ? { comment: comment.trim() } : {}),
-      });
-      setMessages((current) =>
-        patchDisplayMessageById(current, message.id, { feedback: rating })
-      );
-    } catch (error) {
-      setChatError(
-        typeof error === 'object' && error && 'message' in error
-          ? String(error.message)
-          : '提交反馈失败'
-      );
-    }
-  };
-
   const send = async (text: string) => {
     const content = text.trim();
     if (!content || streaming || loadingSession || abortRef.current) return;
@@ -851,33 +804,18 @@ export function ChatPanel({
                   m.persistedId &&
                   trainingConsent &&
                   !streaming && (
-                    <div className="mt-2 flex items-center gap-1 border-t border-border/60 pt-2">
-                      <span className="mr-1 text-[10px] text-muted-foreground">
-                        评价并贡献此回答
-                      </span>
-                      <button
-                        type="button"
-                        aria-label="回答有帮助"
-                        onClick={() => void rateAnswer(m, 'up')}
-                        className={cn(
-                          'rounded p-1 text-muted-foreground hover:text-foreground',
-                          m.feedback === 'up' && 'text-brand'
-                        )}
-                      >
-                        <ThumbsUp className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label="回答需改进"
-                        onClick={() => void rateAnswer(m, 'down')}
-                        className={cn(
-                          'rounded p-1 text-muted-foreground hover:text-foreground',
-                          m.feedback === 'down' && 'text-destructive'
-                        )}
-                      >
-                        <ThumbsDown className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
+                    <MessageFeedback
+                      messageId={m.persistedId}
+                      current={m.feedback}
+                      onSaved={(rating) =>
+                        setMessages((current) =>
+                          patchDisplayMessageById(current, m.id, {
+                            feedback: rating,
+                          })
+                        )
+                      }
+                      onError={setChatError}
+                    />
                   )}
               </div>
             </div>

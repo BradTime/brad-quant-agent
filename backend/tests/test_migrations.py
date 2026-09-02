@@ -48,7 +48,8 @@ EMAIL_VERIFICATION_REVISION = "20260717_0004"
 BACKTEST_JOBS_REVISION = "20260717_0010"
 STATUS_HISTORY_REVISION = "20260831_0011"
 TRAINING_DATA_REVISION = "20260901_0012"
-HEAD_REVISION = TRAINING_DATA_REVISION
+ADMIN_AUDIT_REVISION = "20260902_0013"
+HEAD_REVISION = ADMIN_AUDIT_REVISION
 HNSW_INDEX = "ix_documents_embedding_hnsw"
 LEGACY_TABLES = frozenset(
     {
@@ -90,6 +91,7 @@ POST_BASELINE_TABLES = frozenset(
         "training_candidates",
         "training_datasets",
         "training_dataset_items",
+        "admin_privilege_audits",
     }
 )
 
@@ -219,6 +221,11 @@ def _create_pre_alembic_schema(
         if table_name == "financial_summaries":
             continue
         Base.metadata.tables[table_name].to_metadata(schema_metadata)
+    users_table = schema_metadata.tables.get("users")
+    if users_table is not None:
+        for constraint in list(users_table.constraints):
+            if constraint.name == "ck_users_role_allowed":
+                users_table.constraints.remove(constraint)
     Table(
         "financial_summaries",
         schema_metadata,
@@ -370,6 +377,11 @@ def test_standard_alembic_layout_is_present() -> None:
         ALEMBIC_DIR
         / "versions"
         / f"{TRAINING_DATA_REVISION}_training_data_loop.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{ADMIN_AUDIT_REVISION}_admin_privilege_audit.py"
     ).is_file()
 
 

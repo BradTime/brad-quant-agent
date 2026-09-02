@@ -140,7 +140,7 @@ def _run_mcp(tool_calls: list[tuple[str, dict]], timeout: int = 60) -> dict[int,
             "params": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
-                "clientInfo": {"name": "brad-quant-agent", "version": "1.0.4"},
+                "clientInfo": {"name": "brad-quant-agent", "version": "1.0.5"},
             },
         },
         {"jsonrpc": "2.0", "method": "notifications/initialized"},

@@ -37,7 +37,11 @@ def test_admin_can_list_training_candidates(monkeypatch):
     app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(
         id="admin-a", role="admin"
     )
-    monkeypatch.setattr(training_data, "list_candidates", lambda _status, _limit: [])
+    monkeypatch.setattr(
+        training_data,
+        "list_candidates",
+        lambda _status, _limit, **_filters: [],
+    )
     try:
         response = TestClient(app).get("/api/v1/training/admin/candidates")
         assert response.status_code == 200

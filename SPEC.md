@@ -1,7 +1,7 @@
 # AI 原生 A 股个人投研平台 — SPEC v1（定稿）
 
 - 状态：定稿（Approved）
-- 日期：2026-05-29（进度更新 2026-09-01）
+- 日期：2026-05-29（进度更新 2026-09-02）
 - 适用范围：本仓库后续所有开发的总纲；与 `前端开发需求文档.md`（旧版纯前端需求）冲突时，以本 SPEC 为准。
 - **实现进度**：Phase 0–4 + AI 增强（RAG、多智能体、MCP、会话/偏好记忆、授权式训练数据闭环）+ 工程化基线**均已完成**。实际模型微调须等待数据质量门禁达标；「产品化扩展期」（RBAC / 多市场 / i18n / 真实时）按规划后置。
 
@@ -185,8 +185,8 @@ brad-quant-agent/
 - [x] 大盘指数概览（看盘工作台 + dashboard 复用）
 - [x] 选股工具（AI 可调用 `screen_stocks` + 手动条件筛选 UI）
 - [x] AI 看盘问答：嵌入式助手（个股详情右栏）+ 独立 `/ai` 页，自然语言 → 工具调用 → 流式作答，免责 + 红线
-- [x] AI 准确性测试集（38 题 `tests/golden_questions.json`，含回测/网格工具题）与回归校验脚本 `scripts/ai_eval.py`（离线/全量；支持 `expectNumericFrom` 数值一致性）
-- [x] **AI 准确性全量回归已通过**（DeepSeek `deepseek-chat` 实跑 36 题基线）：工具选择 100%（32/32，目标 ≥95%）、合规含免责 100%（36/36，红线）、确定性买卖指令 0 条（红线）、报价数值与落库一致 14/14（软指标 100%）、缺数据诚实性 2/2；报告留存于 `backend/tests/reports/phase1_ai_eval_*.txt`；后续增补题以 `--offline` / 按需 live 回归
+- [x] AI 黄金评测集扩展至 **150 题** `tests/golden_questions.json`：覆盖基础工具、代码规范化、交易日历、ST/停牌/退市、复权/PIT、单位换算、陈旧/缺失数据、多工具综合、提示注入、隐性荐股合规与回测边界；冻结 fixture/checksum、精确工具参数与字段归属事实由 `golden_questions.meta.json` 约束
+- [x] **150 题 AI 基线**：DeepSeek `deepseek-chat` 已基于冻结工具 fixture 完成全量实跑并生成 JSON/JUnit；API 成功率 100%、安全输出合规 100%、工具准确率 14.8%、诚实性 56.3%、数值一致性 66.7%，成本约 $0.30。该失败基线用于量化路由/提示改进，不代表发布门禁通过；CI 校验题目、usage、价格与报告完整性
 - [x] 健壮性：免费实时源限流时全市场快照抓取加硬超时降级（`realtime_fetch_timeout_seconds`），避免请求/调度无限挂起；实时不可用时选股/快照按 SPEC 显式标注，不杜撰
 - [x] 验收：`docker compose up -d --build backend frontend` 一键起；真实 Postgres/FastAPI/Next.js Docker 全栈首次导航个股关键首屏 483ms（阈值 <2s，见 `docs/performance-baseline-2026-07-14.md`）
 
@@ -228,6 +228,7 @@ brad-quant-agent/
 - [x] 偏好与界面上下文均作为普通 user 层的“不可信元数据”包裹，仅可个性化表达；行情/数值事实继续只能来自工具，`SYSTEM_PROMPT` 工具取数红线不变
 - [x] **授权式训练数据闭环**：会话级显式 opt-in（默认关闭）；仅完整回答保存不可逆脱敏的工具轨迹；赞/踩反馈与管理员人工修订/审核；版本化 train/validation JSONL、checksum、PII/泄漏审计、用户导出/撤回与数据集作废重建
 - [x] **AI 评测硬门禁**：严格必需/允许/禁止工具评分，原始输出与安全输出分开评测，API 失败计为失败，事实/单位/日期检查，JSON/JUnit 报告及 baseline 回归比较
+- [x] **训练数据运营准备**：管理员 CLI 仅可提升已验证既有账户，默认 dry-run，并绑定邮箱、不可变用户 UUID 与目标环境；实际提升与脱敏权限审计同事务提交并失效旧会话；用户反馈与管理员审核均使用结构化表单，支持状态/任务/好差评筛选
 - [ ] **实际模型微调**：仅在至少 500 条已批准样本、核心任务每类至少 50 条、validation 至少 100 条且全部隐私/质量门禁通过后，另行选择云端 SFT 或本地 LoRA；本阶段不上传数据、不触发付费训练
 
 ### 工程化与 Phase 3 预备（增量）
@@ -281,7 +282,7 @@ brad-quant-agent/
 - [x] **L1** Topbar 补 `/sim` 标题映射
 - [x] **L2** API 根改为 `apiVersion` + `capabilities`（移除误导性 `phase: 1`）
 - [x] **L3** 删除未使用的 `GET /backtest/{id}/metrics`
-- [x] **L4** `avatar` / RBAC `role` 明确后置：序列化恒 `avatar=null`、`role=user`；类型注释标明预留
+- [x] **L4** `avatar` 仍为预留字段；`role` 暴露数据库真实值以支持训练审核管理员，完整权限矩阵与商业化 RBAC 继续后置
 - [x] **L5** 个股侧栏 ChatPanel 保持轻量；引导前往 `/ai` 做深度研究
 - [x] **L6** 移除未用依赖（`echarts-for-react` / `date-fns` / `react-hook-form` / `@hookform/resolvers`）
 - [x] **L7** 减少预加载字重；首屏 `main` 去掉 opacity 动画

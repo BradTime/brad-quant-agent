@@ -1,5 +1,6 @@
 """ORM models and schemas (include point-in-time fields for backtest correctness)."""
 
+from app.models.admin import AdminPrivilegeAudit
 from app.models.auth import AuthThrottle, EmailVerification, VerificationEmailOutbox
 from app.models.backtest import BacktestRun
 from app.models.brief import MorningBrief
@@ -31,6 +32,7 @@ from app.models.watchlist import WatchlistItem
 
 __all__ = [
     "User",
+    "AdminPrivilegeAudit",
     "AuthThrottle",
     "EmailVerification",
     "VerificationEmailOutbox",

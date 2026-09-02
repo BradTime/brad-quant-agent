@@ -156,6 +156,19 @@ AI `get_financials` 工具接受并复用相同的可选 `asOf`。
 个性化早报、深研、回测/模拟复盘和投资行为数据不进入首期闭环。
 
 ```bash
+# 首次管理员引导：先只读检查并复制不可变 UUID；提升默认 dry-run
+python -m app.cli admin inspect --email owner@example.com
+python -m app.cli admin promote-existing \
+  --email owner@example.com \
+  --expected-user-id <inspect 返回的 UUID> \
+  --expect-environment production
+# 人工核对脱敏输出后，再增加 --apply；操作与审计记录同事务提交
+python -m app.cli admin promote-existing \
+  --email owner@example.com \
+  --expected-user-id <inspect 返回的 UUID> \
+  --expect-environment production --apply
+python -m app.cli admin list
+
 # 审计已由管理员批准的候选（PII、重复、格式、工具契约）
 python -m app.cli training audit
 
@@ -171,12 +184,21 @@ python scripts/ai_eval.py --offline
 AI_EVAL_INPUT_COST_PER_MILLION=1 \
 AI_EVAL_OUTPUT_COST_PER_MILLION=2 \
 python scripts/ai_eval.py --json-output var/eval/current.json \
-  --junit-output var/eval/current.xml --baseline tests/reports/baseline.json
+  --junit-output var/eval/current.xml \
+  --baseline tests/reports/ai_eval_baseline_20260902.json
 ```
 
 评测默认使用 checksum 固定的 `tests/fixtures/ai_eval/seed-ci-market-v1.json`，
 并对每题做精确规范化工具参数和字段锚定事实校验；只有显式传 `--live-tools`
 才访问当前数据库工具。真实价格必须按供应商账单配置，缺 token usage 或价格会直接阻断门禁。
+黄金集现含 150 题，覆盖代码规范化、交易制度、PIT/复权、缺失数据、多工具、
+提示注入、隐性荐股合规和回测边界。当前 150 题 DeepSeek 基线已固化为 JSON/JUnit；
+它用于量化后续改进，不代表门禁已通过。首轮结果的工具准确率为 14.8%，应优先收紧
+路由和参数提取，再考虑训练权重。
+CI 只校验该“现状参考基线”的题目、fixture、usage 与价格完整性；模型晋级时必须让
+新报告自身通过全部硬门禁，并可用
+`--offline --baseline <candidate.json> --require-passing-baseline`
+验证候选报告不可被失败基线冒充。
 
 `TRAINING_ARTIFACT_DIR` 必须是非公开、仅服务进程可读写的持久目录。生产 Compose 使用
 私有 `trainingdata` volume。应用不会把训练 artifact 上传到 DeepSeek、LangSmith、Sentry

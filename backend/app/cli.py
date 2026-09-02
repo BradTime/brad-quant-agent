@@ -100,6 +100,22 @@ def main(argv: list[str] | None = None) -> int:
     p_training_export = training_sub.add_parser("export", help="验证并显示数据集位置")
     p_training_export.add_argument("--version", required=True)
 
+    p_admin = sub.add_parser("admin", help="管理员引导与审计")
+    admin_sub = p_admin.add_subparsers(dest="admin_cmd", required=True)
+    admin_sub.add_parser("list", help="列出当前管理员（邮箱默认脱敏）")
+    p_admin_inspect = admin_sub.add_parser("inspect", help="只读检查目标账户")
+    p_admin_inspect.add_argument("--email", required=True)
+    p_admin_promote = admin_sub.add_parser(
+        "promote-existing",
+        help="提升已验证既有账户；默认 dry-run，必须绑定 UUID 与环境",
+    )
+    p_admin_promote.add_argument("--email", required=True)
+    p_admin_promote.add_argument("--expected-user-id", required=True)
+    p_admin_promote.add_argument("--expect-environment", required=True)
+    p_admin_promote.add_argument(
+        "--apply", action="store_true", help="实际提交；缺省仅预演"
+    )
+
     p_bf = sub.add_parser(
         "backfill",
         help="批量回填一组标的的 日K+复权+资金流+财务+新闻(+可选分钟K/龙虎榜)",
@@ -246,6 +262,46 @@ def main(argv: list[str] | None = None) -> int:
             result = training_dataset.dataset_info(args.version)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result.get("ok", result.get("checksumOk", True)) else 1
+
+    if args.cmd == "admin":
+        import json
+
+        from app.services import admin_bootstrap
+
+        try:
+            if args.admin_cmd == "list":
+                result = admin_bootstrap.list_admins()
+            elif args.admin_cmd == "inspect":
+                result = admin_bootstrap.inspect_account(args.email)
+            else:
+                result = admin_bootstrap.promote_existing(
+                    email=args.email,
+                    expected_user_id=args.expected_user_id,
+                    expected_environment=args.expect_environment,
+                    apply=bool(args.apply),
+                )
+        except admin_bootstrap.AdminBootstrapError as exc:
+            print(
+                json.dumps(
+                    {"ok": False, "code": exc.code, "message": str(exc)},
+                    ensure_ascii=False,
+                )
+            )
+            return 1
+        except Exception:  # noqa: BLE001
+            print(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "code": "ADMIN_OPERATION_FAILED",
+                        "message": "管理员操作失败；请检查数据库与 migration",
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            return 1
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
 
     from app.services import ingest
 

@@ -169,6 +169,14 @@ under a web-served directory or upload them to telemetry services.
 
 ## Operational notes
 
+Administrator promotion is an explicit host operation after the user completes
+normal email verification. Run `python -m app.cli admin inspect --email ...`
+inside the backend container, then use the returned UUID with
+`admin promote-existing --expected-user-id ... --expect-environment production`.
+Promotion is dry-run unless `--apply` is present, invalidates old sessions, and
+writes a sanitized privilege audit in the same transaction. `admin list` masks
+email addresses by default.
+
 - Caddy has fixed private address `172.30.0.10`; only its `/32` is trusted for
   forwarded client IPs used by authentication rate limiting.
 - Proxy/Uvicorn access logs are disabled because the current WebSocket handshake

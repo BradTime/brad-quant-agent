@@ -9,10 +9,13 @@ import {
   type TrainingCandidate,
 } from '@/lib/api/training';
 import { useAuthStore } from '@/stores/useAuthStore';
+import { CandidateReviewCard } from '@/components/ai/candidate-review-card';
 
 export default function TrainingAdminPage() {
   const user = useAuthStore((state) => state.user);
   const [status, setStatus] = useState('pending');
+  const [taskType, setTaskType] = useState('');
+  const [rating, setRating] = useState('');
   const [rows, setRows] = useState<TrainingCandidate[]>([]);
   const [readiness, setReadiness] = useState<Awaited<
     ReturnType<typeof getTrainingReadiness>
@@ -27,7 +30,11 @@ export default function TrainingAdminPage() {
     if (user?.role !== 'admin') return;
     try {
       const [candidates, state] = await Promise.all([
-        listTrainingCandidates(status || undefined),
+        listTrainingCandidates({
+          ...(status ? { status } : {}),
+          ...(taskType ? { taskType } : {}),
+          ...(rating ? { rating } : {}),
+        }),
         getTrainingReadiness(),
       ]);
       setRows(candidates);
@@ -40,7 +47,7 @@ export default function TrainingAdminPage() {
           : '加载训练候选失败'
       );
     }
-  }, [status, user?.role]);
+  }, [rating, status, taskType, user?.role]);
 
   useEffect(() => {
     const task = window.setTimeout(() => void refresh(), 0);
@@ -60,23 +67,17 @@ export default function TrainingAdminPage() {
 
   const review = async (
     candidate: TrainingCandidate,
-    decision: 'approved' | 'rejected'
-  ) => {
-    let idealAnswer = candidate.idealAnswer ?? '';
-    if (decision === 'approved' && candidate.rating === 'down') {
-      idealAnswer =
-        window.prompt('差评样本必须填写理想答案', idealAnswer) ?? '';
-      if (!idealAnswer.trim()) return;
+    payload: {
+      status: 'approved' | 'rejected';
+      taskType: TrainingCandidate['taskType'];
+      idealAnswer?: string;
+      qualityLabels: string[];
+      reviewNote?: string;
     }
-    const note = window.prompt('可选：审核备注', candidate.reviewNote ?? '') ?? '';
+  ) => {
     setBusy(true);
     try {
-      await reviewTrainingCandidate(candidate.id, {
-        status: decision,
-        taskType: candidate.taskType,
-        ...(idealAnswer.trim() ? { idealAnswer: idealAnswer.trim() } : {}),
-        ...(note.trim() ? { reviewNote: note.trim() } : {}),
-      });
+      await reviewTrainingCandidate(candidate.id, payload);
       await refresh();
     } catch (reason) {
       setError(
@@ -153,6 +154,27 @@ export default function TrainingAdminPage() {
           <option value="rejected">已拒绝</option>
           <option value="">全部</option>
         </select>
+        <select
+          value={taskType}
+          onChange={(event) => setTaskType(event.target.value)}
+          className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
+          aria-label="任务类型筛选"
+        >
+          <option value="">全部任务</option>
+          <option value="tool-routing">工具路由</option>
+          <option value="grounded-response">有依据回答</option>
+          <option value="honesty-compliance">诚实性 / 合规</option>
+        </select>
+        <select
+          value={rating}
+          onChange={(event) => setRating(event.target.value)}
+          className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
+          aria-label="反馈筛选"
+        >
+          <option value="">全部反馈</option>
+          <option value="up">好评</option>
+          <option value="down">差评</option>
+        </select>
         <input
           value={version}
           onChange={(event) => setVersion(event.target.value)}
@@ -178,55 +200,12 @@ export default function TrainingAdminPage() {
           </div>
         )}
         {rows.map((candidate) => (
-          <article
+          <CandidateReviewCard
             key={candidate.id}
-            className="space-y-3 rounded-xl border border-border bg-card p-4"
-          >
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="rounded bg-muted px-2 py-1">
-                {candidate.taskType}
-              </span>
-              <span className="rounded bg-muted px-2 py-1">
-                {candidate.rating === 'up' ? '好评' : '差评'}
-              </span>
-              <span className="text-muted-foreground">{candidate.status}</span>
-            </div>
-            <div>
-              <div className="text-xs text-muted-foreground">用户问题</div>
-              <p className="mt-1 whitespace-pre-wrap text-sm">{candidate.input}</p>
-            </div>
-            <div>
-              <div className="text-xs text-muted-foreground">模型回答</div>
-              <p className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap text-sm">
-                {candidate.output}
-              </p>
-            </div>
-            {candidate.comment && (
-              <p className="text-xs text-muted-foreground">
-                用户说明：{candidate.comment}
-              </p>
-            )}
-            {candidate.status === 'pending' && (
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void review(candidate, 'approved')}
-                  className="rounded-lg bg-brand px-3 py-1.5 text-xs text-brand-foreground"
-                >
-                  批准
-                </button>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void review(candidate, 'rejected')}
-                  className="rounded-lg border border-border px-3 py-1.5 text-xs"
-                >
-                  拒绝
-                </button>
-              </div>
-            )}
-          </article>
+            candidate={candidate}
+            busy={busy}
+            onReview={review}
+          />
         ))}
       </div>
     </div>

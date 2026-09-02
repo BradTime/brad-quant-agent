@@ -178,6 +178,51 @@ def validate_offline(data: list[dict]) -> int:
     return 0
 
 
+def validate_baseline_report(
+    data: list[dict], path: Path, *, require_passing: bool = False
+) -> int:
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"❌ 基线报告不可读：{exc}")
+        return 1
+    expected_ids = {item["id"] for item in data}
+    result_ids = {str(item.get("id")) for item in report.get("results", [])}
+    metrics = report.get("metrics", {})
+    errors: list[str] = []
+    meta = json.loads(DATASET_META.read_text(encoding="utf-8"))
+    fixture = meta["fixture"]
+    if report.get("schemaVersion") != 1:
+        errors.append("未知 baseline schemaVersion")
+    if report.get("datasetVersion") != meta["datasetVersion"]:
+        errors.append("baseline datasetVersion 不匹配")
+    if report.get("questionsSha256") != fixture["questionsSha256"]:
+        errors.append("baseline questions checksum 不匹配")
+    if report.get("toolResultsSha256") != fixture["toolResultsSha256"]:
+        errors.append("baseline fixture checksum 不匹配")
+    if result_ids != expected_ids:
+        errors.append(
+            f"baseline 题目不完整：期望 {len(expected_ids)}，实际 {len(result_ids)}"
+        )
+    if metrics.get("usageCoverage") != 1.0:
+        errors.append("baseline token usage 覆盖不完整")
+    if metrics.get("pricingConfigured") is not True:
+        errors.append("baseline 未配置模型价格")
+    if metrics.get("apiSuccessRate") != 1.0:
+        errors.append("baseline 存在 API 失败")
+    if require_passing and report.get("passed") is not True:
+        errors.append("baseline 未通过模型发布门禁")
+    if errors:
+        print("❌ 基线报告校验失败：" + "；".join(errors))
+        return 1
+    print(
+        "✅ 基线报告完整："
+        f"{len(result_ids)} 题，工具准确率 {metrics.get('toolAccuracy', 0):.1%}，"
+        f"成本 ${metrics.get('estimatedCost', 0):.4f}"
+    )
+    return 0
+
+
 def _price_tokens(value: float) -> set[str]:
     tokens = {str(value), f"{value:.2f}", f"{value:.1f}"}
     if abs(value - round(value)) < 0.01:
@@ -300,6 +345,114 @@ def frozen_tool_executor():
                 for row in result.get("quotes", [])
                 if not requested or row.get("code") in requested
             ]
+        elif name == "search_instruments":
+            query = str(canonical_arguments.get("query", "")).lower()
+            result["instruments"] = [
+                row
+                for row in result.get("instruments", [])
+                if query in str(row.get("code", "")).lower()
+                or query in str(row.get("name", "")).lower()
+            ][: int(canonical_arguments.get("limit", 20))]
+        elif name == "get_kline":
+            if canonical_arguments.get("symbol") != "600000.SH":
+                result["kline"] = []
+            else:
+                result["kline"] = result.get("kline", [])[
+                    -int(canonical_arguments.get("count", 100)) :
+                ]
+        elif name == "get_financials":
+            code = canonical_arguments.get("code")
+            as_of = canonical_arguments.get("asOf")
+            rows = result.get("financials", [])
+            if code != "600000.SH" or (
+                as_of and str(as_of) < "2025-08-31"
+            ):
+                rows = []
+            result["financials"] = rows[
+                : int(canonical_arguments.get("limit", 12))
+            ]
+        elif name in {"get_capital_flow", "get_dragon_tiger", "get_news"}:
+            code = canonical_arguments.get("code")
+            item_key = {
+                "get_capital_flow": "capitalFlow",
+                "get_dragon_tiger": "dragonTiger",
+                "get_news": "news",
+            }[name]
+            if code != "600000.SH":
+                result[item_key] = []
+            else:
+                result[item_key] = result.get(item_key, [])[
+                    : int(canonical_arguments.get("limit", 20))
+                ]
+        elif name == "get_stock_profile":
+            code = canonical_arguments.get("code")
+            profiles = {
+                "600000.SH": result.get("profile", {}),
+                "600036.SH": {
+                    "code": "600036.SH",
+                    "name": "招商银行",
+                    "industry": "银行",
+                    "listDate": "2002-04-09",
+                    "source": "ci_fixture",
+                },
+                "688001.SH": {
+                    "code": "688001.SH",
+                    "name": "华兴源创",
+                    "industry": "专用设备",
+                    "listDate": "2019-07-22",
+                    "source": "ci_fixture",
+                },
+                "430047.BJ": {
+                    "code": "430047.BJ",
+                    "name": "诺思兰德",
+                    "industry": "生物制品",
+                    "listDate": "2020-11-24",
+                    "source": "ci_fixture",
+                },
+            }
+            result["profile"] = profiles.get(str(code), {})
+        elif name == "screen_stocks":
+            items = result.get("items", [])
+            price_min = canonical_arguments.get("priceMin")
+            price_max = canonical_arguments.get("priceMax")
+            change_min = canonical_arguments.get("changePercentMin")
+            change_max = canonical_arguments.get("changePercentMax")
+            volume_min = canonical_arguments.get("volumeMin")
+            volume_max = canonical_arguments.get("volumeMax")
+            amount_min = canonical_arguments.get("amountMin")
+            amount_max = canonical_arguments.get("amountMax")
+            keyword = canonical_arguments.get("keyword")
+            result["items"] = [
+                row
+                for row in items
+                if (price_min is None or float(row.get("price", 0)) >= price_min)
+                and (price_max is None or float(row.get("price", 0)) <= price_max)
+                and (
+                    change_min is None
+                    or float(row.get("changePercent", 0)) >= change_min
+                )
+                and (
+                    change_max is None
+                    or float(row.get("changePercent", 0)) <= change_max
+                )
+                and (
+                    volume_min is None
+                    or float(row.get("volume", 800_000_000.0)) >= volume_min
+                )
+                and (
+                    volume_max is None
+                    or float(row.get("volume", 800_000_000.0)) <= volume_max
+                )
+                and (
+                    amount_min is None
+                    or float(row.get("amount", 6_000_000_000.0)) >= amount_min
+                )
+                and (
+                    amount_max is None
+                    or float(row.get("amount", 6_000_000_000.0)) <= amount_max
+                )
+                and (not keyword or keyword in str(row.get("name", "")))
+            ][: int(canonical_arguments.get("limit", 30))]
         return result
 
     return execute
@@ -466,6 +619,13 @@ def evaluate_live(
     output_cost_rate = float(os.environ.get("AI_EVAL_OUTPUT_COST_PER_MILLION", "0"))
     report = {
         "schemaVersion": 1,
+        "datasetVersion": data[0]["datasetVersion"] if data else None,
+        "questionsSha256": json.loads(
+            DATASET_META.read_text(encoding="utf-8")
+        )["fixture"]["questionsSha256"],
+        "toolResultsSha256": json.loads(
+            DATASET_META.read_text(encoding="utf-8")
+        )["fixture"]["toolResultsSha256"],
         "model": os.environ.get("DEEPSEEK_MODEL", "deepseek-chat"),
         "metrics": {
             "apiSuccessRate": metric(total - api_errors, total),
@@ -595,11 +755,26 @@ def main() -> int:
         action="store_true",
         help="使用实时数据库工具；默认使用 checksum 冻结 fixture",
     )
+    parser.add_argument(
+        "--require-passing-baseline",
+        action="store_true",
+        help="离线校验时要求 baseline 本身已通过发布门禁",
+    )
     args = parser.parse_args()
 
     data = load_dataset()
     if args.offline:
-        return validate_offline(data)
+        dataset_status = validate_offline(data)
+        baseline_status = (
+            validate_baseline_report(
+                data,
+                args.baseline,
+                require_passing=args.require_passing_baseline,
+            )
+            if args.baseline is not None
+            else 0
+        )
+        return 1 if dataset_status or baseline_status else 0
     only = {x.strip() for x in args.only.split(",")} if args.only else None
     return evaluate_live(
         data,

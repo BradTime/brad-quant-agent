@@ -495,7 +495,13 @@ def submit_feedback(
         }
 
 
-def list_candidates(status: str | None, limit: int = 100) -> list[dict[str, Any]]:
+def list_candidates(
+    status: str | None,
+    limit: int = 100,
+    *,
+    task_type: str | None = None,
+    rating: str | None = None,
+) -> list[dict[str, Any]]:
     with SessionLocal() as db:
         stmt = (
             select(TrainingCandidate, AIGenerationTrace, AITrainingFeedback)
@@ -506,6 +512,10 @@ def list_candidates(status: str | None, limit: int = 100) -> list[dict[str, Any]
         )
         if status:
             stmt = stmt.where(TrainingCandidate.status == status)
+        if task_type:
+            stmt = stmt.where(TrainingCandidate.task_type == task_type)
+        if rating:
+            stmt = stmt.where(AITrainingFeedback.rating == rating)
         rows = db.execute(stmt).all()
         return [
             {

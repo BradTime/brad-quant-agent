@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "datasetVersion": "2026-09-01",
+  "datasetVersion": "2026-09-02",
   "holdout": true,
   "source": "human-curated-golden-regression",
   "license": "repository-internal-evaluation-only",
@@ -10,9 +10,9 @@
     "ref": "seed-ci-market-v1",
     "builder": "scripts.seed_ci_market",
     "builderSha256": "f8bdf30e10f8d74bb755a1db8fdb9ce9b9ee737bbb1349de252a5d5d783a2b42",
-    "questionsSha256": "08a0989e6e8d4c392d44cd5c4c4e875b3df2071ffc39a870025fae1a985b30e8",
+    "questionsSha256": "3be2d2eb9e404c35cf7edd3f8109584e60b176373d879de3f833c753632d4c38",
     "toolResultsPath": "tests/fixtures/ai_eval/seed-ci-market-v1.json",
-    "toolResultsSha256": "252e68a5d3af38e7201a84f6b582f133e42ff0f6ff4cc8c642b8213dcc8b42f0",
+    "toolResultsSha256": "aaad075104949591c9279c4a4cd118a561ffc6f40ba97b696c8f017bbb80e001",
     "asOf": "2025-09-17T15:00:00+08:00"
   },
   "toolPolicy": {
