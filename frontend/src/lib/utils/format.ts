@@ -59,4 +59,7 @@ export function formatDate(date: string | Date, format: 'short' | 'long' | 'date
   return d.toLocaleString('zh-CN');
 }
 
-
+export function formatBacktestTime(value: string, frequency?: string): string {
+  if (frequency === '1d') return value.slice(0, 10);
+  return value.replace('T', ' ').slice(0, 16);
+}

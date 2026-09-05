@@ -34,7 +34,7 @@ class RSI(Strategy):
         self.target = float(ctx.params.get("target", 0.95))
 
     def handle_bar(self, ctx, bars: dict[str, Bar]) -> None:
-        n = len(bars)
+        n = len(ctx.universe) or len(bars)
         if not n:
             return
         per = self.target / n

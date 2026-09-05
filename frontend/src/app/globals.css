@@ -117,8 +117,8 @@
 /* ===== App shell aesthetics ===== */
 @keyframes appFadeUp {
   from {
-    opacity: 0;
-    transform: translateY(10px);
+    opacity: 0.92;
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
@@ -127,7 +127,8 @@
 }
 
 .app-fade-up {
-  animation: appFadeUp 0.5s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  /* 仅用于小浮层（如下拉菜单），避免首屏 main opacity:0 */
+  animation: appFadeUp 0.18s cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 
 /* 细腻噪点（终端胶片质感），用于侧栏 */

@@ -10,7 +10,7 @@ import { ErrorBoundary } from '@/components/error-boundary';
 const fraunces = Fraunces({
   subsets: ['latin'],
   variable: '--font-fraunces',
-  weight: ['400', '500', '600', '700'],
+  weight: ['400', '600', '700'],
   style: ['normal', 'italic'],
   display: 'swap',
 });
@@ -18,14 +18,14 @@ const fraunces = Fraunces({
 const hanken = Hanken_Grotesk({
   subsets: ['latin'],
   variable: '--font-hanken',
-  weight: ['300', '400', '500', '600', '700'],
+  weight: ['400', '500', '600'],
   display: 'swap',
 });
 
 const plexMono = IBM_Plex_Mono({
   subsets: ['latin'],
   variable: '--font-plex-mono',
-  weight: ['400', '500', '600'],
+  weight: ['400', '500'],
   display: 'swap',
 });
 

@@ -2,13 +2,269 @@
 
 Tools are thin wrappers over the existing market service so the AI orchestrator,
 embedded assistants, and (later) autonomous agents all share one capability layer.
+
+Every tool argument is validated by a Pydantic model with hard upper bounds so a
+malicious or runaway model cannot inflate context/cost via huge codes/count/limit.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from datetime import date
+from typing import Any, Literal
 
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
+
+from app.core.asof import parse_as_of
+from app.providers.symbols import normalize_a_share_code, normalize_a_share_codes
 from app.services import market
+
+# ---- hard limits (also mirrored in TOOLS JSON Schema for the model) ----
+_MAX_CODES = 20
+_MAX_CODE_LEN = 16
+_MAX_QUERY_LEN = 200
+_MAX_KEYWORD_LEN = 64
+_MAX_KLINE = 500
+_MAX_SEARCH = 50
+_MAX_FLOW = 120
+_MAX_FINANCIALS = 40
+_MAX_DRAGON = 50
+_MAX_NEWS = 50
+_MAX_RAG_K = 20
+_MAX_SCREEN = 100
+
+
+class _Strict(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class EmptyArgs(_Strict):
+    pass
+
+
+class GetQuotesArgs(_Strict):
+    codes: list[str] = Field(min_length=1, max_length=_MAX_CODES)
+
+    @field_validator("codes")
+    @classmethod
+    def _codes(cls, value: list[str]) -> list[str]:
+        return normalize_a_share_codes(value)
+
+
+class GetKlineArgs(_Strict):
+    symbol: str = Field(min_length=1, max_length=_MAX_CODE_LEN)
+    period: Literal["day", "5min", "15min", "30min", "hour"] = "day"
+    count: int = Field(default=100, ge=1, le=_MAX_KLINE)
+
+    @field_validator("symbol")
+    @classmethod
+    def _symbol(cls, value: str) -> str:
+        return normalize_a_share_code(value)
+
+
+class SearchInstrumentsArgs(_Strict):
+    query: str = Field(min_length=1, max_length=_MAX_QUERY_LEN)
+    limit: int = Field(default=20, ge=1, le=_MAX_SEARCH)
+
+
+class GetCapitalFlowArgs(_Strict):
+    code: str = Field(min_length=1, max_length=_MAX_CODE_LEN)
+    limit: int = Field(default=30, ge=1, le=_MAX_FLOW)
+
+    @field_validator("code")
+    @classmethod
+    def _code(cls, value: str) -> str:
+        return normalize_a_share_code(value)
+
+
+class GetFinancialsArgs(_Strict):
+    code: str = Field(min_length=1, max_length=_MAX_CODE_LEN)
+    limit: int = Field(default=12, ge=1, le=_MAX_FINANCIALS)
+    asOf: str | None = Field(default=None, max_length=40)
+
+    @field_validator("code")
+    @classmethod
+    def _code(cls, value: str) -> str:
+        return normalize_a_share_code(value)
+
+    @field_validator("asOf")
+    @classmethod
+    def _as_of(cls, value: str | None) -> str | None:
+        parse_as_of(value)
+        return value
+
+
+class CodeLimitArgs(_Strict):
+    code: str = Field(min_length=1, max_length=_MAX_CODE_LEN)
+    limit: int = Field(default=20, ge=1, le=_MAX_NEWS)
+
+    @field_validator("code")
+    @classmethod
+    def _code(cls, value: str) -> str:
+        return normalize_a_share_code(value)
+
+
+class GetDragonTigerArgs(_Strict):
+    code: str = Field(min_length=1, max_length=_MAX_CODE_LEN)
+    limit: int = Field(default=20, ge=1, le=_MAX_DRAGON)
+
+    @field_validator("code")
+    @classmethod
+    def _code(cls, value: str) -> str:
+        return normalize_a_share_code(value)
+
+
+class GetStockProfileArgs(_Strict):
+    code: str = Field(min_length=1, max_length=_MAX_CODE_LEN)
+
+    @field_validator("code")
+    @classmethod
+    def _code(cls, value: str) -> str:
+        return normalize_a_share_code(value)
+
+
+class SearchKnowledgeArgs(_Strict):
+    query: str = Field(min_length=1, max_length=_MAX_QUERY_LEN)
+    k: int = Field(default=5, ge=1, le=_MAX_RAG_K)
+
+
+class ScreenStocksArgs(_Strict):
+    priceMin: float | None = None
+    priceMax: float | None = None
+    changePercentMin: float | None = None
+    changePercentMax: float | None = None
+    volumeMin: float | None = None
+    volumeMax: float | None = None
+    amountMin: float | None = None
+    amountMax: float | None = None
+    keyword: str | None = Field(default=None, max_length=_MAX_KEYWORD_LEN)
+    limit: int = Field(default=30, ge=1, le=_MAX_SCREEN)
+    sortBy: Literal["price", "changePercent", "volume", "amount"] = "changePercent"
+    sortOrder: Literal["asc", "desc"] = "desc"
+
+    @field_validator(
+        "priceMin",
+        "priceMax",
+        "changePercentMin",
+        "changePercentMax",
+        "volumeMin",
+        "volumeMax",
+        "amountMin",
+        "amountMax",
+    )
+    @classmethod
+    def _finite(cls, value: float | None) -> float | None:
+        if value is None:
+            return None
+        if value != value or value in (float("inf"), float("-inf")):  # NaN/Inf
+            raise ValueError("筛选数值必须为有限数")
+        return value
+
+
+class RunBacktestArgs(_Strict):
+    """有界单标的同步回测（不落库、不下单）。"""
+
+    strategyType: Literal["dual_ma", "rsi", "boll", "momentum"] = "dual_ma"
+    code: str = Field(min_length=1, max_length=_MAX_CODE_LEN)
+    start: str = Field(min_length=8, max_length=10)
+    end: str = Field(min_length=8, max_length=10)
+    params: dict[str, float | int] = Field(default_factory=dict)
+
+    @field_validator("code")
+    @classmethod
+    def _code(cls, value: str) -> str:
+        return normalize_a_share_code(value)
+
+    @field_validator("start", "end")
+    @classmethod
+    def _date(cls, value: str) -> str:
+        date.fromisoformat(value)
+        return value
+
+    @model_validator(mode="after")
+    def _date_order(self):
+        if self.start > self.end:
+            raise ValueError("回测开始日期不得晚于结束日期")
+        return self
+
+
+class GridSearchArgs(_Strict):
+    """有界参数网格（默认 dual_ma，组合数由 schema 上限约束）。"""
+
+    strategyType: Literal["dual_ma", "rsi", "boll", "momentum"] = "dual_ma"
+    code: str = Field(min_length=1, max_length=_MAX_CODE_LEN)
+    start: str = Field(min_length=8, max_length=10)
+    end: str = Field(min_length=8, max_length=10)
+    paramGrid: dict[str, list[float | int]]
+    sortBy: Literal[
+        "totalReturnPercent",
+        "annualReturnPercent",
+        "sharpeRatio",
+        "maxDrawdownPercent",
+        "winRate",
+        "totalTrades",
+        "excessReturnPercent",
+    ] = "sharpeRatio"
+    topN: int = Field(default=5, ge=1, le=10)
+
+    @field_validator("code")
+    @classmethod
+    def _code(cls, value: str) -> str:
+        return normalize_a_share_code(value)
+
+    @field_validator("start", "end")
+    @classmethod
+    def _date(cls, value: str) -> str:
+        date.fromisoformat(value)
+        return value
+
+    @model_validator(mode="after")
+    def _date_order(self):
+        if self.start > self.end:
+            raise ValueError("网格搜索开始日期不得晚于结束日期")
+        return self
+
+
+_ARG_MODELS: dict[str, type[BaseModel]] = {
+    "get_market_overview": EmptyArgs,
+    "get_quotes": GetQuotesArgs,
+    "get_kline": GetKlineArgs,
+    "search_instruments": SearchInstrumentsArgs,
+    "get_capital_flow": GetCapitalFlowArgs,
+    "get_financials": GetFinancialsArgs,
+    "get_dragon_tiger": GetDragonTigerArgs,
+    "get_news": CodeLimitArgs,
+    "get_stock_profile": GetStockProfileArgs,
+    "search_knowledge": SearchKnowledgeArgs,
+    "screen_stocks": ScreenStocksArgs,
+    "run_backtest": RunBacktestArgs,
+    "grid_search": GridSearchArgs,
+}
+
+
+def validate_tool_arguments(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Validate a stored tool call without executing it."""
+    model = _ARG_MODELS.get(name)
+    if model is None:
+        raise ValueError(f"未知工具: {name}")
+    return model.model_validate(arguments).model_dump(mode="json", by_alias=True)
+
+
+def _validation_error(exc: ValidationError) -> dict:
+    return {
+        "error": "工具参数无效",
+        "details": [
+            {"loc": list(err.get("loc", ())), "msg": err.get("msg", "")}
+            for err in exc.errors()[:8]
+        ],
+    }
+
 
 TOOLS: list[dict] = [
     {
@@ -16,7 +272,7 @@ TOOLS: list[dict] = [
         "function": {
             "name": "get_market_overview",
             "description": "获取大盘指数（上证指数、深证成指、创业板指）的实时概览。",
-            "parameters": {"type": "object", "properties": {}, "required": []},
+            "parameters": {"type": "object", "properties": {}, "required": [], "additionalProperties": False},
         },
     },
     {
@@ -29,11 +285,14 @@ TOOLS: list[dict] = [
                 "properties": {
                     "codes": {
                         "type": "array",
-                        "items": {"type": "string"},
+                        "items": {"type": "string", "maxLength": _MAX_CODE_LEN},
+                        "minItems": 1,
+                        "maxItems": _MAX_CODES,
                         "description": "股票代码列表，如 ['600000'] 或 ['600000.SH','000001.SZ']",
                     }
                 },
                 "required": ["codes"],
+                "additionalProperties": False,
             },
         },
     },
@@ -45,15 +304,21 @@ TOOLS: list[dict] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "symbol": {"type": "string", "description": "股票代码，如 600000.SH"},
+                    "symbol": {"type": "string", "maxLength": _MAX_CODE_LEN, "description": "股票代码，如 600000.SH"},
                     "period": {
                         "type": "string",
                         "enum": ["day", "5min", "15min", "30min", "hour"],
                         "description": "K线周期，默认 day",
                     },
-                    "count": {"type": "integer", "description": "返回最近多少根，默认 100"},
+                    "count": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": _MAX_KLINE,
+                        "description": f"返回最近多少根，默认 100，上限 {_MAX_KLINE}",
+                    },
                 },
                 "required": ["symbol"],
+                "additionalProperties": False,
             },
         },
     },
@@ -65,10 +330,16 @@ TOOLS: list[dict] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "搜索关键词（代码或名称片段）"},
-                    "limit": {"type": "integer", "description": "返回条数上限，默认 20"},
+                    "query": {"type": "string", "maxLength": _MAX_QUERY_LEN, "description": "搜索关键词（代码或名称片段）"},
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": _MAX_SEARCH,
+                        "description": f"返回条数上限，默认 20，最大 {_MAX_SEARCH}",
+                    },
                 },
                 "required": ["query"],
+                "additionalProperties": False,
             },
         },
     },
@@ -80,10 +351,16 @@ TOOLS: list[dict] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "code": {"type": "string", "description": "股票代码，如 600000.SH"},
-                    "limit": {"type": "integer", "description": "返回最近多少日，默认 30"},
+                    "code": {"type": "string", "maxLength": _MAX_CODE_LEN, "description": "股票代码，如 600000.SH"},
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": _MAX_FLOW,
+                        "description": f"返回最近多少日，默认 30，最大 {_MAX_FLOW}",
+                    },
                 },
                 "required": ["code"],
+                "additionalProperties": False,
             },
         },
     },
@@ -95,10 +372,21 @@ TOOLS: list[dict] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "code": {"type": "string"},
-                    "limit": {"type": "integer", "description": "返回最近多少期，默认 12"},
+                    "code": {"type": "string", "maxLength": _MAX_CODE_LEN},
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": _MAX_FINANCIALS,
+                        "description": f"返回最近多少期，默认 12，最大 {_MAX_FINANCIALS}",
+                    },
+                    "asOf": {
+                        "type": "string",
+                        "maxLength": 40,
+                        "description": "可选历史时点：RFC3339 或 YYYY-MM-DD（上海日终）",
+                    },
                 },
                 "required": ["code"],
+                "additionalProperties": False,
             },
         },
     },
@@ -110,10 +398,15 @@ TOOLS: list[dict] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "code": {"type": "string"},
-                    "limit": {"type": "integer"},
+                    "code": {"type": "string", "maxLength": _MAX_CODE_LEN},
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": _MAX_DRAGON,
+                    },
                 },
                 "required": ["code"],
+                "additionalProperties": False,
             },
         },
     },
@@ -125,10 +418,15 @@ TOOLS: list[dict] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "code": {"type": "string"},
-                    "limit": {"type": "integer"},
+                    "code": {"type": "string", "maxLength": _MAX_CODE_LEN},
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": _MAX_NEWS,
+                    },
                 },
                 "required": ["code"],
+                "additionalProperties": False,
             },
         },
     },
@@ -140,9 +438,10 @@ TOOLS: list[dict] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "code": {"type": "string", "description": "股票代码，如 600000.SH"},
+                    "code": {"type": "string", "maxLength": _MAX_CODE_LEN, "description": "股票代码，如 600000.SH"},
                 },
                 "required": ["code"],
+                "additionalProperties": False,
             },
         },
     },
@@ -158,10 +457,20 @@ TOOLS: list[dict] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "检索问题/主题，如 '半导体 国产替代 政策'"},
-                    "k": {"type": "integer", "description": "返回片段数，默认 5"},
+                    "query": {
+                        "type": "string",
+                        "maxLength": _MAX_QUERY_LEN,
+                        "description": "检索问题/主题，如 '半导体 国产替代 政策'",
+                    },
+                    "k": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": _MAX_RAG_K,
+                        "description": f"返回片段数，默认 5，最大 {_MAX_RAG_K}",
+                    },
                 },
                 "required": ["query"],
+                "additionalProperties": False,
             },
         },
     },
@@ -184,8 +493,13 @@ TOOLS: list[dict] = [
                     "volumeMax": {"type": "number", "description": "最高成交量"},
                     "amountMin": {"type": "number", "description": "最低成交额(元)"},
                     "amountMax": {"type": "number", "description": "最高成交额(元)"},
-                    "keyword": {"type": "string", "description": "名称或代码包含的关键词"},
-                    "limit": {"type": "integer", "description": "返回条数上限，默认 30"},
+                    "keyword": {"type": "string", "maxLength": _MAX_KEYWORD_LEN, "description": "名称或代码包含的关键词"},
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": _MAX_SCREEN,
+                        "description": f"返回条数上限，默认 30，最大 {_MAX_SCREEN}",
+                    },
                     "sortBy": {
                         "type": "string",
                         "enum": ["price", "changePercent", "volume", "amount"],
@@ -194,6 +508,93 @@ TOOLS: list[dict] = [
                     "sortOrder": {"type": "string", "enum": ["asc", "desc"]},
                 },
                 "required": [],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_backtest",
+            "description": (
+                "对单只 A 股同步跑一次策略回测（默认双均线），返回绩效摘要。"
+                "仅研究用途；不自动下单，不下模拟单。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "strategyType": {
+                        "type": "string",
+                        "enum": ["dual_ma", "rsi", "boll", "momentum"],
+                        "description": "策略类型，默认 dual_ma",
+                    },
+                    "code": {
+                        "type": "string",
+                        "maxLength": _MAX_CODE_LEN,
+                        "description": "股票代码，如 600000.SH",
+                    },
+                    "start": {"type": "string", "description": "起始日 YYYY-MM-DD"},
+                    "end": {"type": "string", "description": "结束日 YYYY-MM-DD"},
+                    "params": {
+                        "type": "object",
+                        "description": "策略参数，如 dual_ma 的 {fast:5, slow:20}",
+                        "additionalProperties": {"type": "number"},
+                    },
+                },
+                "required": ["code", "start", "end"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "grid_search",
+            "description": (
+                "对单只 A 股做策略参数网格寻优（默认 dual_ma），返回按指标排名的前几组。"
+                "仅研究用途；不自动下单。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "strategyType": {
+                        "type": "string",
+                        "enum": ["dual_ma", "rsi", "boll", "momentum"],
+                    },
+                    "code": {"type": "string", "maxLength": _MAX_CODE_LEN},
+                    "start": {"type": "string"},
+                    "end": {"type": "string"},
+                    "paramGrid": {
+                        "type": "object",
+                        "description": "参数候选，如 {fast:[5,10], slow:[20,60]}；组合数上限 64",
+                        "additionalProperties": {
+                            "type": "array",
+                            "items": {"type": "number"},
+                            "minItems": 1,
+                            "maxItems": 10,
+                        },
+                    },
+                    "sortBy": {
+                        "type": "string",
+                        "enum": [
+                            "totalReturnPercent",
+                            "annualReturnPercent",
+                            "sharpeRatio",
+                            "maxDrawdownPercent",
+                            "winRate",
+                            "totalTrades",
+                            "excessReturnPercent",
+                        ],
+                    },
+                    "topN": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10,
+                        "description": "返回前 N 组，默认 5",
+                    },
+                },
+                "required": ["code", "start", "end", "paramGrid"],
+                "additionalProperties": False,
             },
         },
     },
@@ -212,72 +613,190 @@ _SCREEN_KEYS = {
 }
 
 
-def execute_tool(name: str, arguments: dict[str, Any]) -> dict:
+def execute_tool(name: str, arguments: dict[str, Any] | None = None) -> dict:
+    model = _ARG_MODELS.get(name)
+    if model is None:
+        return {"error": f"未知工具: {name}"}
+    try:
+        args = model.model_validate(arguments or {})
+    except ValidationError as exc:
+        return _validation_error(exc)
+
     if name == "get_market_overview":
         return {"indices": market.get_market_overview()}
     if name == "get_quotes":
-        codes = arguments.get("codes") or []
+        assert isinstance(args, GetQuotesArgs)
         quotes: list[dict] = []
-        for raw in codes:
-            q = market.get_quote(str(raw))
+        for raw in args.codes:
+            q = market.get_quote(raw)
             if q is not None:
                 quotes.append(q)
         return {"quotes": quotes}
     if name == "get_kline":
+        assert isinstance(args, GetKlineArgs)
+        result = market.get_kline(args.symbol, args.period, args.count)
         return {
-            "kline": market.get_kline(
-                str(arguments.get("symbol", "")),
-                str(arguments.get("period", "day")),
-                int(arguments.get("count", 100) or 100),
-            )
+            "kline": result["bars"],
+            "dataQuality": result["dataQuality"],
         }
     if name == "search_instruments":
+        assert isinstance(args, SearchInstrumentsArgs)
         return {
-            "instruments": market.search_instruments(
-                str(arguments.get("query", "")),
-                int(arguments.get("limit", 20) or 20),
-            )
+            "instruments": market.search_instruments(args.query, args.limit)
         }
     if name == "get_capital_flow":
+        assert isinstance(args, GetCapitalFlowArgs)
+        payload = market.get_capital_flow(args.code, args.limit)
         return {
-            "capitalFlow": market.get_capital_flow(
-                str(arguments.get("code", "")), int(arguments.get("limit", 30) or 30)
-            )
+            "capitalFlow": payload.get("items") or [],
+            "meta": payload.get("meta"),
         }
     if name == "get_financials":
+        assert isinstance(args, GetFinancialsArgs)
+        payload = market.get_financials(
+            args.code,
+            args.limit,
+            parse_as_of(args.asOf) if args.asOf else None,
+        )
         return {
-            "financials": market.get_financials(
-                str(arguments.get("code", "")), int(arguments.get("limit", 12) or 12)
-            )
+            "financials": payload.get("items") or [],
+            "meta": payload.get("meta"),
         }
     if name == "get_dragon_tiger":
+        assert isinstance(args, GetDragonTigerArgs)
+        payload = market.get_dragon_tiger(args.code, args.limit)
         return {
-            "dragonTiger": market.get_dragon_tiger(
-                str(arguments.get("code", "")), int(arguments.get("limit", 20) or 20)
-            )
+            "dragonTiger": payload.get("items") or [],
+            "meta": payload.get("meta"),
         }
     if name == "get_news":
+        assert isinstance(args, CodeLimitArgs)
+        payload = market.get_news(args.code, args.limit)
         return {
-            "news": market.get_news(
-                str(arguments.get("code", "")), int(arguments.get("limit", 20) or 20)
-            )
+            "news": payload.get("items") or [],
+            "meta": payload.get("meta"),
         }
     if name == "get_stock_profile":
-        return {"profile": market.get_stock_profile(str(arguments.get("code", "")))}
+        assert isinstance(args, GetStockProfileArgs)
+        return {"profile": market.get_stock_profile(args.code)}
     if name == "search_knowledge":
+        assert isinstance(args, SearchKnowledgeArgs)
         from app.services import rag
 
-        return {
-            "results": rag.retrieve(
-                str(arguments.get("query", "")), int(arguments.get("k", 0) or 0) or None
-            )
-        }
+        return {"results": rag.retrieve(args.query, args.k)}
     if name == "screen_stocks":
-        filters = {k: v for k, v in arguments.items() if k in _SCREEN_KEYS and v is not None}
+        assert isinstance(args, ScreenStocksArgs)
+        payload = args.model_dump()
+        filters = {k: v for k, v in payload.items() if k in _SCREEN_KEYS and v is not None}
         return market.screen_stocks(
             filters,
-            int(arguments.get("limit", 30) or 30),
-            str(arguments.get("sortBy", "changePercent")),
-            str(arguments.get("sortOrder", "desc")),
+            args.limit,
+            args.sortBy,
+            args.sortOrder,
         )
+    if name == "run_backtest":
+        assert isinstance(args, RunBacktestArgs)
+        return _run_backtest_tool(args)
+    if name == "grid_search":
+        assert isinstance(args, GridSearchArgs)
+        return _grid_search_tool(args)
     return {"error": f"未知工具: {name}"}
+
+
+def _run_backtest_tool(args: RunBacktestArgs) -> dict:
+    from app.backtest.runner import run_backtest
+    from app.schemas.backtest import RunBacktestRequest
+
+    try:
+        req = RunBacktestRequest.model_validate(
+            {
+                "strategyType": args.strategyType,
+                "codes": [args.code],
+                "start": args.start,
+                "end": args.end,
+                "params": args.params or {},
+            }
+        )
+    except ValidationError as exc:
+        return _validation_error(exc)
+
+    from app.backtest.base import BacktestConfig
+
+    cfg = BacktestConfig(
+        strategy_type=req.strategyType,
+        params=req.params,
+        codes=req.codes,
+        start=req.start.isoformat(),
+        end=req.end.isoformat(),
+        initial_capital=req.initialCapital,
+        slippage=req.slippage,
+        engine=req.engine,
+        frequency=req.frequency,
+    )
+    out = run_backtest(cfg)
+    metrics = out.get("metrics") or {}
+    return {
+        "strategyType": req.strategyType,
+        "params": req.params,
+        "codes": req.codes,
+        "start": req.start.isoformat(),
+        "end": req.end.isoformat(),
+        "error": out.get("error"),
+        "metrics": {
+            "totalReturnPercent": metrics.get("totalReturnPercent"),
+            "annualReturnPercent": metrics.get("annualReturnPercent"),
+            "sharpeRatio": metrics.get("sharpeRatio"),
+            "maxDrawdownPercent": metrics.get("maxDrawdownPercent"),
+            "winRate": metrics.get("winRate"),
+            "totalTrades": metrics.get("totalTrades"),
+            "excessReturnPercent": metrics.get("excessReturnPercent"),
+        },
+        "dataQuality": out.get("dataQuality"),
+        "note": "仅研究用途，不构成投资建议；如需模拟下单请在回测页点击「应用到模拟」。",
+    }
+
+
+def _grid_search_tool(args: GridSearchArgs) -> dict:
+    from app.backtest.base import BacktestConfig
+    from app.schemas.backtest import GridSearchRequest
+    from app.services import backtest_run
+
+    try:
+        req = GridSearchRequest.model_validate(
+            {
+                "strategyType": args.strategyType,
+                "codes": [args.code],
+                "start": args.start,
+                "end": args.end,
+                "paramGrid": args.paramGrid,
+                "sortBy": args.sortBy,
+            }
+        )
+    except ValidationError as exc:
+        return _validation_error(exc)
+
+    config = BacktestConfig(
+        strategy_type=req.strategyType,
+        params={},
+        codes=req.codes,
+        start=req.start.isoformat(),
+        end=req.end.isoformat(),
+        initial_capital=req.initialCapital,
+        slippage=req.slippage,
+        engine=req.engine,
+        frequency=req.frequency,
+    )
+    result = backtest_run.grid_search(config, req.paramGrid, req.sortBy)
+    rows = list(result.get("results") or [])[: args.topN]
+    return {
+        "strategyType": req.strategyType,
+        "codes": req.codes,
+        "start": req.start.isoformat(),
+        "end": req.end.isoformat(),
+        "sortBy": req.sortBy,
+        "comboCount": len(result.get("results") or []),
+        "top": rows,
+        "best": result.get("best"),
+        "error": result.get("error"),
+        "note": "仅研究用途；最佳参数可在回测页应用，模拟下单须用户确认。",
+    }

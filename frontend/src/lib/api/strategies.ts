@@ -7,6 +7,11 @@ import type {
 import type { ApiResponse } from '@/types';
 import { apiClient } from './client';
 
+async function unwrap<T>(request: Promise<unknown>): Promise<T> {
+  const envelope = (await request) as ApiResponse<T>;
+  return envelope.data;
+}
+
 /**
  * 策略管理相关 API
  */
@@ -14,67 +19,50 @@ export const strategiesApi = {
   /**
    * 获取策略列表
    */
-  getList: async (params?: StrategyListParams): Promise<ApiResponse<{ items: Strategy[]; total: number }>> => {
-    const response = await apiClient.get<ApiResponse<{ items: Strategy[]; total: number }>>('/strategies', {
-      params,
-    });
-    // 响应拦截器已将 body 解包为 ApiResponse 信封；axios 静态类型仍标注为 AxiosResponse，故在此桥接。
-    return response as unknown as ApiResponse<{ items: Strategy[]; total: number }>;
-  },
+  getList: (params?: StrategyListParams) =>
+    unwrap<{ items: Strategy[]; total: number }>(apiClient.get('/strategies', { params })),
 
   /**
    * 获取策略详情
    */
-  getDetail: async (id: string): Promise<Strategy> => {
-    const response = await apiClient.get<Strategy>(`/strategies/${id}`);
-    return response.data;
-  },
+  getDetail: (id: string) =>
+    unwrap<Strategy>(apiClient.get(`/strategies/${id}`)),
 
   /**
    * 创建策略
    */
-  create: async (data: StrategyCreateRequest): Promise<Strategy> => {
-    const response = await apiClient.post<Strategy>('/strategies', data);
-    return response.data;
-  },
+  create: (data: StrategyCreateRequest) =>
+    unwrap<Strategy>(apiClient.post('/strategies', data)),
 
   /**
    * 更新策略
    */
   update: async (data: StrategyUpdateRequest): Promise<Strategy> => {
     const { id, ...rest } = data;
-    const response = await apiClient.put<Strategy>(`/strategies/${id}`, rest);
-    return response.data;
+    return unwrap<Strategy>(apiClient.put(`/strategies/${id}`, rest));
   },
 
   /**
    * 删除策略
    */
-  delete: async (id: string): Promise<void> => {
-    await apiClient.delete(`/strategies/${id}`);
-  },
+  delete: (id: string) =>
+    unwrap<{ deleted: boolean }>(apiClient.delete(`/strategies/${id}`)),
 
   /**
    * 启用策略
    */
-  enable: async (id: string): Promise<void> => {
-    await apiClient.post(`/strategies/${id}/enable`);
-  },
+  enable: (id: string) =>
+    unwrap<Strategy>(apiClient.post(`/strategies/${id}/enable`)),
 
   /**
    * 停用策略
    */
-  disable: async (id: string): Promise<void> => {
-    await apiClient.post(`/strategies/${id}/disable`);
-  },
+  disable: (id: string) =>
+    unwrap<Strategy>(apiClient.post(`/strategies/${id}/disable`)),
 
   /**
    * 复制策略
    */
-  duplicate: async (id: string): Promise<Strategy> => {
-    const response = await apiClient.post<Strategy>(`/strategies/${id}/duplicate`);
-    return response.data;
-  },
+  duplicate: (id: string) =>
+    unwrap<Strategy>(apiClient.post(`/strategies/${id}/duplicate`)),
 };
-
-

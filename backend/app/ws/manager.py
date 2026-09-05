@@ -8,6 +8,11 @@ import asyncio
 
 from fastapi import WebSocket
 
+from app.ws import topics as topic_rules
+
+# 单次 send 超时，避免慢客户端拖死广播循环
+SEND_TIMEOUT_SECONDS = 2.0
+
 
 class ConnectionManager:
     def __init__(self) -> None:
@@ -28,6 +33,7 @@ class ConnectionManager:
             self._subs[ws] = set()
 
     async def disconnect(self, ws: WebSocket) -> None:
+        topic_rules.clear_subscribe_bucket(id(ws))
         async with self._lock:
             self._subs.pop(ws, None)
             uid = self._users.pop(ws, None)
@@ -44,33 +50,52 @@ class ConnectionManager:
             self._users[ws] = user_id
             self._by_user.setdefault(user_id, set()).add(ws)
 
+    async def send_json(self, ws: WebSocket, message: dict) -> bool:
+        """带超时发送；成功 True，超时/断开 False。"""
+        try:
+            await asyncio.wait_for(
+                ws.send_json(message),
+                timeout=SEND_TIMEOUT_SECONDS,
+            )
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
     async def send_to_user(self, user_id: str, message: dict) -> int:
         """把消息只发给该 user 的所有在线连接；返回成功下发的连接数。"""
         async with self._lock:
             targets = list(self._by_user.get(user_id, ()))
         sent = 0
         for ws in targets:
-            try:
-                await ws.send_json(message)
+            if await self.send_json(ws, message):
                 sent += 1
-            except Exception:  # noqa: BLE001  (client gone; cleaned up on disconnect)
-                pass
         return sent
 
     def loop(self) -> asyncio.AbstractEventLoop | None:
         return self._loop
 
-    async def subscribe(self, ws: WebSocket, topics: list[str]) -> set[str]:
+    async def subscribe(self, ws: WebSocket, raw_topics: list[str]) -> tuple[set[str], list[str]]:
+        """规范化并订阅主题；返回 (current_topics, rejected)。"""
+        accepted, rejected = topic_rules.filter_topics(raw_topics)
         async with self._lock:
-            if ws in self._subs:
-                self._subs[ws].update(t for t in topics if isinstance(t, str))
-                return set(self._subs[ws])
-        return set()
+            if ws not in self._subs:
+                return set(), rejected
+            current = self._subs[ws]
+            room = topic_rules.MAX_TOPICS_PER_CONNECTION - len(current)
+            if room <= 0:
+                return set(current), rejected + accepted
+            for topic in accepted[:room]:
+                current.add(topic)
+            overflow = accepted[room:]
+            if overflow:
+                rejected = rejected + overflow
+            return set(current), rejected
 
     async def unsubscribe(self, ws: WebSocket, topics: list[str]) -> set[str]:
+        accepted, _ = topic_rules.filter_topics(topics)
         async with self._lock:
             if ws in self._subs:
-                self._subs[ws].difference_update(topics)
+                self._subs[ws].difference_update(accepted or topics)
                 return set(self._subs[ws])
         return set()
 

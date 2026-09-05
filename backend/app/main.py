@@ -8,7 +8,6 @@ cached quotes/indices to subscribers.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -18,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.health import router as health_router
 from app.api.v1.router import api_router
+from app.core import redis_client
 from app.core.config import settings
 from app.core.cors import apply_cors_headers, cors_lan_regex
 from app.core.response import error
@@ -28,40 +28,26 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    scheduler_started = False
-    if settings.enable_scheduler:
-        try:
-            from app.services.scheduler import start_scheduler
+    role = settings.process_role
+    if role == "worker":
+        raise RuntimeError("PROCESS_ROLE=worker must run with python -m app.worker")
+    from app.runtime import (
+        close_shared_state,
+        start_api_runtime,
+        start_worker_runtime,
+        stop_api_runtime,
+        stop_worker_runtime,
+    )
 
-            start_scheduler()
-            scheduler_started = True
-        except Exception as exc:  # noqa: BLE001
-            print(f"[warn] 行情调度器启动失败（已忽略，可手动 ingest）：{exc}")
-
-    # RAG：后台预热本地 embedding 模型（守护线程，不阻塞启动；离线/失败自动降级）
-    if settings.rag_enabled and settings.embedding_warm_on_start:
-        try:
-            from app.ai import embeddings
-
-            embeddings.warm_in_background()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("embedding 预热启动失败（已忽略）：%s", exc)
-
-    from app.ws.broadcaster import push_loop
-
-    push_task = asyncio.create_task(push_loop())
-
-    yield
-
-    push_task.cancel()
+    api_state = await start_api_runtime()
+    worker_state = start_worker_runtime() if role == "all" else None
     try:
-        await push_task
-    except asyncio.CancelledError:
-        pass
-    if scheduler_started:
-        from app.services.scheduler import shutdown_scheduler
-
-        shutdown_scheduler()
+        yield
+    finally:
+        await stop_api_runtime(api_state)
+        if worker_state is not None:
+            stop_worker_runtime(worker_state)
+        await close_shared_state()
 
 
 def _init_sentry() -> None:
@@ -128,6 +114,13 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     logger.debug("validation error: %s", exc.errors())
     return error("请求参数无效", code=400, http_status=400, request=request)
+
+
+@app.exception_handler(redis_client.SharedStateUnavailable)
+async def shared_state_exception_handler(
+    request: Request, exc: redis_client.SharedStateUnavailable
+):
+    return error(str(exc), code=503, http_status=503, request=request)
 
 
 @app.exception_handler(Exception)

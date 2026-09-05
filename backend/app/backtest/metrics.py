@@ -84,13 +84,25 @@ def _pair_trades(fills: list[Fill]) -> list[dict]:
     return trades
 
 
-def compute_metrics(equity_curve: list[dict], fills: list[Fill], initial: float) -> dict:
+def compute_metrics(
+    equity_curve: list[dict],
+    fills: list[Fill],
+    initial: float,
+    *,
+    return_curve: list[dict] | None = None,
+) -> dict:
     eqs = [p["equity"] for p in equity_curve]
-    n = len(eqs)
+    sampled_eqs = [p["equity"] for p in (return_curve or equity_curve)]
+    n = len(sampled_eqs)
     final = eqs[-1] if eqs else initial
     total_return = final - initial
     total_return_pct = (total_return / initial * 100) if initial else 0.0
-    rets = [eqs[i] / eqs[i - 1] - 1 for i in range(1, n) if eqs[i - 1] > 0]
+    return_eqs = [initial, *sampled_eqs]
+    rets = [
+        return_eqs[i] / return_eqs[i - 1] - 1
+        for i in range(1, len(return_eqs))
+        if return_eqs[i - 1] > 0
+    ]
     annual = ((final / initial) ** (_TRADING_DAYS / n) - 1) * 100 if n > 1 and initial > 0 and final > 0 else 0.0
 
     trades = _pair_trades(fills)

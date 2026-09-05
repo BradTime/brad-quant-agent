@@ -1,10 +1,29 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import * as echarts from 'echarts';
+import * as echarts from 'echarts/core';
+import { BarChart, CandlestickChart as ECandlestickChart, LineChart } from 'echarts/charts';
+import {
+  DataZoomComponent,
+  GridComponent,
+  LegendComponent,
+  TooltipComponent,
+} from 'echarts/components';
+import { CanvasRenderer } from 'echarts/renderers';
 import type { EChartsOption } from 'echarts';
 import type { KlineData } from '@/lib/api/market';
 import { boll, kdj, ma, macd, rsi } from '@/lib/utils/indicators';
+
+echarts.use([
+  ECandlestickChart,
+  BarChart,
+  LineChart,
+  GridComponent,
+  TooltipComponent,
+  LegendComponent,
+  DataZoomComponent,
+  CanvasRenderer,
+]);
 
 export type MainOverlay = 'ma' | 'boll' | 'none';
 export type SubIndicator = 'macd' | 'kdj' | 'rsi' | 'none';
@@ -204,5 +223,13 @@ export function CandlestickChart({
     };
   }, []);
 
-  return <div ref={ref} style={{ width: '100%', height: `${height}px` }} />;
+  const lastClose = data.length > 0 ? data[data.length - 1].close : null;
+  const chartLabel = `K线蜡烛图，共 ${data.length} 根K线${lastClose != null ? `，最新收盘价 ${lastClose.toFixed(2)}` : ''}`;
+
+  return (
+    <div role="img" aria-label={chartLabel}>
+      <div ref={ref} style={{ width: '100%', height: `${height}px` }} />
+      <span className="sr-only">{chartLabel}</span>
+    </div>
+  );
 }

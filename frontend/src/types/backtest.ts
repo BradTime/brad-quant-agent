@@ -1,25 +1,39 @@
 /**
  * 回测分析相关类型定义
  */
+export type BacktestFrequency = '1d' | '5m' | '15m' | '30m' | '60m';
+export type BacktestEngine = 'native' | 'backtrader';
+export type BacktestStrategyType = 'dual_ma' | 'rsi' | 'boll' | 'momentum';
+export type GridSortMetric =
+  | 'totalReturnPercent'
+  | 'annualReturnPercent'
+  | 'sharpeRatio'
+  | 'maxDrawdownPercent'
+  | 'winRate'
+  | 'totalTrades'
+  | 'excessReturnPercent';
 
 export interface BacktestConfig {
-  strategyId: string;
-  startDate: string;
-  endDate: string;
+  strategyType: BacktestStrategyType;
+  params: Record<string, number>;
+  codes: string[];
+  start: string;
+  end: string;
   initialCapital: number;
-  commission: number;
   slippage: number;
-  dataSource?: string;
+  engine: BacktestEngine;
+  frequency: BacktestFrequency;
 }
 
 export interface BacktestResult {
   id: string;
-  strategyId: string;
+  strategyType: BacktestStrategyType;
   config: BacktestConfig;
-  status: 'pending' | 'running' | 'completed' | 'failed';
+  status: 'completed' | 'failed';
+  engine: BacktestEngine;
+  error?: string | null;
   createdAt: string;
-  completedAt?: string;
-  metrics?: BacktestMetrics;
+  metrics: Partial<BacktestMetrics>;
   equityCurve?: EquityPoint[];
   trades?: TradeRecord[];
 }
@@ -63,4 +77,27 @@ export interface TradeRecord {
   commission: number;
 }
 
+export type BacktestJobStatus =
+  | 'queued'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export interface BacktestJob {
+  id: string;
+  userId: string;
+  kind: string;
+  status: BacktestJobStatus;
+  cancelRequested: boolean;
+  progressDone: number;
+  progressTotal: number;
+  error?: string | null;
+  request?: Record<string, unknown>;
+  result?: Record<string, unknown> | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+}
 

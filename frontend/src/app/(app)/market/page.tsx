@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { RefreshCw, AlertTriangle } from 'lucide-react';
 import { RequireAuth } from '@/components/auth/require-auth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -12,31 +13,88 @@ import { ScreenerPanel } from '@/components/market/screener-panel';
 import { SourceNote } from '@/components/market/source-note';
 import { dashboardApi } from '@/lib/api/dashboard';
 import { marketApi } from '@/lib/api/market';
+import { ageQuote, formatQuoteFreshness } from '@/lib/api/quote-selection';
+import { useFreshnessClock } from '@/hooks/useFreshnessClock';
+import { useMarketSocket } from '@/hooks/useMarketSocket';
+import type { MarketOverview } from '@/types/dashboard';
 import { cn } from '@/lib/utils';
 
 type Tab = 'all' | 'screener';
+
+function changeClass(value: number | null): string {
+  if (value === null || value === 0) return 'text-muted-foreground';
+  return value > 0 ? 'text-up' : 'text-down';
+}
+
+function fixed(value: number | null): string {
+  return value === null ? '—' : value.toFixed(2);
+}
+
+function signed(value: number | null, suffix = ''): string {
+  return value === null ? '—' : `${value >= 0 ? '+' : ''}${value.toFixed(2)}${suffix}`;
+}
 
 export default function MarketPage() {
   const [tab, setTab] = useState<Tab>('all');
   const [page, setPage] = useState(1);
   const pageSize = 20;
   const [sortBy, setSortBy] = useState<'price' | 'changePercent' | 'volume'>('changePercent');
+  const freshnessNow = useFreshnessClock();
+  const { status: wsStatus, data: wsData, receivedAt: wsReceivedAt } =
+    useMarketSocket(['market.indices']);
 
-  const { data: indices = [] } = useQuery({
+  const {
+    data: indices = [],
+    dataUpdatedAt: indicesReceivedAt,
+    isError: indicesError,
+    isFetching: indicesFetching,
+    refetch: refetchIndices,
+  } = useQuery({
     queryKey: ['dashboard', 'market-overview'],
     queryFn: () => dashboardApi.getMarketOverview(),
-    refetchInterval: 10000,
+    refetchInterval: wsStatus === 'open' ? false : 10000,
   });
 
-  const { data: quotesData } = useQuery({
+  const wsIndices = wsData['market.indices'] as MarketOverview[] | undefined;
+  const displayIndices = useMemo(() => {
+    if (wsStatus !== 'open' || !Array.isArray(wsIndices) || wsIndices.length === 0) {
+      return indices;
+    }
+    return wsIndices;
+  }, [indices, wsIndices, wsStatus]);
+  const indicesClock = wsStatus === 'open' && wsIndices?.length
+    ? (wsReceivedAt['market.indices'] ?? indicesReceivedAt)
+    : indicesReceivedAt;
+
+  const {
+    data: quotesData,
+    dataUpdatedAt: quotesReceivedAt,
+    isError: quotesError,
+    isFetching: quotesFetching,
+    refetch: refetchQuotes,
+  } = useQuery({
     queryKey: ['market', 'quotes', page, pageSize, sortBy],
     queryFn: () => marketApi.getQuotes(page, pageSize, sortBy, 'desc'),
     refetchInterval: 6000,
     enabled: tab === 'all',
   });
 
+  const agedIndices = displayIndices.map((index) =>
+    ageQuote(index, indicesClock, freshnessNow)
+  );
+  const stocks = (quotesData?.stocks ?? []).map((quote) =>
+    ageQuote(quote, quotesReceivedAt, freshnessNow)
+  );
+  const quoteSummary = stocks[0];
   const total = quotesData?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const quotesEmpty = tab === 'all' && stocks.length === 0;
+  const quotesStaleAt = quotesReceivedAt
+    ? new Date(quotesReceivedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : null;
+  const indicesStaleAt = indicesReceivedAt
+    ? new Date(indicesReceivedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : null;
 
   return (
     <RequireAuth>
@@ -48,26 +106,50 @@ export default function MarketPage() {
 
         {/* 指数概览 */}
         <div className="grid gap-3 sm:grid-cols-3">
-          {indices.map((idx) => {
-            const up = idx.changePercent >= 0;
+          {agedIndices.map((idx) => {
+            const freshness = formatQuoteFreshness(idx);
             return (
               <Card key={idx.index}>
                 <CardContent className="p-4">
                   <div className="text-xs text-muted-foreground">{idx.name}</div>
-                  <div className={cn('tnum mt-1 text-2xl font-semibold', up ? 'text-up' : 'text-down')}>
-                    {idx.value.toFixed(2)}
+                  <div className={cn('tnum mt-1 text-2xl font-semibold', changeClass(idx.change))}>
+                    {fixed(idx.value)}
                   </div>
-                  <div className={cn('tnum text-sm font-medium', up ? 'text-up' : 'text-down')}>
-                    {up ? '+' : ''}{idx.change.toFixed(2)} ({up ? '+' : ''}{idx.changePercent.toFixed(2)}%)
+                  <div className={cn('tnum text-sm font-medium', changeClass(idx.change))}>
+                    {signed(idx.change)} ({signed(idx.changePercent, '%')})
+                  </div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">
+                    {freshness.text}
                   </div>
                 </CardContent>
               </Card>
             );
           })}
-          {indices.length === 0 && (
+          {agedIndices.length === 0 && (
             <Card className="sm:col-span-3">
-              <CardContent className="p-4 text-sm text-muted-foreground">
-                指数行情暂不可用（免费源可能限流，稍后自动恢复）
+              <CardContent className="space-y-3 p-4 text-sm text-muted-foreground">
+                <div className="flex items-start gap-2">
+                  {(indicesError || indicesFetching) && (
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                  )}
+                  <div>
+                    <p>指数行情暂不可用（免费源可能限流，稍后自动恢复）</p>
+                    {indicesStaleAt && (
+                      <p className="mt-1 text-xs">上次更新 {indicesStaleAt}{indicesFetching ? ' · 刷新中…' : ''}</p>
+                    )}
+                  </div>
+                </div>
+                {(indicesError || agedIndices.length === 0) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => refetchIndices()}
+                    disabled={indicesFetching}
+                  >
+                    <RefreshCw className={cn('mr-1.5 h-3.5 w-3.5', indicesFetching && 'animate-spin')} />
+                    立即重试
+                  </Button>
+                )}
               </CardContent>
             </Card>
           )}
@@ -115,7 +197,16 @@ export default function MarketPage() {
                   </div>
                   {tab === 'all' && (
                     <div className="flex items-center gap-2">
-                      <SourceNote source="东方财富" freshness="秒级快照" />
+                      {quoteSummary ? (
+                        <SourceNote
+                          source="东方财富·快照"
+                          asOf={quoteSummary.asOf}
+                          staleReason={quoteSummary.staleReason}
+                          executable={quoteSummary.executable}
+                        />
+                      ) : (
+                        <SourceNote source="东方财富·快照" freshness="不可用" limited />
+                      )}
                       <select
                         value={sortBy}
                         onChange={(e) => {
@@ -135,9 +226,33 @@ export default function MarketPage() {
               <CardContent>
                 {tab === 'all' ? (
                   <>
+                    {(quotesError || quotesEmpty) && (
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                          <div>
+                            <p>{quotesError ? '行情加载失败' : '暂无行情数据'}</p>
+                            {quotesStaleAt && (
+                              <p className="mt-0.5 text-[11px] opacity-80">
+                                上次更新 {quotesStaleAt}{quotesFetching ? ' · 刷新中…' : ''}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => refetchQuotes()}
+                          disabled={quotesFetching}
+                        >
+                          <RefreshCw className={cn('mr-1.5 h-3.5 w-3.5', quotesFetching && 'animate-spin')} />
+                          立即重试
+                        </Button>
+                      </div>
+                    )}
                     <QuotesTable
-                      stocks={quotesData?.stocks ?? []}
-                      emptyText="行情暂不可用（免费实时源可能限流，稍后自动恢复）"
+                      stocks={stocks}
+                      emptyText="行情暂不可用（免费行情源可能限流，稍后自动恢复）"
                     />
                     {total > pageSize && (
                       <div className="mt-3 flex items-center justify-between text-sm">

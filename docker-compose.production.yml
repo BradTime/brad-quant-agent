@@ -1,0 +1,233 @@
+name: brad-quant-agent
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    env_file:
+      - ${PRODUCTION_ENV_FILE:-./deploy/production.env}
+    command:
+      - sh
+      - -c
+      - exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks:
+      - private
+    stop_grace_period: 30s
+    logging: *default-logging
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    env_file:
+      - ${PRODUCTION_ENV_FILE:-./deploy/production.env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    shm_size: 256mb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - private
+    stop_grace_period: 60s
+    logging: *default-logging
+
+  migrate:
+    profiles: ["ops"]
+    build:
+      context: ./backend
+    env_file:
+      - ${PRODUCTION_ENV_FILE:-./deploy/production.env}
+    environment:
+      APP_ENV: production
+      FRONTEND_URL: https://${APP_DOMAIN:?APP_DOMAIN is required}
+      CORS_ORIGINS: https://${APP_DOMAIN:?APP_DOMAIN is required}
+      CORS_ALLOW_PRIVATE_LAN: "false"
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - private
+    logging: *default-logging
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    init: true
+    env_file:
+      - ${PRODUCTION_ENV_FILE:-./deploy/production.env}
+    volumes:
+      - trainingdata:/app/var/training
+    environment:
+      APP_ENV: production
+      PROCESS_ROLE: api
+      CORS_ORIGINS: https://${APP_DOMAIN:?APP_DOMAIN is required}
+      CORS_ALLOW_PRIVATE_LAN: "false"
+      FRONTEND_URL: https://${APP_DOMAIN:?APP_DOMAIN is required}
+      AUTH_TRUSTED_PROXIES: 172.30.0.10/32
+    command:
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --workers
+      - "1"
+      - --no-access-log
+      - --proxy-headers
+      - --forwarded-allow-ips
+      - "*"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)"
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 45s
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - private
+    logging: *default-logging
+
+  worker:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    init: true
+    env_file:
+      - ${PRODUCTION_ENV_FILE:-./deploy/production.env}
+    volumes:
+      - trainingdata:/app/var/training
+    environment:
+      APP_ENV: production
+      PROCESS_ROLE: worker
+      CORS_ORIGINS: https://${APP_DOMAIN:?APP_DOMAIN is required}
+      CORS_ALLOW_PRIVATE_LAN: "false"
+      FRONTEND_URL: https://${APP_DOMAIN:?APP_DOMAIN is required}
+      AUTH_TRUSTED_PROXIES: 172.30.0.10/32
+    command:
+      - python
+      - -m
+      - app.worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -m
+        - app.worker
+        - --check
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 45s
+    stop_grace_period: 45s
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - private
+    logging: *default-logging
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_BASE_URL: /api/v1
+    restart: unless-stopped
+    init: true
+    environment:
+      BACKEND_URL: http://backend:8000
+      NODE_ENV: production
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - private
+    logging: *default-logging
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?APP_DOMAIN is required}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      frontend:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      private:
+        ipv4_address: 172.30.0.10
+    logging: *default-logging
+
+networks:
+  private:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+volumes:
+  pgdata:
+  redisdata:
+  trainingdata:
+  caddy_data:
+  caddy_config:

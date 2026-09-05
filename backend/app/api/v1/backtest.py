@@ -1,26 +1,24 @@
-"""Backtest endpoints (Phase 4 M3)：同步跑回测 + 落库 + 历史回看 + 内置策略目录。
+"""Backtest endpoints (Phase 4 M3)：同步跑回测 + 异步网格任务 + 历史回看。
 
-回测为秒级计算，采用同步 POST /run（非 SSE）：跑完即落库并返回完整结果。
-受 ``ai_cost_gate("backtest")`` 每用户每日配额保护。``/strategies`` 声明在 ``/{id}`` 之前，
-避免被路径变量误匹配。
+``POST /run`` 同步落库；``POST /grid`` 默认入队（可取消），``?sync=true`` 同步执行。
+受 ``ai_cost_gate("backtest")`` 每用户每日配额保护。静态路径须在 ``/{id}`` 之前声明。
 """
 
 from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 
 from app.ai.orchestrator import run_completion_stream
 from app.ai.prompts import BACKTEST_REVIEW_PROMPT
 from app.api.deps import get_current_user
-from app.backtest.base import BacktestConfig
 from app.core.cors import apply_cors_headers
 from app.core.response import error, success
 from app.models.user import User
 from app.schemas.backtest import GridSearchRequest, RunBacktestRequest
-from app.services import backtest_run, rate_limit
+from app.services import backtest_jobs, backtest_run, rate_limit
 
 router = APIRouter()
 
@@ -33,9 +31,6 @@ def list_strategy_catalog() -> dict:
 
 @router.post("/run")
 def run_backtest_endpoint(req: RunBacktestRequest, user: User = Depends(get_current_user)):
-    codes = [c for c in (req.codes or []) if c and c.strip()]
-    if not codes:
-        return error("请至少选择一个标的（如 600000.SH）", code=400, http_status=400)
     blocked = rate_limit.ai_cost_gate(str(user.id), "backtest")
     if blocked:
         return error(blocked, code=429, http_status=429)
@@ -43,21 +38,35 @@ def run_backtest_endpoint(req: RunBacktestRequest, user: User = Depends(get_curr
 
 
 @router.post("/grid")
-def grid(req: GridSearchRequest, user: User = Depends(get_current_user)):
-    """参数网格寻优：对参数笛卡尔积逐组回测并排名（只加载一次行情）。走回测配额闸。"""
-    codes = [c for c in (req.codes or []) if c and c.strip()]
-    if not codes:
-        return error("请至少选择一个标的（如 600000.SH）", code=400, http_status=400)
-    if not req.paramGrid or not any(req.paramGrid.values()):
-        return error("请至少提供一个参数的候选值网格", code=400, http_status=400)
+def grid(
+    req: GridSearchRequest,
+    user: User = Depends(get_current_user),
+    sync: bool = Query(False, description="true=同步执行；默认入队异步"),
+):
+    """参数网格寻优。默认入队异步（可取消）；``sync=true`` 同步返回结果。"""
     blocked = rate_limit.ai_cost_gate(str(user.id), "backtest")
     if blocked:
         return error(blocked, code=429, http_status=429)
-    cfg = BacktestConfig(
-        strategy_type=req.strategyType, params={}, codes=codes,
-        start=req.start, end=req.end, initial_capital=req.initialCapital, slippage=req.slippage,
-    )
-    return success(backtest_run.grid_search(cfg, req.paramGrid, req.sortBy))
+    if sync:
+        config, param_grid, sort_by = backtest_run.config_from_grid_request(req)
+        return success(backtest_run.grid_search(config, param_grid, sort_by))
+    return success(backtest_jobs.enqueue_grid(str(user.id), req))
+
+
+@router.get("/jobs/{job_id}")
+def get_job(job_id: str, user: User = Depends(get_current_user)):
+    job = backtest_jobs.get_job(str(user.id), job_id)
+    if job is None:
+        return error("任务不存在", code=404, http_status=404)
+    return success(job)
+
+
+@router.post("/jobs/{job_id}/cancel")
+def cancel_job(job_id: str, user: User = Depends(get_current_user)):
+    job = backtest_jobs.request_cancel(str(user.id), job_id)
+    if job is None:
+        return error("任务不存在", code=404, http_status=404)
+    return success(job)
 
 
 @router.get("")
@@ -72,14 +81,6 @@ def get_backtest(backtest_id: str, user: User = Depends(get_current_user)):
     if result is None:
         return error("回测结果不存在", code=404, http_status=404)
     return success(result)
-
-
-@router.get("/{backtest_id}/metrics")
-def get_metrics(backtest_id: str, user: User = Depends(get_current_user)):
-    result = backtest_run.get_run(str(user.id), backtest_id)
-    if result is None:
-        return error("回测结果不存在", code=404, http_status=404)
-    return success(result.get("metrics") or {})
 
 
 @router.post("/{backtest_id}/review")

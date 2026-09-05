@@ -1,13 +1,13 @@
 """策略上下文：策略经此下单 / 查持仓 / 取历史窗口。
 
-``history`` 只返回 **截至当日（含）** 的数据，从接口层面杜绝未来函数。
-下单为"意图"，由引擎在次日开盘撮合（见 ``broker``）。
+``history`` 只返回 **截至当前 bar（含）** 的数据，从接口层面杜绝未来函数。
+下单为"意图"，由引擎在下一根 bar 开盘撮合（见 ``broker``）。
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date
+from datetime import date, datetime
 
 from app.backtest.broker import Broker
 
@@ -17,14 +17,16 @@ class Context:
         self,
         broker: Broker,
         params: dict | None,
-        history_fn: Callable[[str, str, int, date], list[float]],
+        history_fn: Callable[[str, str, int, date | datetime], list[float]],
+        universe: list[str] | tuple[str, ...] | None = None,
     ) -> None:
         self.broker = broker
         self.params = params or {}
         self._history_fn = history_fn
-        self.current_date: date | None = None
+        self.universe = tuple(universe or ())
+        self.current_date: date | datetime | None = None
 
-    def _set_date(self, d: date) -> None:
+    def _set_date(self, d: date | datetime) -> None:
         self.current_date = d
 
     @property
@@ -35,7 +37,7 @@ class Context:
         }
 
     def history(self, code: str, field: str = "close", n: int = 20) -> list[float]:
-        """截至当日的最近 n 个 field 值（含当日；不含未来）。"""
+        """截至当前 bar 的最近 n 个 field 值（含当前；不含未来）。"""
         return self._history_fn(code, field, n, self.current_date)
 
     def order_shares(self, code: str, shares: int) -> None:

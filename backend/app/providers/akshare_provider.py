@@ -10,7 +10,8 @@ from __future__ import annotations
 from datetime import datetime
 
 from app.core.dtutil import parse_date, parse_datetime
-from app.core.numeric import parse_cn_number, to_float
+from app.core.numeric import parse_cn_decimal, to_float
+from app.core.tz import market_now
 from app.providers import symbols
 from app.providers.base import (
     BarDTO,
@@ -20,8 +21,16 @@ from app.providers.base import (
     FinancialSummaryDTO,
     InstrumentDTO,
     NewsItemDTO,
+    ProviderUnavailable,
     QuoteDTO,
 )
+
+_log = __import__("logging").getLogger(__name__)
+
+
+def _raise_unavailable(op: str, exc: BaseException) -> None:
+    _log.warning("akshare %s unavailable: %s", op, exc, exc_info=True)
+    raise ProviderUnavailable("akshare", f"{op} failed: {exc}", cause=exc) from exc
 
 
 def _pick(row, *keys):
@@ -77,7 +86,9 @@ class AkShareProvider(DataProvider):
 
         df = ak.stock_zh_a_spot_em()
         wanted = {symbols.to_six(c) for c in codes} if codes else None
-        now = datetime.now()
+        # Eastmoney spot rows do not consistently expose exchange event time.
+        # Record the actual snapshot observation time here; WS send time is separate.
+        now = market_now()
         out: list[QuoteDTO] = []
         for _, row in df.iterrows():
             six = str(_pick(row, "代码", "code") or "").zfill(6)
@@ -139,16 +150,19 @@ class AkShareProvider(DataProvider):
         import akshare as ak
 
         df = None
+        last_exc: BaseException | None = None
         for kwargs in ({"symbol": "沪深重要指数"}, {}):
             try:
                 df = ak.stock_zh_index_spot_em(**kwargs)
                 break
-            except Exception:
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
                 continue
         if df is None:
-            return []
+            _raise_unavailable("get_index_quotes", last_exc or RuntimeError("empty response"))
+            return []  # pragma: no cover
         code_map = {symbols.to_six(c): c for c in codes}
-        now = datetime.now()
+        now = market_now()
         out: list[QuoteDTO] = []
         for _, row in df.iterrows():
             six = str(_pick(row, "代码", "code") or "").zfill(6)
@@ -180,8 +194,9 @@ class AkShareProvider(DataProvider):
         market = symbols.split_canonical(code)[1].lower()
         try:
             df = ak.stock_individual_fund_flow(stock=six, market=market)
-        except Exception:
-            return []
+        except Exception as exc:  # noqa: BLE001
+            _raise_unavailable(f"get_capital_flow:{code}", exc)
+            return []  # pragma: no cover
         out: list[CapitalFlowDTO] = []
         for _, row in df.iterrows():
             d = parse_date(_pick(row, "日期", "date"))
@@ -207,25 +222,51 @@ class AkShareProvider(DataProvider):
         six = symbols.to_six(code)
         try:
             df = ak.stock_financial_abstract_ths(symbol=six, indicator="按报告期")
-        except Exception:
-            return []
+        except Exception as exc:  # noqa: BLE001
+            _raise_unavailable(f"get_financials:{code}", exc)
+            return []  # pragma: no cover
         out: list[FinancialSummaryDTO] = []
         for _, row in df.iterrows():
             d = parse_date(_pick(row, "报告期", "报告日", "date"))
             if d is None:
                 continue
+            raw_announced_at = _pick(
+                row,
+                "公告日期",
+                "公告日",
+                "发布时间",
+                "首次公告日期",
+            )
+            announced_at = parse_datetime(raw_announced_at)
+            announced_at_precision = None
+            if announced_at is not None:
+                raw_text = str(raw_announced_at).strip()
+                announced_at_precision = (
+                    "datetime"
+                    if isinstance(raw_announced_at, datetime)
+                    or ":" in raw_text
+                    or "T" in raw_text
+                    else "date"
+                )
             # THS「按报告期」字段：金额带「亿/万」单位、比率带「%」、缺失值为 False，
-            # 统一用 parse_cn_number 解析（百分号仅剥离，金额按单位还原成元）。
+            # 统一用 Decimal 解析（百分号仅剥离，金额按单位精确还原成元）。
             out.append(
                 FinancialSummaryDTO(
                     code=code,
                     report_date=d,
-                    eps=parse_cn_number(_pick(row, "基本每股收益", "每股收益")),
-                    bps=parse_cn_number(_pick(row, "每股净资产")),
-                    roe=parse_cn_number(_pick(row, "净资产收益率")),
-                    revenue=parse_cn_number(_pick(row, "营业总收入", "营业收入")),
-                    net_profit=parse_cn_number(_pick(row, "净利润")),
-                    gross_margin=parse_cn_number(_pick(row, "销售毛利率", "毛利率")),
+                    announced_at=announced_at,
+                    available_at=(
+                        announced_at
+                        if announced_at_precision == "datetime"
+                        else None
+                    ),
+                    announced_at_precision=announced_at_precision,
+                    eps=parse_cn_decimal(_pick(row, "基本每股收益", "每股收益")),
+                    bps=parse_cn_decimal(_pick(row, "每股净资产")),
+                    roe=parse_cn_decimal(_pick(row, "净资产收益率")),
+                    revenue=parse_cn_decimal(_pick(row, "营业总收入", "营业收入")),
+                    net_profit=parse_cn_decimal(_pick(row, "净利润")),
+                    gross_margin=parse_cn_decimal(_pick(row, "销售毛利率", "毛利率")),
                 )
             )
         return out
@@ -237,8 +278,9 @@ class AkShareProvider(DataProvider):
             df = ak.stock_lhb_detail_em(
                 start_date=start.replace("-", ""), end_date=end.replace("-", "")
             )
-        except Exception:
-            return []
+        except Exception as exc:  # noqa: BLE001
+            _raise_unavailable(f"get_dragon_tiger:{start}:{end}", exc)
+            return []  # pragma: no cover
         out: list[DragonTigerDTO] = []
         for _, row in df.iterrows():
             six = str(_pick(row, "代码", "证券代码") or "").zfill(6)
@@ -266,8 +308,9 @@ class AkShareProvider(DataProvider):
         six = symbols.to_six(code)
         try:
             df = ak.stock_individual_info_em(symbol=six)
-        except Exception:
-            return {}
+        except Exception as exc:  # noqa: BLE001
+            _raise_unavailable(f"get_stock_profile:{code}", exc)
+            return {}  # pragma: no cover
         # df 形如两列：item / value
         kv: dict[str, str] = {}
         for _, row in df.iterrows():
@@ -296,8 +339,9 @@ class AkShareProvider(DataProvider):
         six = symbols.to_six(code)
         try:
             df = ak.stock_news_em(symbol=six)
-        except Exception:
-            return []
+        except Exception as exc:  # noqa: BLE001
+            _raise_unavailable(f"get_news:{code}", exc)
+            return []  # pragma: no cover
         out: list[NewsItemDTO] = []
         for _, row in df.head(limit).iterrows():
             title = str(_pick(row, "新闻标题", "标题") or "").strip()

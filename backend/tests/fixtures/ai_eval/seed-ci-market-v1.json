@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "asOf": "2025-09-17T15:00:00+08:00",
+  "tools": {
+    "get_market_overview": {
+      "indices": [
+        {"code": "000001.SH", "name": "上证指数", "value": 3100.0, "changePercent": 0.8, "source": "ci_fixture"},
+        {"code": "399001.SZ", "name": "深证成指", "value": 10500.0, "changePercent": 1.1, "source": "ci_fixture"},
+        {"code": "399006.SZ", "name": "创业板指", "value": 2150.0, "changePercent": -0.3, "source": "ci_fixture"}
+      ]
+    },
+    "get_quotes": {
+      "quotes": [
+        {"code": "600000.SH", "name": "浦发银行", "price": 10.5, "change": 0.1, "changePercent": 0.96, "source": "ci_fixture"},
+        {"code": "000001.SZ", "name": "平安银行", "price": 12.3, "change": -0.1, "changePercent": -0.81, "source": "ci_fixture"},
+        {"code": "600036.SH", "name": "招商银行", "price": 35.6, "change": 0.4, "changePercent": 1.14, "source": "ci_fixture"},
+        {"code": "600519.SH", "name": "贵州茅台", "price": 1500.0, "change": 5.0, "changePercent": 0.33, "source": "ci_fixture"}
+      ]
+    },
+    "search_instruments": {
+      "instruments": [
+        {"code": "600000.SH", "name": "浦发银行", "source": "ci_fixture"},
+        {"code": "000001.SZ", "name": "平安银行", "source": "ci_fixture"},
+        {"code": "600036.SH", "name": "招商银行", "source": "ci_fixture"},
+        {"code": "600519.SH", "name": "贵州茅台", "source": "ci_fixture"}
+      ]
+    },
+    "get_kline": {
+      "kline": [
+        {"date": "2025-09-15", "open": 10.1, "high": 10.3, "low": 10.0, "close": 10.2, "source": "ci_fixture"},
+        {"date": "2025-09-16", "open": 10.2, "high": 10.4, "low": 10.1, "close": 10.3, "source": "ci_fixture"},
+        {"date": "2025-09-17", "open": 10.3, "high": 10.6, "low": 10.2, "close": 10.5, "source": "ci_fixture"}
+      ],
+      "dataQuality": {"source": "ci_fixture", "asOf": "2025-09-17T15:00:00+08:00"}
+    },
+    "get_financials": {
+      "financials": [
+        {"code": "600000.SH", "reportDate": "2025-06-30", "eps": 1.23, "bps": 10.2, "roe": 8.5, "source": "ci_fixture"}
+      ],
+      "meta": {"source": "ci_fixture", "asOf": "2025-09-17T15:00:00+08:00"}
+    },
+    "get_capital_flow": {
+      "capitalFlow": [
+        {"date": "2025-09-17", "mainNet": 120000000.0, "source": "ci_fixture"}
+      ],
+      "meta": {"source": "ci_fixture"}
+    },
+    "get_dragon_tiger": {
+      "dragonTiger": [],
+      "meta": {"source": "ci_fixture"}
+    },
+    "get_news": {
+      "news": [
+        {"title": "浦发银行发布经营公告", "publishedAt": "2025-09-16T10:00:00+08:00", "source": "ci_fixture"}
+      ],
+      "meta": {"source": "ci_fixture"}
+    },
+    "get_stock_profile": {
+      "profile": {
+        "code": "600000.SH",
+        "name": "浦发银行",
+        "industry": "银行",
+        "listDate": "1999-11-10",
+        "totalMarketCap": 300000000000.0,
+        "floatMarketCap": 280000000000.0,
+        "source": "ci_fixture"
+      }
+    },
+    "screen_stocks": {
+      "items": [
+        {"code": "600000.SH", "name": "浦发银行", "price": 10.5, "changePercent": 0.96, "source": "ci_fixture"}
+      ],
+      "meta": {"source": "ci_fixture"}
+    },
+    "run_backtest": {
+      "status": "ready",
+      "metrics": {"totalReturn": 0.08, "maxDrawdown": -0.03},
+      "source": "ci_fixture"
+    },
+    "grid_search": {
+      "status": "ready",
+      "results": [{"params": {"fast": 5, "slow": 20}, "sharpeRatio": 1.2}],
+      "source": "ci_fixture"
+    },
+    "search_knowledge": {
+      "results": [],
+      "source": "ci_fixture"
+    }
+  }
+}

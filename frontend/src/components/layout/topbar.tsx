@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, LogOut, Menu, Moon, Sun } from 'lucide-react';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useThemeStore } from '@/stores/useThemeStore';
@@ -13,6 +14,7 @@ const TITLES: Record<string, [string, string]> = {
   '/brief': ['盘前早报', 'AI 生成的条件式研究计划'],
   '/strategies': ['策略', '创建与管理量化策略'],
   '/backtest': ['回测', '用历史检验你的想法'],
+  '/sim': ['模拟交易', 'T+1 撮合 · 持仓与成交回报'],
   '/ai': ['AI 问答', '与你的投研助手对话'],
 };
 
@@ -23,22 +25,33 @@ function titleFor(pathname: string): [string, string] {
   return key ? TITLES[key] : ['量化投资 Agent', ''];
 }
 
-export function Topbar({ onMenu }: { onMenu: () => void }) {
+export function Topbar({
+  onMenu,
+  menuButtonRef,
+  mobileOpen = false,
+}: {
+  onMenu: () => void;
+  menuButtonRef?: React.RefObject<HTMLButtonElement | null>;
+  mobileOpen?: boolean;
+}) {
   const pathname = usePathname() ?? '';
   const [title, subtitle] = titleFor(pathname);
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-border bg-background/80 px-5 backdrop-blur-md sm:px-8 lg:px-10">
       <button
+        ref={menuButtonRef}
         onClick={onMenu}
         className="grid h-9 w-9 place-items-center rounded-md border border-border text-muted-foreground transition-colors hover:text-foreground lg:hidden"
         aria-label="打开菜单"
+        aria-expanded={mobileOpen}
+        aria-controls="app-sidebar"
       >
         <Menu className="h-5 w-5" />
       </button>
 
       <div className="min-w-0">
-        <h1 className="font-display text-xl leading-none tracking-tight">{title}</h1>
+        <p className="font-display text-xl leading-none tracking-tight">{title}</p>
         {subtitle && <p className="mt-1 truncate text-xs text-muted-foreground">{subtitle}</p>}
       </div>
 
@@ -70,6 +83,7 @@ function ThemeToggle() {
 
 function UserMenu() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { user, clearAuth } = useAuthStore();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -93,6 +107,7 @@ function UserMenu() {
     } catch {
       /* 忽略登出接口错误，仍清理本地状态 */
     }
+    queryClient.clear();
     clearAuth();
     router.push('/login');
   }

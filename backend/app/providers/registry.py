@@ -11,11 +11,13 @@ from app.providers.akshare_provider import AkShareProvider
 from app.providers.baostock_provider import BaoStockProvider
 from app.providers.base import DataProvider
 from app.providers.efinance_provider import EfinanceProvider
+from app.providers.tushare_provider import TushareProvider
 
 _REGISTRY: dict[str, type[DataProvider]] = {
     BaoStockProvider.name: BaoStockProvider,
     AkShareProvider.name: AkShareProvider,
     EfinanceProvider.name: EfinanceProvider,
+    TushareProvider.name: TushareProvider,
 }
 
 _DEFAULT_ROUTE: dict[str, list[str]] = {
@@ -30,6 +32,7 @@ _DEFAULT_ROUTE: dict[str, list[str]] = {
     "dragon_tiger": ["akshare"],
     "news": ["akshare"],
     "profile": ["akshare"],
+    "status_history": ["baostock", "tushare"],
 }
 
 _instances: dict[str, DataProvider] = {}

@@ -69,7 +69,9 @@ def test_price_limit_blocks_buy_at_limit_up():
     b = Broker(100000.0, slippage=0.0)
     b._prev_close["X"] = 10.0
     b.submit_shares("X", 1000)
-    b.execute_open({"X": _bar("X", date(2024, 1, 2), 11.5, 11.5)}, date(2024, 1, 2))  # 涨15%
+    bar = _bar("X", date(2024, 1, 2), 11.5, 11.5)
+    bar.limit_ratio = 0.10
+    b.execute_open({"X": bar}, date(2024, 1, 2))  # 涨15%
     assert not b.fills  # 涨停买不进
     assert b.positions.get("X") is None or b.positions["X"].qty == 0
 
