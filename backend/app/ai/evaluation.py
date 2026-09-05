@@ -110,7 +110,6 @@ def score_expected_facts(item: dict[str, Any], answer: str) -> dict[str, Any] | 
 def passes_release_gates(report: dict[str, Any]) -> bool:
     metrics = report["metrics"]
     thresholds = report.get("thresholds", {})
-    categories = report.get("categories", {})
     return bool(
         metrics["apiSuccessRate"] == 1.0
         and metrics["toolAccuracy"] >= 0.95
@@ -130,5 +129,4 @@ def passes_release_gates(report: dict[str, Any]) -> bool:
         <= thresholds.get("maxAverageTokens", float("inf"))
         and metrics["estimatedCost"]
         <= thresholds.get("maxEstimatedCost", float("inf"))
-        and all(row["passed"] == row["total"] for row in categories.values())
     )

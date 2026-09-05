@@ -11,6 +11,7 @@ import json
 import logging
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 
 from app.ai.compliance import (
@@ -31,6 +32,14 @@ MAX_TOOL_ROUNDS = 5
 MAX_ROUNDS_NOTE = "\n（已达到最大工具调用轮数。）"
 _SAFE_STREAM_CHUNK_SIZE = 256
 _FINAL_ANSWER_TOOL = "respond_without_tools"
+_ROUTER_POLICY = (
+    "优先选择满足用户问题所需的最小工具集合。不得猜测代码、日期或工具参数；"
+    "上下文足够时调用 respond_without_tools。"
+)
+_FINAL_ANSWER_POLICY = (
+    "仅基于已返回的工具结果回答；明确区分缺数据、工具失败与零值，"
+    "不得补造数值、来源或时点。"
+)
 _ROUTER_TOOLS = [
     *TOOLS,
     {
@@ -108,6 +117,7 @@ def _append_tool_results(
     assistant_content: str | None,
     calls,
     tool_executor=None,
+    routing_text: str = "",
 ) -> tuple[list[str], list[dict]]:
     tools_called: list[str] = []
     tool_results: list[dict] = []
@@ -130,15 +140,23 @@ def _append_tool_results(
     for c in calls:
         name = c.function.name
         tools_called.append(name)
+        argument_error: str | None = None
         try:
             args = json.loads(c.function.arguments or "{}")
         except json.JSONDecodeError:
             args = {}
-        try:
-            result = executor(name, args)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("工具 %s 执行失败: %s", name, exc)
-            result = {"error": f"工具执行失败: {exc}"}
+            argument_error = "工具参数不是有效 JSON"
+        if argument_error:
+            result = {"error": argument_error}
+        else:
+            try:
+                from app.ai.router import repair_tool_arguments
+
+                args = repair_tool_arguments(name, args, user_text=routing_text)
+                result = executor(name, args)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("工具 %s 执行失败: %s", name, exc)
+                result = {"error": f"工具执行失败: {exc}"}
         tool_results.append({"name": name, "args": args, "result": result})
         messages.append(
             {
@@ -165,6 +183,40 @@ def _route_tools(
     tools_called: list[str] = []
     tool_results: list[dict] = []
     usage = {"promptTokens": 0, "completionTokens": 0}
+    from app.ai.router import route_deterministically
+
+    latest_user = next(
+        (
+            str(message.get("content", ""))
+            for message in reversed(messages)
+            if message.get("role") == "user"
+        ),
+        "",
+    )
+    deterministic = route_deterministically(latest_user)
+    if deterministic is not None:
+        if not deterministic.calls:
+            return tools_called, tool_results, False, usage
+        calls = [
+            SimpleNamespace(
+                id=f"deterministic-{index}",
+                function=SimpleNamespace(
+                    name=call.name,
+                    arguments=json.dumps(call.arguments, ensure_ascii=False),
+                ),
+            )
+            for index, call in enumerate(deterministic.calls)
+        ]
+        called, results = _append_tool_results(
+            messages,
+            None,
+            calls,
+            tool_executor=tool_executor,
+            routing_text=latest_user,
+        )
+        return called, results, False, usage
+
+    messages.append({"role": "system", "content": _ROUTER_POLICY})
     for _ in range(MAX_TOOL_ROUNDS):
         completion = client.chat.completions.create(
             model=settings.deepseek_model,
@@ -187,7 +239,11 @@ def _route_tools(
         if not calls:
             return tools_called, tool_results, False, usage
         called, results = _append_tool_results(
-            messages, None, calls, tool_executor=tool_executor
+            messages,
+            None,
+            calls,
+            tool_executor=tool_executor,
+            routing_text=latest_user,
         )
         tools_called.extend(called)
         tool_results.extend(results)
@@ -226,6 +282,28 @@ def run_chat_collect(
     tools_called: list[str] = []
     tool_results: list[dict] = []
 
+    latest_user = next(
+        (
+            str(message.get("content", ""))
+            for message in reversed(user_messages)
+            if message.get("role") == "user"
+        ),
+        "",
+    )
+    from app.ai.router import (
+        deterministic_direct_response,
+        deterministic_evidence_summary,
+        deterministic_tool_answer,
+    )
+
+    direct = deterministic_direct_response(latest_user)
+    if direct is not None:
+        return {
+            "answer": enforce_compliance(direct) if enforce else direct,
+            "toolsCalled": [],
+            "toolResults": [],
+            "usage": {"promptTokens": 0, "completionTokens": 0},
+        }
     client = get_client()
     messages = _build_messages(user_messages)
 
@@ -237,6 +315,28 @@ def run_chat_collect(
             {
                 "role": "user",
                 "content": "工具轮次已达上限。请仅基于已有工具结果给出最终回答，不再调用工具。",
+            }
+        )
+    deterministic_answer = deterministic_tool_answer(
+        tool_results, user_text=latest_user
+    )
+    if deterministic_answer is not None:
+        return {
+            "answer": (
+                enforce_compliance(deterministic_answer)
+                if enforce
+                else deterministic_answer.strip()
+            ),
+            "toolsCalled": tools_called,
+            "toolResults": tool_results,
+            "usage": usage,
+        }
+    evidence = deterministic_evidence_summary(tool_results)
+    if evidence:
+        messages.append(
+            {
+                "role": "system",
+                "content": f"{_FINAL_ANSWER_POLICY}\n字段化工具证据：{evidence}",
             }
         )
     completion = client.chat.completions.create(
@@ -259,6 +359,24 @@ def run_chat_collect(
 def run_chat_stream(
     user_messages: list[dict], *, trace: ChatRunTrace | None = None
 ) -> Iterator[str]:
+    latest_user = next(
+        (
+            str(message.get("content", ""))
+            for message in reversed(user_messages)
+            if message.get("role") == "user"
+        ),
+        "",
+    )
+    from app.ai.router import (
+        deterministic_direct_response,
+        deterministic_evidence_summary,
+        deterministic_tool_answer,
+    )
+
+    direct = deterministic_direct_response(latest_user)
+    if direct is not None:
+        yield from _yield_safe_chunks(direct)
+        return
     client = get_client()
     messages = _build_messages(user_messages)
     _, tool_results, exhausted, _usage_result = _route_tools(client, messages)
@@ -270,6 +388,20 @@ def run_chat_stream(
             {
                 "role": "user",
                 "content": "工具轮次已达上限。请仅基于已有工具结果给出最终回答，不再调用工具。",
+            }
+        )
+    deterministic_answer = deterministic_tool_answer(
+        tool_results, user_text=latest_user
+    )
+    if deterministic_answer is not None:
+        yield from _yield_safe_chunks(deterministic_answer)
+        return
+    evidence = deterministic_evidence_summary(tool_results)
+    if evidence:
+        messages.append(
+            {
+                "role": "system",
+                "content": f"{_FINAL_ANSWER_POLICY}\n字段化工具证据：{evidence}",
             }
         )
     final_stream = client.chat.completions.create(

@@ -24,6 +24,7 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -34,6 +35,14 @@ from app.ai.tools import validate_tool_arguments
 DATASET = Path(__file__).resolve().parent.parent / "tests" / "golden_questions.json"
 DATASET_META = (
     Path(__file__).resolve().parent.parent / "tests" / "golden_questions.meta.json"
+)
+BACKEND_ROOT = Path(__file__).resolve().parent.parent
+IMPLEMENTATION_FILES = (
+    Path(__file__).resolve(),
+    Path(__file__).resolve().parent.parent / "app" / "ai" / "evaluation.py",
+    Path(__file__).resolve().parent.parent / "app" / "ai" / "orchestrator.py",
+    Path(__file__).resolve().parent.parent / "app" / "ai" / "router.py",
+    Path(__file__).resolve().parent.parent / "app" / "ai" / "tools.py",
 )
 
 MISSING_HINTS = [
@@ -210,8 +219,26 @@ def validate_baseline_report(
         errors.append("baseline 未配置模型价格")
     if metrics.get("apiSuccessRate") != 1.0:
         errors.append("baseline 存在 API 失败")
-    if require_passing and report.get("passed") is not True:
-        errors.append("baseline 未通过模型发布门禁")
+    recomputed = recompute_report_metrics(data, report)
+    for key in (
+        "apiSuccessRate",
+        "toolAccuracy",
+        "safeComplianceRate",
+        "safeAdviceViolations",
+        "rawComplianceRate",
+        "rawAdviceViolations",
+        "honestyRate",
+        "honestyCases",
+        "numericConsistencyRate",
+        "numericCases",
+    ):
+        if recomputed["metrics"][key] != metrics.get(key):
+            errors.append(f"baseline 指标不可复算: {key}")
+    if require_passing:
+        if report.get("implementationSha256") != implementation_sha256():
+            errors.append("候选报告与当前路由/提示/评测代码不匹配")
+        if not passes_release_gates(recomputed):
+            errors.append("baseline 未通过模型发布门禁")
     if errors:
         print("❌ 基线报告校验失败：" + "；".join(errors))
         return 1
@@ -221,6 +248,76 @@ def validate_baseline_report(
         f"成本 ${metrics.get('estimatedCost', 0):.4f}"
     )
     return 0
+
+
+def implementation_sha256() -> str:
+    digest = hashlib.sha256()
+    for path in IMPLEMENTATION_FILES:
+        digest.update(path.relative_to(BACKEND_ROOT).as_posix().encode())
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def recompute_report_metrics(
+    data: list[dict],
+    report: dict[str, Any],
+) -> dict[str, Any]:
+    definitions = {item["id"]: item for item in data}
+    results = report.get("results", [])
+    total = len(data)
+    api_success = sum(not row.get("apiError") for row in results)
+    tool_rows = [
+        row
+        for row in results
+        if definitions.get(str(row.get("id")), {}).get("requiredTools")
+    ]
+    honesty_rows = [
+        row
+        for row in results
+        if definitions.get(str(row.get("id")), {}).get("expectHonestMissing")
+    ]
+    numeric_rows = [
+        row
+        for row in results
+        if definitions.get(str(row.get("id")), {}).get("expectedFacts")
+    ]
+
+    def rate(rows: list[dict], predicate) -> float:
+        return (
+            sum(bool(predicate(row)) for row in rows) / len(rows)
+            if rows
+            else 1.0
+        )
+
+    reported = report.get("metrics", {})
+    metrics = {
+        **reported,
+        "apiSuccessRate": api_success / total if total else 0.0,
+        "toolAccuracy": rate(
+            tool_rows, lambda row: (row.get("toolScore") or {}).get("ok")
+        ),
+        "safeComplianceRate": rate(results, lambda row: row.get("safeCompliance")),
+        "safeAdviceViolations": sum(
+            bool(row.get("safeAdviceFlags")) for row in results
+        ),
+        "rawComplianceRate": rate(results, lambda row: row.get("rawCompliance")),
+        "rawAdviceViolations": sum(
+            bool(row.get("rawAdviceFlags")) for row in results
+        ),
+        "honestyRate": rate(honesty_rows, lambda row: row.get("honesty")),
+        "honestyCases": len(honesty_rows),
+        "numericConsistencyRate": rate(
+            numeric_rows, lambda row: row.get("numericConsistency")
+        ),
+        "numericCases": len(numeric_rows),
+    }
+    return {
+        "metrics": metrics,
+        "thresholds": report.get("thresholds", {}),
+        "categories": report.get("categories", {}),
+    }
 
 
 def _price_tokens(value: float) -> set[str]:
@@ -626,6 +723,7 @@ def evaluate_live(
         "toolResultsSha256": json.loads(
             DATASET_META.read_text(encoding="utf-8")
         )["fixture"]["toolResultsSha256"],
+        "implementationSha256": implementation_sha256(),
         "model": os.environ.get("DEEPSEEK_MODEL", "deepseek-chat"),
         "metrics": {
             "apiSuccessRate": metric(total - api_errors, total),

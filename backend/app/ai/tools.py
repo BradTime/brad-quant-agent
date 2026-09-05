@@ -9,11 +9,20 @@ malicious or runaway model cannot inflate context/cost via huge codes/count/limi
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from app.core.asof import parse_as_of
+from app.providers.symbols import normalize_a_share_code, normalize_a_share_codes
 from app.services import market
 
 # ---- hard limits (also mirrored in TOOLS JSON Schema for the model) ----
@@ -45,19 +54,18 @@ class GetQuotesArgs(_Strict):
     @field_validator("codes")
     @classmethod
     def _codes(cls, value: list[str]) -> list[str]:
-        cleaned: list[str] = []
-        for raw in value:
-            code = str(raw).strip()
-            if not code or len(code) > _MAX_CODE_LEN:
-                raise ValueError(f"股票代码长度须为 1..{_MAX_CODE_LEN}")
-            cleaned.append(code)
-        return cleaned
+        return normalize_a_share_codes(value)
 
 
 class GetKlineArgs(_Strict):
     symbol: str = Field(min_length=1, max_length=_MAX_CODE_LEN)
     period: Literal["day", "5min", "15min", "30min", "hour"] = "day"
     count: int = Field(default=100, ge=1, le=_MAX_KLINE)
+
+    @field_validator("symbol")
+    @classmethod
+    def _symbol(cls, value: str) -> str:
+        return normalize_a_share_code(value)
 
 
 class SearchInstrumentsArgs(_Strict):
@@ -69,25 +77,56 @@ class GetCapitalFlowArgs(_Strict):
     code: str = Field(min_length=1, max_length=_MAX_CODE_LEN)
     limit: int = Field(default=30, ge=1, le=_MAX_FLOW)
 
+    @field_validator("code")
+    @classmethod
+    def _code(cls, value: str) -> str:
+        return normalize_a_share_code(value)
+
 
 class GetFinancialsArgs(_Strict):
     code: str = Field(min_length=1, max_length=_MAX_CODE_LEN)
     limit: int = Field(default=12, ge=1, le=_MAX_FINANCIALS)
     asOf: str | None = Field(default=None, max_length=40)
 
+    @field_validator("code")
+    @classmethod
+    def _code(cls, value: str) -> str:
+        return normalize_a_share_code(value)
+
+    @field_validator("asOf")
+    @classmethod
+    def _as_of(cls, value: str | None) -> str | None:
+        parse_as_of(value)
+        return value
+
 
 class CodeLimitArgs(_Strict):
     code: str = Field(min_length=1, max_length=_MAX_CODE_LEN)
     limit: int = Field(default=20, ge=1, le=_MAX_NEWS)
+
+    @field_validator("code")
+    @classmethod
+    def _code(cls, value: str) -> str:
+        return normalize_a_share_code(value)
 
 
 class GetDragonTigerArgs(_Strict):
     code: str = Field(min_length=1, max_length=_MAX_CODE_LEN)
     limit: int = Field(default=20, ge=1, le=_MAX_DRAGON)
 
+    @field_validator("code")
+    @classmethod
+    def _code(cls, value: str) -> str:
+        return normalize_a_share_code(value)
+
 
 class GetStockProfileArgs(_Strict):
     code: str = Field(min_length=1, max_length=_MAX_CODE_LEN)
+
+    @field_validator("code")
+    @classmethod
+    def _code(cls, value: str) -> str:
+        return normalize_a_share_code(value)
 
 
 class SearchKnowledgeArgs(_Strict):
@@ -137,6 +176,23 @@ class RunBacktestArgs(_Strict):
     end: str = Field(min_length=8, max_length=10)
     params: dict[str, float | int] = Field(default_factory=dict)
 
+    @field_validator("code")
+    @classmethod
+    def _code(cls, value: str) -> str:
+        return normalize_a_share_code(value)
+
+    @field_validator("start", "end")
+    @classmethod
+    def _date(cls, value: str) -> str:
+        date.fromisoformat(value)
+        return value
+
+    @model_validator(mode="after")
+    def _date_order(self):
+        if self.start > self.end:
+            raise ValueError("回测开始日期不得晚于结束日期")
+        return self
+
 
 class GridSearchArgs(_Strict):
     """有界参数网格（默认 dual_ma，组合数由 schema 上限约束）。"""
@@ -156,6 +212,23 @@ class GridSearchArgs(_Strict):
         "excessReturnPercent",
     ] = "sharpeRatio"
     topN: int = Field(default=5, ge=1, le=10)
+
+    @field_validator("code")
+    @classmethod
+    def _code(cls, value: str) -> str:
+        return normalize_a_share_code(value)
+
+    @field_validator("start", "end")
+    @classmethod
+    def _date(cls, value: str) -> str:
+        date.fromisoformat(value)
+        return value
+
+    @model_validator(mode="after")
+    def _date_order(self):
+        if self.start > self.end:
+            raise ValueError("网格搜索开始日期不得晚于结束日期")
+        return self
 
 
 _ARG_MODELS: dict[str, type[BaseModel]] = {

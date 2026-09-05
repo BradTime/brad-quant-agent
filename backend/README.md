@@ -200,6 +200,12 @@ CI 只校验该“现状参考基线”的题目、fixture、usage 与价格完�
 `--offline --baseline <candidate.json> --require-passing-baseline`
 验证候选报告不可被失败基线冒充。
 
+普通问答采用确定性优先路由：明确的行情、K 线、财务、资金流、筛选和回测意图
+直接映射到最小工具集合；生产 Pydantic schema 统一规范代码与日期并拒绝冲突参数。
+歧义实体继续回退模型路由，简单单工具事实可字段化渲染，多工具回答会注入来源明确的
+证据摘要。`scripts/analyze_ai_eval.py` 可将报告失败归类为漏工具、多工具、参数、
+诚实性、grounding 与合规问题。
+
 `TRAINING_ARTIFACT_DIR` 必须是非公开、仅服务进程可读写的持久目录。生产 Compose 使用
 私有 `trainingdata` volume。应用不会把训练 artifact 上传到 DeepSeek、LangSmith、Sentry
 或 embedding 服务；实际 SFT/LoRA 必须在独立审批后执行。

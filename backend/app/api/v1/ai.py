@@ -15,7 +15,7 @@ from fastapi.responses import StreamingResponse
 
 from app.ai import deep_research
 from app.ai.deep_research import stream_deep_research
-from app.ai.orchestrator import ChatRunTrace, run_chat_stream
+from app.ai.orchestrator import MAX_TOOL_ROUNDS, ChatRunTrace, run_chat_stream
 from app.ai.prompts import SYSTEM_PROMPT
 from app.ai.tools import TOOLS
 from app.api.deps import get_current_user
@@ -121,7 +121,7 @@ def _record_incomplete_training_trace(
             generation_params={
                 "stream": True,
                 "toolChoice": "required",
-                "maxToolRounds": 5,
+                "maxToolRounds": MAX_TOOL_ROUNDS,
             },
             prompt_version=prompt_version,
             prompt_hash=prompt_hash,
@@ -209,7 +209,7 @@ def _chat_event_stream(
                     generation_params={
                         "stream": True,
                         "toolChoice": "required",
-                        "maxToolRounds": 5,
+                        "maxToolRounds": MAX_TOOL_ROUNDS,
                     },
                     prompt_version=prompt_version,
                     prompt_hash=prompt_hash,

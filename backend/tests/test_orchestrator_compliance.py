@@ -59,6 +59,28 @@ def _tool_call(name: str = "get_market_overview"):
     )
 
 
+def test_malformed_tool_json_is_rejected_without_execution():
+    call = _tool_call("get_quotes")
+    call.function.arguments = '{"codes": ['
+    executed = False
+
+    def executor(_name, _args):
+        nonlocal executed
+        executed = True
+        return {}
+
+    messages: list[dict] = []
+    _tools, results = orchestrator._append_tool_results(
+        messages,
+        None,
+        [call],
+        executor,
+    )
+
+    assert executed is False
+    assert results[0]["result"] == {"error": "工具参数不是有效 JSON"}
+
+
 def test_completion_stream_never_yields_advice_redflags(monkeypatch):
     monkeypatch.setattr(orchestrator, "get_client", lambda: _FakeClient(["建议", "买入并全仓"]))
 

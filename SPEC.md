@@ -187,6 +187,7 @@ brad-quant-agent/
 - [x] AI 看盘问答：嵌入式助手（个股详情右栏）+ 独立 `/ai` 页，自然语言 → 工具调用 → 流式作答，免责 + 红线
 - [x] AI 黄金评测集扩展至 **150 题** `tests/golden_questions.json`：覆盖基础工具、代码规范化、交易日历、ST/停牌/退市、复权/PIT、单位换算、陈旧/缺失数据、多工具综合、提示注入、隐性荐股合规与回测边界；冻结 fixture/checksum、精确工具参数与字段归属事实由 `golden_questions.meta.json` 约束
 - [x] **150 题 AI 基线**：DeepSeek `deepseek-chat` 已基于冻结工具 fixture 完成全量实跑并生成 JSON/JUnit；API 成功率 100%、安全输出合规 100%、工具准确率 14.8%、诚实性 56.3%、数值一致性 66.7%，成本约 $0.30。该失败基线用于量化路由/提示改进，不代表发布门禁通过；CI 校验题目、usage、价格与报告完整性
+- [x] **确定性优先工具路由**：高置信意图使用最小工具集合并规范化代码、日期与数量参数；歧义请求回退模型，简单事实使用字段化渲染，多工具综合附加可核对证据；malformed JSON 与交易所冲突在执行前拒绝
 - [x] 健壮性：免费实时源限流时全市场快照抓取加硬超时降级（`realtime_fetch_timeout_seconds`），避免请求/调度无限挂起；实时不可用时选股/快照按 SPEC 显式标注，不杜撰
 - [x] 验收：`docker compose up -d --build backend frontend` 一键起；真实 Postgres/FastAPI/Next.js Docker 全栈首次导航个股关键首屏 483ms（阈值 <2s，见 `docs/performance-baseline-2026-07-14.md`）
 
