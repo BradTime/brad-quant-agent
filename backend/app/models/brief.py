@@ -9,11 +9,13 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Any
 
 from sqlalchemy import Date, DateTime, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.db.types import PortableJSON
 
 
 class MorningBrief(Base):
@@ -22,10 +24,13 @@ class MorningBrief(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     trade_date: Mapped[date] = mapped_column(Date, index=True)
-    status: Mapped[str] = mapped_column(String(16), default="ready")  # generating/ready/failed
+    # generating/ready/failed/partial/data_corrupt
+    status: Mapped[str] = mapped_column(String(16), default="ready")
     title: Mapped[str] = mapped_column(String(160), default="")
-    content: Mapped[str] = mapped_column(Text, default="")           # 早报正文（Markdown）
-    data_pack_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # 依据数据快照(JSON)
+    content: Mapped[str] = mapped_column(Text, default="")
+    data_pack_json: Mapped[dict[str, Any] | list[Any] | None] = mapped_column(
+        PortableJSON, nullable=True
+    )
     source_note: Mapped[str] = mapped_column(String(255), default="")
     model: Mapped[str] = mapped_column(String(64), default="")
     error: Mapped[str | None] = mapped_column(String(512), nullable=True)

@@ -25,9 +25,17 @@ def parse_date(value: object) -> date | None:
 
 
 def parse_datetime(value: object) -> datetime | None:
-    """Parse a daily date into a midnight ``datetime`` (or pass through datetime)."""
+    """Parse ISO date/time while preserving source time and timezone when present."""
     if isinstance(value, datetime):
         return value
+    if value is None:
+        return None
+    text = str(value).strip()
+    if text:
+        try:
+            return datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            pass
     d = parse_date(value)
     return datetime(d.year, d.month, d.day) if d else None
 

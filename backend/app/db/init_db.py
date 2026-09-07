@@ -1,7 +1,7 @@
-"""Create tables from the ORM metadata.
+"""Development-only compatibility helper for creating current ORM tables.
 
-Phase 0 uses ``create_all`` for speed; switch to Alembic migrations once the
-schema stabilizes.
+Persistent databases and deployments must use ``alembic upgrade head`` so the
+schema revision is recorded and future migrations remain ordered.
 """
 
 from __future__ import annotations

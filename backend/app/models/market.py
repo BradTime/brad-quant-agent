@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, Numeric, String, func
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Index, Numeric, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -40,6 +40,34 @@ class Instrument(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class InstrumentStatusHistory(Base):
+    """Effective-dated security name/risk-warning status for PIT backtests."""
+
+    __tablename__ = "instrument_status_history"
+    __table_args__ = (
+        Index(
+            "ix_instrument_status_history_lookup",
+            "code",
+            "start_date",
+            "end_date",
+        ),
+    )
+
+    code: Mapped[str] = mapped_column(String(16), primary_key=True)
+    start_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    name: Mapped[str] = mapped_column(String(64), default="")
+    # normal / st / star_st. Boards such as ChiNext still apply their board
+    # limit; this status is consumed by trading_rules after board detection.
+    status_type: Mapped[str] = mapped_column(String(16), default="normal", index=True)
+    change_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    announced_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    source: Mapped[str] = mapped_column(String(32), default="")
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
     )
 
 

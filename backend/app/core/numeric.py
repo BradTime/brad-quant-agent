@@ -56,6 +56,32 @@ def parse_cn_number(value: object) -> float | None:
     return None if f is None else f * mult
 
 
+def parse_cn_decimal(value: object) -> Decimal | None:
+    """Parse a financial source value without converting through binary float."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, Decimal):
+        return value if value.is_finite() else None
+    text = str(value).strip().replace(",", "")
+    if text.lower() in _NULL_STRINGS:
+        return None
+    if text.endswith("%"):
+        text = text[:-1].strip()
+    multiplier = Decimal(1)
+    for suffix, numeric_multiplier in _CN_UNITS:
+        if text.endswith(suffix):
+            multiplier = Decimal(str(numeric_multiplier))
+            text = text[: -len(suffix)].strip()
+            break
+    try:
+        parsed = Decimal(text)
+    except (InvalidOperation, ValueError):
+        return None
+    if not parsed.is_finite():
+        return None
+    return parsed * multiplier
+
+
 def to_decimal(value: object, places: int = 4) -> Decimal | None:
     f = to_float(value)
     if f is None:

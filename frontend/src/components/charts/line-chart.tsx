@@ -1,10 +1,27 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import * as echarts from 'echarts';
+import * as echarts from 'echarts/core';
+import { LineChart as ELineChart } from 'echarts/charts';
+import {
+  GridComponent,
+  LegendComponent,
+  TitleComponent,
+  TooltipComponent,
+} from 'echarts/components';
+import { CanvasRenderer } from 'echarts/renderers';
 import type { EChartsOption } from 'echarts';
 import { useThemeStore } from '@/stores/useThemeStore';
 import { getChartPalette, withAlpha } from './chart-theme';
+
+echarts.use([
+  ELineChart,
+  GridComponent,
+  TooltipComponent,
+  LegendComponent,
+  TitleComponent,
+  CanvasRenderer,
+]);
 
 interface LineChartProps {
   data: Array<{ date: string; value: number; benchmark?: number }>;
@@ -105,5 +122,13 @@ export function LineChart({ data, height = 300, title, showLegend = true }: Line
     };
   }, []);
 
-  return <div ref={chartRef} style={{ width: '100%', height: `${height}px` }} />;
+  const lastValue = data.length > 0 ? data[data.length - 1].value : null;
+  const chartLabel = `折线图，${data.length} 个数据点${lastValue != null ? `，最新值 ${lastValue.toFixed(2)}%` : ''}${title ? `，${title}` : ''}`;
+
+  return (
+    <div role="img" aria-label={chartLabel}>
+      <div ref={chartRef} style={{ width: '100%', height: `${height}px` }} />
+      <span className="sr-only">{chartLabel}</span>
+    </div>
+  );
 }

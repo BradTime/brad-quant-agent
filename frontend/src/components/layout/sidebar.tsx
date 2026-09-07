@@ -1,9 +1,11 @@
 'use client';
 
+import { forwardRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   Activity,
+  Database,
   FlaskConical,
   LayoutDashboard,
   Layers,
@@ -13,12 +15,14 @@ import {
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/stores/useAuthStore';
 
 interface NavItem {
   href: string;
   label: string;
   en: string;
   icon: typeof LayoutDashboard;
+  adminOnly?: boolean;
 }
 
 const NAV: NavItem[] = [
@@ -29,33 +33,51 @@ const NAV: NavItem[] = [
   { href: '/strategies', label: '策略', en: 'Strategies', icon: Layers },
   { href: '/backtest', label: '回测', en: 'Backtest', icon: FlaskConical },
   { href: '/ai', label: 'AI 问答', en: 'Copilot', icon: Sparkles },
+  {
+    href: '/admin/training',
+    label: '训练数据',
+    en: 'Training',
+    icon: Database,
+    adminOnly: true,
+  },
 ];
 
 interface SidebarProps {
   mobileOpen: boolean;
+  isMobile: boolean;
   onClose: () => void;
 }
 
-export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
+export const Sidebar = forwardRef<HTMLElement, SidebarProps>(function Sidebar(
+  { mobileOpen, isMobile, onClose },
+  ref,
+) {
   const pathname = usePathname() ?? '';
+  const user = useAuthStore((state) => state.user);
+  const isDrawer = isMobile && mobileOpen;
 
   return (
     <>
       <div
         className={cn(
           'fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden',
-          mobileOpen ? 'block' : 'hidden'
+          mobileOpen ? 'block' : 'hidden',
         )}
         onClick={onClose}
         aria-hidden
       />
       <aside
+        ref={ref}
+        id="app-sidebar"
         className={cn(
           'app-grain fixed inset-y-0 left-0 z-50 flex w-[260px] flex-col overflow-hidden',
           'bg-sidebar text-sidebar-foreground border-r border-sidebar-border',
           'transition-transform duration-300 lg:translate-x-0',
-          mobileOpen ? 'translate-x-0' : '-translate-x-full'
+          mobileOpen ? 'translate-x-0' : '-translate-x-full',
         )}
+        role={isDrawer ? 'dialog' : undefined}
+        aria-modal={isDrawer ? true : undefined}
+        aria-label="主导航"
       >
         {/* 暖金光晕 */}
         <div className="pointer-events-none absolute -left-20 -top-20 h-60 w-60 rounded-full bg-brand/20 blur-3xl" />
@@ -84,7 +106,9 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
 
         {/* 导航 */}
         <nav className="relative flex-1 space-y-1 px-3">
-          {NAV.map((item) => {
+          {NAV.filter(
+            (item) => !item.adminOnly || user?.role === 'admin'
+          ).map((item) => {
             const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
             const Icon = item.icon;
             return (
@@ -92,11 +116,12 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
                 key={item.href}
                 href={item.href}
                 onClick={onClose}
+                aria-current={active ? 'page' : undefined}
                 className={cn(
                   'group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors',
                   active
                     ? 'bg-sidebar-elevated text-sidebar-foreground'
-                    : 'text-sidebar-muted hover:bg-sidebar-elevated/60 hover:text-sidebar-foreground'
+                    : 'text-sidebar-muted hover:bg-sidebar-elevated/60 hover:text-sidebar-foreground',
                 )}
               >
                 {active && (
@@ -105,7 +130,7 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
                 <Icon
                   className={cn(
                     'h-[18px] w-[18px] transition-colors',
-                    active ? 'text-brand' : 'text-sidebar-muted group-hover:text-sidebar-foreground'
+                    active ? 'text-brand' : 'text-sidebar-muted group-hover:text-sidebar-foreground',
                   )}
                   strokeWidth={1.75}
                 />
@@ -129,4 +154,4 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
       </aside>
     </>
   );
-}
+});

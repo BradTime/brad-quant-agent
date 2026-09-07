@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Float, Integer, String, func
+from sqlalchemy import Date, DateTime, Float, Integer, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -55,6 +55,11 @@ class SimOrder(Base):
     frozen: Mapped[float] = mapped_column(Float, default=0.0)  # 挂买单冻结的现金
     status: Mapped[str] = mapped_column(String(12), default="pending")  # pending/filled/cancelled/rejected
     reason: Mapped[str] = mapped_column(String(255), default="")
+    # A 股模拟盘默认 DAY：跨交易日在 settle / 日终任务中撤销，禁止隔夜成交
+    trade_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    tif: Mapped[str] = mapped_column(
+        String(8), nullable=False, server_default=text("'DAY'")
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

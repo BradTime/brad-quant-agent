@@ -1,4 +1,4 @@
-"""回测引擎 M1 单测：后复权阶梯因子、引擎注册表、native/backtrader 骨架。"""
+"""回测引擎 M1 单测：后复权阶梯因子与引擎注册表。"""
 
 from datetime import date
 
@@ -41,14 +41,12 @@ def test_get_engine_unknown_raises():
         get_engine("nope")
 
 
-def test_backtrader_engine_reserved():
-    """预留引擎可被选择，但 run() 在未安装/未实现时报错（不静默）。"""
+def test_backtrader_engine_registered():
+    """Backtrader 引擎可被真实选择，依赖仍保持惰性导入。"""
     from app.backtest.registry import get_engine
 
     eng = get_engine("backtrader")
     assert eng.name == "backtrader"
-    with pytest.raises((RuntimeError, NotImplementedError)):
-        eng.run(_cfg(), None, {})
 
 
 def test_load_hfq_smoke():

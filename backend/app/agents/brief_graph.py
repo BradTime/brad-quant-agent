@@ -86,8 +86,28 @@ def is_available() -> bool:
         return False
 
 
-def _trace(node: str, start: float, text: str, **extra) -> dict:
-    """统一节点轨迹：含耗时 ms + 起止 epoch ms（start/end），供前端时序甘特图展示并行重叠。"""
+# 轨迹下钻：节点输入/输出原文截断长度（防 agentTrace 落库过胀）
+_TRACE_IO_CAP = 1500
+_TRACE_TAIL_INPUT_NODES = {"editor", "evaluator", "editor_revise", "reviewer"}
+
+
+def _safe_trace_text(text: str, *, mode: str = "head") -> str:
+    """Sanitize compliance red flags, then retain the most useful bounded slice."""
+    from app.ai.compliance import ADVICE_REPLACEMENT, find_advice_flags
+
+    clean = ADVICE_REPLACEMENT if find_advice_flags(text) else text
+    if len(clean) <= _TRACE_IO_CAP:
+        return clean
+    if mode == "tail":
+        return clean[-_TRACE_IO_CAP:]
+    if mode == "edges":
+        head = (_TRACE_IO_CAP - 1) // 2
+        return clean[:head] + "…" + clean[-(_TRACE_IO_CAP - head - 1) :]
+    return clean[:_TRACE_IO_CAP]
+
+
+def _trace(node: str, start: float, text: str, *, human: str | None = None, **extra) -> dict:
+    """统一节点轨迹：耗时、时序与截断后的输入/输出，供前端观测和下钻。"""
     end = time.time()
     tr = {
         "node": node,
@@ -96,7 +116,13 @@ def _trace(node: str, start: float, text: str, **extra) -> dict:
         "start": int(start * 1000),
         "end": int(end * 1000),
         "chars": len(text),
+        "output": _safe_trace_text(text or ""),
     }
+    if human:
+        # Downstream prompts put drafts/feedback at the end; base nodes need both
+        # the market-context beginning and news/knowledge tail of the shared pack.
+        mode = "tail" if node in _TRACE_TAIL_INPUT_NODES else "edges"
+        tr["input"] = _safe_trace_text(human, mode=mode)
     tr.update({k: v for k, v in extra.items() if v is not None})
     return tr
 
@@ -108,7 +134,7 @@ def _invoke(node: str, system_prompt: str, human: str, temperature: float = 0.3)
     model = get_chat_model(temperature)
     resp = model.invoke([SystemMessage(content=system_prompt), HumanMessage(content=human)])
     text = resp.content if isinstance(resp.content, str) else str(resp.content)
-    return text, _trace(node, start, text)
+    return text, _trace(node, start, text, human=human)
 
 
 def _invoke_with_tools(
@@ -158,7 +184,7 @@ def _invoke_with_tools(
         )
         resp2 = get_chat_model(temperature).invoke(messages)
         text = resp2.content if isinstance(resp2.content, str) else str(resp2.content)
-    return text, _trace(node, start, text, tools=used or None)
+    return text, _trace(node, start, text, human=human, tools=used or None)
 
 
 # ---------- 节点 ----------
@@ -257,6 +283,7 @@ def _evaluator(state: BriefState) -> dict:
         "evaluator",
         start,
         raw,
+        human=human,
         **{
             "pass": report.get("pass"),
             "scores": report.get("scores"),
@@ -298,7 +325,7 @@ def _reviewer(state: BriefState) -> dict:
     flags = find_advice_flags(draft)
     final = enforce_compliance(draft)
     note = "通过" if not flags else f"拦截买卖指令:{flags}"
-    return {"final": final, "trace": [_trace("reviewer", start, final, note=note)]}
+    return {"final": final, "trace": [_trace("reviewer", start, final, human=draft, note=note)]}
 
 
 _compiled = None

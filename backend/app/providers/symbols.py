@@ -8,7 +8,11 @@ Per-source conversions:
 
 from __future__ import annotations
 
+import re
+
 _PREFIX = {"SH": "sh", "SZ": "sz", "BJ": "bj"}
+_CANONICAL = re.compile(r"^(?P<six>\d{6})(?:\.(?P<exchange>SH|SZ|BJ))?$", re.I)
+_SOURCE_PREFIX = re.compile(r"^(?P<exchange>SH|SZ|BJ)\.(?P<six>\d{6})$", re.I)
 
 
 def infer_exchange(six: str) -> str:
@@ -26,6 +30,29 @@ def to_canonical(six: str, exchange: str | None = None) -> str:
     six = six.strip()
     ex = (exchange or infer_exchange(six)).upper()
     return f"{six}.{ex}"
+
+
+def normalize_a_share_code(code: str) -> str:
+    """Return strict canonical A-share code, rejecting suffix conflicts."""
+    raw = str(code).strip()
+    match = _CANONICAL.fullmatch(raw) or _SOURCE_PREFIX.fullmatch(raw)
+    if match is None:
+        raise ValueError("股票代码必须是 6 位数字，可带 SH/SZ/BJ 后缀")
+    six = match.group("six")
+    explicit = match.group("exchange")
+    inferred = infer_exchange(six)
+    if explicit and explicit.upper() != inferred:
+        raise ValueError("股票代码与交易所后缀不匹配")
+    return f"{six}.{inferred}"
+
+
+def normalize_a_share_codes(codes: list[str]) -> list[str]:
+    normalized: list[str] = []
+    for code in codes:
+        value = normalize_a_share_code(code)
+        if value not in normalized:
+            normalized.append(value)
+    return normalized
 
 
 def split_canonical(code: str) -> tuple[str, str]:

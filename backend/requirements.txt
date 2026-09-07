@@ -3,11 +3,14 @@ fastapi
 uvicorn[standard]
 pydantic
 pydantic-settings
+email-validator
 python-dotenv
 
 # HTTP / data utils
 httpx
 pandas
+backtrader==1.9.78.123
+exchange-calendars==4.13.2
 
 # Database
 SQLAlchemy
@@ -32,10 +35,12 @@ langchain-openai
 
 # Auth
 python-jose[cryptography]
+cryptography
 passlib[bcrypt]
 
 # 行情拉取调度器
 APScheduler
+redis
 
 # 可观测（Sentry，DSN 未配置则不启用、不引入运行开销）
 sentry-sdk
@@ -43,6 +48,3 @@ sentry-sdk
 # 测试 / 质量
 pytest
 ruff
-
-# 后置（按需启用）：
-# redis

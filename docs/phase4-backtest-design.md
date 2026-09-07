@@ -34,13 +34,13 @@
 
 **为何预留 backtrader（保留方案）**：
 - 未来需要更丰富的 order 类型 / 指标库 / 分钟级 / 社区生态时，可接入 backtrader 而**不重写策略层与 API**。
-- 风险隔离：自研引擎结果可与 backtrader 交叉验证（对拍），增强可信度。
+- 调度验证：Cerebro/PandasData 可与 native 对拍多标的时间轴和下一 bar 触发语义。由于两者共享同一 A 股执行账本，该对拍**不构成独立撮合正确性证明**。
 
 **预留代码（M1 即落地骨架）**：
 - `app/backtest/base.py`：`BacktestEngine` ABC（`run(config, strategy, data) -> EngineResult`）+ 通用数据结构（`Bar` / `Order` / `Fill` / `EngineResult`）。
 - `app/backtest/registry.py`：`ENGINE_REGISTRY` + `get_engine(name)`，缺省 `native`。
 - `app/backtest/engines/native.py`：自研实现（M1 骨架 → M2 完整事件循环）。
-- `app/backtest/engines/backtrader_engine.py`：`BacktraderEngine` 适配器骨架——惰性检测 `backtrader` 依赖（未安装则友好报错），`run()` 暂 `raise NotImplementedError`，并以 TODO 标注接入要点（`cerebro` 装配、`PandasData` 馈送、A股 `CommissionInfo`(佣金+印花税)、T+1 `Sizer`/约束、与 `EngineResult` 的结果映射）。
+- `app/backtest/engines/backtrader_engine.py`：真实 `BacktraderEngine` 适配器——Cerebro + PandasData 负责数据调度与策略生命周期；最低佣金、印花税、T+1、涨跌停继续使用共享 A 股执行账本，结果映射为统一 `EngineResult`。
 
 ### 决策 2：策略以「内置库 + 参数」为主，代码执行后置
 前端 `Strategy.type` 已枚举 `trend_following / mean_reversion / momentum / ...`，`params` 为自由字典。

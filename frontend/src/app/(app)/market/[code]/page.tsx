@@ -23,10 +23,24 @@ import {
 import { ChatPanel } from '@/components/ai/chat-panel';
 import { SourceNote } from '@/components/market/source-note';
 import { marketApi, type KlinePeriod, type StockQuote } from '@/lib/api/market';
+import { selectDisplayQuote } from '@/lib/api/quote-selection';
 import { watchlistApi } from '@/lib/api/watchlist';
+import { watchlistQueryKeys } from '@/components/market/watchlist-query-keys';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
+import { useFreshnessClock } from '@/hooks/useFreshnessClock';
 import { useMarketSocket } from '@/hooks/useMarketSocket';
+import { useAuthStore } from '@/stores/useAuthStore';
 import { formatAmount } from '@/lib/utils/format';
 import { cn } from '@/lib/utils';
+import type { ApiResponse } from '@/types';
+import { ERROR_CODES } from '@/lib/constants';
 
 const PERIODS: { key: KlinePeriod; label: string }[] = [
   { key: 'day', label: '日K' },
@@ -72,26 +86,48 @@ export default function StockDetailPage() {
   const params = useParams<{ code: string }>();
   const rawCode = decodeURIComponent(params?.code ?? '');
   const queryClient = useQueryClient();
+  const userId = useAuthStore((s) => s.user?.id);
 
   const [period, setPeriod] = useState<KlinePeriod>('day');
   const [overlay, setOverlay] = useState<MainOverlay>('ma');
   const [sub, setSub] = useState<SubIndicator>('macd');
   const [panel, setPanel] = useState<PanelKey>('overview');
+  const [watchGroup, setWatchGroup] = useState('默认分组');
+  const [newWatchGroup, setNewWatchGroup] = useState('');
+  const freshnessNow = useFreshnessClock();
+  const quoteTopic = `market.quote.${rawCode}`;
 
-  const { data: quote } = useQuery({
+  const {
+    status: wsStatus,
+    data: wsData,
+    receivedAt: wsReceivedAt,
+  } = useMarketSocket(rawCode ? [quoteTopic] : []);
+
+  const { data: quote, dataUpdatedAt: quoteReceivedAt, isError: quoteError, error: quoteErr } = useQuery({
     queryKey: ['market', 'quote', rawCode],
     queryFn: () => marketApi.getQuote(rawCode),
-    refetchInterval: 6000,
+    refetchInterval: (query) => {
+      const err = query.state.error as unknown as ApiResponse | undefined;
+      if (err?.code === ERROR_CODES.NOT_FOUND) return false;
+      if (wsStatus === 'open') return false;
+      return 6000;
+    },
     retry: false,
   });
 
-  const canonical = quote?.code ?? rawCode;
+  const isQuoteNotFound =
+    quoteError && (quoteErr as unknown as ApiResponse | undefined)?.code === ERROR_CODES.NOT_FOUND;
 
-  const { status: wsStatus, data: wsData } = useMarketSocket(
-    canonical ? [`market.quote.${canonical}`] : []
+  const canonical = quote?.code ?? rawCode;
+  const liveQuote = (wsData[quoteTopic] as StockQuote | undefined) ?? undefined;
+  const q = selectDisplayQuote(
+    quote,
+    liveQuote,
+    wsStatus,
+    quoteReceivedAt,
+    wsReceivedAt[quoteTopic] ?? 0,
+    freshnessNow
   );
-  const liveQuote = (wsData[`market.quote.${canonical}`] as StockQuote | undefined) ?? undefined;
-  const q = liveQuote ?? quote;
 
   const { data: profile } = useQuery({
     queryKey: ['market', 'profile', canonical],
@@ -100,44 +136,64 @@ export default function StockDetailPage() {
     retry: false,
   });
 
-  const { data: kline = [], isLoading: klineLoading } = useQuery({
+  const { data: klineResult, isLoading: klineLoading } = useQuery({
     queryKey: ['market', 'kline', canonical, period],
     queryFn: () => marketApi.getKline(canonical, period, 250),
     enabled: !!canonical,
     retry: false,
   });
+  const kline = klineResult?.bars ?? [];
+  const klineQuality = klineResult?.dataQuality;
+  const klineMeta = klineResult?.meta;
 
-  const { data: capitalFlow = [] } = useQuery({
+  const { data: capitalPayload } = useQuery({
     queryKey: ['market', 'capital', canonical],
     queryFn: () => marketApi.getCapitalFlow(canonical, 20),
     enabled: !!canonical && panel === 'capital',
     retry: false,
   });
+  const capitalFlow = capitalPayload?.items ?? [];
 
-  const { data: financials = [] } = useQuery({
+  const { data: financialsPayload } = useQuery({
     queryKey: ['market', 'financials', canonical],
     queryFn: () => marketApi.getFinancials(canonical, 8),
     enabled: !!canonical && panel === 'financial',
     retry: false,
   });
+  const financials = financialsPayload?.items ?? [];
 
-  const { data: dragonTiger = [] } = useQuery({
+  const { data: dragonTigerPayload } = useQuery({
     queryKey: ['market', 'lhb', canonical],
     queryFn: () => marketApi.getDragonTiger(canonical, 20),
     enabled: !!canonical && panel === 'lhb',
     retry: false,
   });
+  const dragonTiger = dragonTigerPayload?.items ?? [];
 
-  const { data: news = [] } = useQuery({
+  const { data: newsPayload } = useQuery({
     queryKey: ['market', 'news', canonical],
     queryFn: () => marketApi.getNews(canonical, 20),
     enabled: !!canonical && panel === 'news',
     retry: false,
   });
+  const news = newsPayload?.items ?? [];
+
+  const panelAsOfMs = (iso: string | null | undefined): number | null => {
+    if (!iso) return null;
+    const ms = Date.parse(iso);
+    return Number.isFinite(ms) ? ms : null;
+  };
 
   const { data: watchlist = [] } = useQuery({
-    queryKey: ['watchlist'],
+    queryKey: watchlistQueryKeys.all(userId),
     queryFn: () => watchlistApi.getList(),
+    enabled: Boolean(userId),
+    retry: false,
+  });
+  const { data: watchGroups = ['默认分组'] } = useQuery({
+    queryKey: watchlistQueryKeys.groups(userId),
+    queryFn: () => watchlistApi.getGroups(),
+    enabled: Boolean(userId),
     retry: false,
   });
   const isWatched = watchlist.some((w) => w.code === canonical);
@@ -145,9 +201,15 @@ export default function StockDetailPage() {
   const toggleWatch = useMutation({
     mutationFn: async () => {
       if (isWatched) await watchlistApi.remove(canonical);
-      else await watchlistApi.add(canonical, { name: q?.name });
+      else {
+        const group = newWatchGroup.trim() || watchGroup || '默认分组';
+        await watchlistApi.add(canonical, { name: q?.name, group });
+      }
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['watchlist'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: watchlistQueryKeys.all(userId) });
+      queryClient.invalidateQueries({ queryKey: watchlistQueryKeys.groups(userId) });
+    },
   });
 
   const refresh = useMutation({
@@ -170,6 +232,20 @@ export default function StockDetailPage() {
 
   return (
     <RequireAuth>
+      {isQuoteNotFound ? (
+        <div className="container mx-auto max-w-lg p-10 text-center">
+          <h1 className="font-display text-2xl tracking-tight">未找到该标的</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            代码「{rawCode}」不存在或暂无行情数据，请检查代码格式（如 600000.SH）。
+          </p>
+          <Link
+            href="/market"
+            className="mt-6 inline-flex items-center gap-1.5 rounded-xl bg-brand px-4 py-2.5 text-sm font-medium text-brand-foreground"
+          >
+            <ArrowLeft className="h-4 w-4" /> 返回看盘工作台
+          </Link>
+        </div>
+      ) : (
       <div className="container mx-auto space-y-5 p-4 lg:p-6">
         {/* 顶部导航 */}
         <div className="flex items-center justify-between">
@@ -184,16 +260,38 @@ export default function StockDetailPage() {
               variant="outline"
               size="sm"
               onClick={() => refresh.mutate()}
-              disabled={refresh.isPending}
+              disabled={refresh.isPending || isQuoteNotFound}
             >
               <RefreshCw className={cn('mr-1.5 h-3.5 w-3.5', refresh.isPending && 'animate-spin')} />
               {refresh.isPending ? '落库中…' : '刷新数据'}
             </Button>
+            {!isWatched && (
+              <>
+                <Select value={watchGroup} onValueChange={setWatchGroup}>
+                  <SelectTrigger className="h-8 w-[120px] text-xs">
+                    <SelectValue placeholder="分组" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[...new Set([...watchGroups, '默认分组'])].sort().map((g) => (
+                      <SelectItem key={g} value={g} className="text-xs">
+                        {g}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  value={newWatchGroup}
+                  onChange={(e) => setNewWatchGroup(e.target.value)}
+                  placeholder="或新建分组"
+                  className="h-8 w-[120px] text-xs"
+                />
+              </>
+            )}
             <Button
               variant={isWatched ? 'default' : 'outline'}
               size="sm"
               onClick={() => toggleWatch.mutate()}
-              disabled={toggleWatch.isPending}
+              disabled={toggleWatch.isPending || isQuoteNotFound}
             >
               {isWatched ? (
                 <><StarOff className="mr-1.5 h-3.5 w-3.5" /> 移出自选</>
@@ -218,7 +316,10 @@ export default function StockDetailPage() {
                 )}
               </div>
               <div className="mt-3 flex items-baseline gap-3">
-                <span className={cn('tnum text-4xl font-semibold', changeClass(q?.change))}>
+                <span
+                  data-testid="stock-quote-price"
+                  className={cn('tnum text-4xl font-semibold', changeClass(q?.change))}
+                >
                   {q?.price != null ? q.price.toFixed(2) : '—'}
                 </span>
                 <span className={cn('tnum text-lg font-medium', changeClass(q?.change))}>
@@ -234,11 +335,13 @@ export default function StockDetailPage() {
                   <><WifiOff className="h-3.5 w-3.5" /> 未连接</>
                 )}
               </span>
-              {q?.stale ? (
-                <SourceNote source="落库收盘价" freshness="实时快照不可用·展示最近收盘" limited />
-              ) : (
-                <SourceNote source="东方财富" freshness="秒级快照·可能延迟" />
-              )}
+              <SourceNote
+                source={q?.staleReason === 'last_close' ? '落库收盘价' : '东方财富·快照'}
+                asOf={q?.asOf}
+                staleReason={q?.staleReason}
+                executable={q?.executable}
+                limited={q != null && q.asOf == null}
+              />
               <div className="tnum mt-1 grid grid-cols-2 gap-x-4 gap-y-0.5 text-right">
                 <span>今开 {q?.open != null ? q.open.toFixed(2) : '—'}</span>
                 <span>最高 {q?.high != null ? q.high.toFixed(2) : '—'}</span>
@@ -259,6 +362,8 @@ export default function StockDetailPage() {
                     {PERIODS.map((p) => (
                       <button
                         key={p.key}
+                        type="button"
+                        aria-pressed={period === p.key}
                         onClick={() => setPeriod(p.key)}
                         className={cn(
                           'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
@@ -271,7 +376,12 @@ export default function StockDetailPage() {
                       </button>
                     ))}
                   </div>
-                  <SourceNote source="落库(BaoStock/AkShare)" freshness="盘后/历史" />
+                  <SourceNote
+                    source={klineMeta?.source ?? '落库(BaoStock/AkShare)'}
+                    freshness="历史落库"
+                    asOf={panelAsOfMs(klineMeta?.asOf)}
+                    limited={!kline.length}
+                  />
                 </div>
                 <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                   <div className="flex items-center gap-1">
@@ -279,6 +389,8 @@ export default function StockDetailPage() {
                     {OVERLAYS.map((o) => (
                       <button
                         key={o.key}
+                        type="button"
+                        aria-pressed={overlay === o.key}
                         onClick={() => setOverlay(o.key)}
                         className={cn(
                           'rounded px-1.5 py-0.5 transition-colors',
@@ -294,6 +406,8 @@ export default function StockDetailPage() {
                     {SUBS.map((s) => (
                       <button
                         key={s.key}
+                        type="button"
+                        aria-pressed={sub === s.key}
                         onClick={() => setSub(s.key)}
                         className={cn(
                           'rounded px-1.5 py-0.5 transition-colors',
@@ -307,12 +421,19 @@ export default function StockDetailPage() {
                 </div>
               </CardHeader>
               <CardContent>
+                {klineQuality === 'invalid_ohlc' && (
+                  <p className="mb-3 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
+                    部分异常 K 线已隔离，当前图表仅展示通过 OHLC 校验的数据。
+                  </p>
+                )}
                 {klineLoading ? (
                   <div className="flex h-[460px] items-center justify-center text-muted-foreground">
                     加载 K 线…
                   </div>
                 ) : kline.length > 0 ? (
-                  <CandlestickChart data={kline} overlay={overlay} sub={sub} height={460} />
+                  <div data-testid="stock-kline-chart">
+                    <CandlestickChart data={kline} overlay={overlay} sub={sub} height={460} />
+                  </div>
                 ) : (
                   <div className="flex h-[460px] flex-col items-center justify-center gap-3 text-muted-foreground">
                     <p className="text-sm">
@@ -371,7 +492,14 @@ export default function StockDetailPage() {
 
                 {panel === 'capital' && (
                   <PanelTable
-                    note={<SourceNote source="东方财富·资金流" freshness="盘后" limited={capitalFlow.length === 0} />}
+                    note={
+                      <SourceNote
+                        source={capitalPayload?.meta?.source ?? '东方财富·资金流'}
+                        freshness="历史落库"
+                        asOf={panelAsOfMs(capitalPayload?.meta?.asOf)}
+                        limited={capitalFlow.length === 0}
+                      />
+                    }
                     empty={capitalFlow.length === 0}
                     head={['日期', '主力净额', '主力净占比', '超大单', '大单']}
                     rows={capitalFlow.map((r) => [
@@ -386,7 +514,14 @@ export default function StockDetailPage() {
 
                 {panel === 'financial' && (
                   <PanelTable
-                    note={<SourceNote source="同花顺·按报告期" freshness="盘后" limited={financials.length === 0} />}
+                    note={
+                      <SourceNote
+                        source={financialsPayload?.meta?.source ?? '同花顺·按报告期'}
+                        freshness="历史落库"
+                        asOf={panelAsOfMs(financialsPayload?.meta?.asOf)}
+                        limited={financials.length === 0}
+                      />
+                    }
                     empty={financials.length === 0}
                     head={['报告期', 'EPS', 'BPS', 'ROE', '营收', '净利润']}
                     rows={financials.map((r) => [
@@ -402,7 +537,14 @@ export default function StockDetailPage() {
 
                 {panel === 'lhb' && (
                   <PanelTable
-                    note={<SourceNote source="东方财富·龙虎榜" freshness="盘后" limited={dragonTiger.length === 0} />}
+                    note={
+                      <SourceNote
+                        source={dragonTigerPayload?.meta?.source ?? '东方财富·龙虎榜'}
+                        freshness="历史落库"
+                        asOf={panelAsOfMs(dragonTigerPayload?.meta?.asOf)}
+                        limited={dragonTiger.length === 0}
+                      />
+                    }
                     empty={dragonTiger.length === 0}
                     emptyText="暂无龙虎榜记录（龙虎榜需按日期范围全市场落库）"
                     head={['日期', '上榜原因', '净买额', '买入', '卖出']}
@@ -419,7 +561,12 @@ export default function StockDetailPage() {
                 {panel === 'news' && (
                   <div>
                     <div className="mb-3 flex justify-end">
-                      <SourceNote source="东方财富·新闻" freshness="来源有限" limited={news.length === 0} />
+                      <SourceNote
+                        source={newsPayload?.meta?.source ?? '东方财富·新闻'}
+                        freshness="来源有限"
+                        asOf={panelAsOfMs(newsPayload?.meta?.asOf)}
+                        limited={news.length === 0}
+                      />
                     </div>
                     {news.length > 0 ? (
                       <ul className="divide-y divide-border">
@@ -454,6 +601,13 @@ export default function StockDetailPage() {
             <Card className="lg:sticky lg:top-6 flex h-[640px] flex-col overflow-hidden">
               <CardHeader className="border-b border-border pb-3">
                 <CardTitle className="text-base">AI 看盘助手</CardTitle>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  侧栏为轻量问答；深度研究 / 记忆偏好请前往{' '}
+                  <Link href="/ai" className="text-brand underline-offset-2 hover:underline">
+                    AI 问答
+                  </Link>
+                  。
+                </p>
               </CardHeader>
               <CardContent className="flex-1 overflow-hidden p-0">
                 <ChatPanel
@@ -472,6 +626,7 @@ export default function StockDetailPage() {
           </div>
         </div>
       </div>
+      )}
     </RequireAuth>
   );
 }

@@ -7,8 +7,9 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
+from uuid import uuid4
 
-from sqlalchemy import Date, DateTime, Numeric, String, Text, func
+from sqlalchemy import Date, DateTime, Index, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -35,12 +36,36 @@ class CapitalFlow(Base):
 
 
 class FinancialSummary(Base):
-    """财务摘要（按报告期）。"""
+    """财务摘要的追加式 PIT 版本（按报告期和可用时点）。"""
 
     __tablename__ = "financial_summaries"
+    __table_args__ = (
+        UniqueConstraint(
+            "code",
+            "report_date",
+            "vintage",
+            name="uq_financial_summaries_code_report_vintage",
+        ),
+        Index(
+            "ix_financial_summaries_code_report_available",
+            "code",
+            "report_date",
+            "available_at",
+        ),
+    )
 
-    code: Mapped[str] = mapped_column(String(16), primary_key=True)
-    report_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    code: Mapped[str] = mapped_column(String(16), nullable=False)
+    report_date: Mapped[date] = mapped_column(Date, nullable=False)
+    announced_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    vintage: Mapped[str] = mapped_column(String(64), nullable=False)
     eps: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)        # 每股收益
     bps: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)        # 每股净资产
     roe: Mapped[Decimal | None] = mapped_column(_RATIO, nullable=True)                # 净资产收益率(%)

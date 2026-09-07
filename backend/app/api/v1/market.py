@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import get_current_user
+from app.core.asof import parse_as_of
 from app.core.response import error, success
 from app.models.user import User
 from app.schemas.market import ScreenRequest
@@ -15,6 +18,14 @@ router = APIRouter()
 
 _MAX_PAGE_SIZE = 200
 _MAX_KLINE_COUNT = 500
+
+
+def _parse_financial_as_of(value: str | None) -> datetime | None:
+    """Compatibility wrapper around the shared API/AI PIT parser."""
+    try:
+        return parse_as_of(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="asOf 必须是 RFC3339 或 ISO 日期") from exc
 
 
 @router.get("/quotes")
@@ -51,7 +62,8 @@ def indexes(_user: User = Depends(get_current_user)) -> dict:
 @router.get("/kline")
 def kline(symbol: str, period: str = "day", count: int = 100) -> dict:
     n = max(1, min(count, _MAX_KLINE_COUNT))
-    return success(market.get_kline(symbol, period, n))
+    result = market.get_kline(symbol, period, n)
+    return success(result)
 
 
 @router.get("/instruments")
@@ -70,8 +82,8 @@ def capital_flow(code: str, limit: int = 30) -> dict:
 
 
 @router.get("/financials")
-def financials(code: str, limit: int = 12) -> dict:
-    return success(market.get_financials(code, limit))
+def financials(code: str, limit: int = 12, asOf: str | None = None) -> dict:
+    return success(market.get_financials(code, limit, _parse_financial_as_of(asOf)))
 
 
 @router.get("/dragon-tiger")
@@ -86,7 +98,7 @@ def news(code: str, limit: int = 20) -> dict:
 
 @router.get("/freshness")
 def freshness() -> dict:
-    return success({"quotesTs": market.quote_freshness_ms()})
+    return success(market.freshness_snapshot())
 
 
 @router.post("/screen")
@@ -101,13 +113,16 @@ def screen(body: ScreenRequest, _user: User = Depends(get_current_user)) -> dict
 @router.post("/refresh/{code}")
 def refresh(code: str, user: User = Depends(get_current_user)) -> dict:
     uid = str(user.id)
-    wait = rate_limit_service.seconds_until_refresh_allowed(uid, code)
+    try:
+        canonical = market.canonical_stock_code(code)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    wait = rate_limit_service.acquire_refresh_cooldown(uid, canonical)
     if wait is not None:
         return error(
             f"刷新过于频繁，请 {int(wait) + 1} 秒后再试",
             code=429,
             http_status=429,
         )
-    result = market.refresh_stock(code)
-    rate_limit_service.mark_refresh(uid, code)
+    result = market.refresh_stock(canonical)
     return success(result)

@@ -53,15 +53,28 @@ def _embed_api(texts: list[str]) -> list[list[float]]:
 
 
 def embed_texts(texts: list[str], is_query: bool = False) -> list[list[float]]:
-    """编码文本为向量。``is_query=True`` 时对 bge 模型加检索指令前缀。"""
+    """编码文本为向量。``is_query=True`` 时对 bge 模型加检索指令前缀。
+
+    大批量按 ``embedding_batch_size`` 分批调用，避免一次性占满显存/超时（H24）。
+    """
     if not texts:
         return []
     payload = texts
     if is_query and settings.embedding_provider == "local" and _is_bge():
         payload = [_BGE_QUERY_INSTRUCTION + t for t in texts]
-    if settings.embedding_provider == "api":
-        return _embed_api(payload)
-    return _embed_local(payload)
+    batch_size = max(1, int(settings.embedding_batch_size or 64))
+    if len(payload) <= batch_size:
+        if settings.embedding_provider == "api":
+            return _embed_api(payload)
+        return _embed_local(payload)
+    out: list[list[float]] = []
+    for i in range(0, len(payload), batch_size):
+        chunk = payload[i : i + batch_size]
+        if settings.embedding_provider == "api":
+            out.extend(_embed_api(chunk))
+        else:
+            out.extend(_embed_local(chunk))
+    return out
 
 
 def embed_query(text: str) -> list[float]:
