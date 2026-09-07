@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from sqlalchemy import select
 
-from app.ai.deepseek import get_client
+from app.ai.deepseek import completion_options, get_client
 from app.ai.orchestrator import run_chat_collect, run_completion_stream
 from app.ai.prompts import RESEARCH_PLANNER_PROMPT, RESEARCH_SYNTHESIS_PROMPT
 from app.core.config import settings
@@ -65,6 +65,7 @@ def _plan(question: str, context_hint: str = "") -> list[str]:
                 {"role": "user", "content": user},
             ],
             stream=False,
+            **completion_options(),
         )
         raw = completion.choices[0].message.content or ""
     except Exception as exc:  # noqa: BLE001

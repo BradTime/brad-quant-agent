@@ -14,7 +14,7 @@ on:
       model:
         description: Candidate model identifier
         required: true
-        default: deepseek-chat
+        default: deepseek-v4-flash
         type: string
 
 permissions:

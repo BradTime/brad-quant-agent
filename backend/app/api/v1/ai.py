@@ -120,6 +120,7 @@ def _record_incomplete_training_trace(
             provider="deepseek",
             generation_params={
                 "stream": True,
+                "thinking": "disabled",
                 "toolChoice": "required",
                 "maxToolRounds": MAX_TOOL_ROUNDS,
             },
@@ -208,6 +209,7 @@ def _chat_event_stream(
                     provider="deepseek",
                     generation_params={
                         "stream": True,
+                        "thinking": "disabled",
                         "toolChoice": "required",
                         "maxToolRounds": MAX_TOOL_ROUNDS,
                     },

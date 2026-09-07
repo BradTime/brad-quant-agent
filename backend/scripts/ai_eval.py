@@ -31,6 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.ai.compliance import DISCLAIMER_HINT, enforce_compliance, find_advice_flags
 from app.ai.evaluation import passes_release_gates, score_expected_facts, score_tool_calls
 from app.ai.tools import validate_tool_arguments
+from app.core.config import settings
 
 DATASET = Path(__file__).resolve().parent.parent / "tests" / "golden_questions.json"
 DATASET_META = (
@@ -40,6 +41,7 @@ BACKEND_ROOT = Path(__file__).resolve().parent.parent
 IMPLEMENTATION_FILES = (
     Path(__file__).resolve(),
     Path(__file__).resolve().parent.parent / "app" / "ai" / "evaluation.py",
+    Path(__file__).resolve().parent.parent / "app" / "ai" / "deepseek.py",
     Path(__file__).resolve().parent.parent / "app" / "ai" / "orchestrator.py",
     Path(__file__).resolve().parent.parent / "app" / "ai" / "router.py",
     Path(__file__).resolve().parent.parent / "app" / "ai" / "tools.py",
@@ -987,7 +989,7 @@ def evaluate_live(
             DATASET_META.read_text(encoding="utf-8")
         )["fixture"]["toolResultsSha256"],
         "implementationSha256": implementation_sha256(),
-        "model": os.environ.get("DEEPSEEK_MODEL", "deepseek-chat"),
+        "model": settings.deepseek_model,
         "pricing": {
             "inputCostPerMillion": input_cost_rate,
             "outputCostPerMillion": output_cost_rate,

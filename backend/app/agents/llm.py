@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 
+from app.ai.deepseek import completion_options
 from app.core.config import settings
 
 _langsmith_ready = False
@@ -41,4 +42,5 @@ def get_chat_model(temperature: float = 0.3):
         temperature=temperature,
         timeout=90,
         max_retries=2,
+        **completion_options(),
     )
