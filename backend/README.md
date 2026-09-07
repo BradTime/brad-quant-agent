@@ -209,6 +209,10 @@ GitHub Actions 的手动工作流 `AI candidate evaluation` 使用冻结 fixture
 150 题评测；触发前必须配置仓库 secret `DEEPSEEK_API_KEY`，并按供应商账单填写
 输入/输出 token 单价。报告、JUnit 和失败分析作为带 commit SHA 的 artifact 保存，
 普通 push/PR 不会自动触发付费评测。
+当前默认模型为 `deepseek-v4-flash`。V4 默认开启 Thinking，但本项目现有
+function-calling 协议使用非思考模式，因此请求会显式发送
+`thinking.type=disabled`；若未来启用 Thinking，必须同时持久化并逐轮回传
+`reasoning_content`。
 
 普通问答采用确定性优先路由：明确的行情、K 线、财务、资金流、筛选和回测意图
 直接映射到最小工具集合；生产 Pydantic schema 统一规范代码与日期并拒绝冲突参数。

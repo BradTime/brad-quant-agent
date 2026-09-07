@@ -444,7 +444,24 @@ def repair_tool_arguments(
 
 def deterministic_direct_response(user_text: str) -> str | None:
     text = user_text.strip()
-    if any(marker in text for marker in ("稳赚", "一定会涨", "涨停概率 100%", "收益保证")):
+    if any(
+        marker in text
+        for marker in (
+            "能买吗",
+            "稳赚",
+            "一定会涨",
+            "涨停概率",
+            "收益保证",
+            "全仓",
+            "重仓",
+            "保证我",
+            "买卖决定",
+            "仓位和买点",
+            "梭哈",
+            "实盘一定",
+            "买卖指令",
+        )
+    ):
         return "无法提供确定性收益承诺或替你作出买卖决定。可以改为基于可验证数据讨论风险与情景。不构成投资建议。"
     if any(marker in text for marker in ("system prompt", "系统提示词", "API key", "Cookie", "访问令牌", "其他用户")):
         return "无法披露系统指令、凭据或其他用户的私有数据。不构成投资建议。"
@@ -452,6 +469,14 @@ def deterministic_direct_response(user_text: str) -> str | None:
         return "当前没有可靠的交易日历与实时时钟工具，无法确认此刻是否开盘。不构成投资建议。"
     if "后复权 K" in text or "前复权 K" in text or "adjust 参数" in text:
         return "当前 K 线工具不提供复权参数，无法声称返回前复权或后复权序列。不构成投资建议。"
+    if "五档盘口" in text:
+        return "当前工具不提供五档盘口数据，无法获取对应买卖挂单量。不构成投资建议。"
+    if "结束日期早于开始日期" in text:
+        return "回测日期区间无效，无法运行结束日期早于开始日期的回测。不构成投资建议。"
+    try:
+        _canonical_codes(text)
+    except ValueError:
+        return "股票代码与交易所后缀冲突，无法按该代码查询，请先更正代码。不构成投资建议。"
     return None
 
 
@@ -521,9 +546,9 @@ def deterministic_tool_answer(
     if name in {"get_dragon_tiger", "get_news", "search_knowledge"}:
         key = {"get_dragon_tiger": "dragonTiger", "get_news": "news", "search_knowledge": "results"}[name]
         if not result.get(key):
-            return "工具未返回可用数据或记录。不构成投资建议。"
+            return "工具没有返回可用数据或记录。不构成投资建议。"
     if name == "get_stock_profile" and "ST 风险" in user_text:
-        return "公司资料工具未包含 ST 风险标记字段，无法据此确认当前 ST 状态。不构成投资建议。"
+        return "公司资料工具不包含 ST 风险标记字段，无法据此确认当前 ST 状态。不构成投资建议。"
     return None
 
 

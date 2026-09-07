@@ -3,7 +3,16 @@ required when the AI feature is actually used."""
 
 from __future__ import annotations
 
+from typing import Any
+
 from app.core.config import settings
+
+
+def completion_options() -> dict[str, Any]:
+    """Force non-thinking mode for the platform's existing tool-call protocol."""
+    if settings.deepseek_model.lower().startswith("deepseek-v4-"):
+        return {"extra_body": {"thinking": {"type": "disabled"}}}
+    return {}
 
 
 def get_client():

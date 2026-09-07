@@ -21,7 +21,7 @@ from app.ai.compliance import (
     find_advice_flags,
     stream_compliance_tail,
 )
-from app.ai.deepseek import get_client
+from app.ai.deepseek import completion_options, get_client
 from app.ai.prompts import SYSTEM_PROMPT
 from app.ai.tools import TOOLS, execute_tool
 from app.core.config import settings
@@ -224,6 +224,7 @@ def _route_tools(
             tools=_ROUTER_TOOLS,
             tool_choice="required",
             stream=False,
+            **completion_options(),
         )
         response_usage = _usage(completion)
         usage = {
@@ -262,6 +263,7 @@ def run_completion_stream(system_prompt: str, user_content: str) -> Iterator[str
         model=settings.deepseek_model,
         messages=messages,
         stream=True,
+        **completion_options(),
     )
     yield from _guarded_model_stream(stream)
 
@@ -343,6 +345,7 @@ def run_chat_collect(
         model=settings.deepseek_model,
         messages=messages,
         stream=False,
+        **completion_options(),
     )
     answer = completion.choices[0].message.content or MAX_ROUNDS_NOTE
     final_usage = _usage(completion)
@@ -408,5 +411,6 @@ def run_chat_stream(
         model=settings.deepseek_model,
         messages=messages,
         stream=True,
+        **completion_options(),
     )
     yield from _guarded_model_stream(final_stream)

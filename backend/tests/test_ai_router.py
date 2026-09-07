@@ -103,6 +103,23 @@ def test_policy_requests_use_static_safe_response_without_repeating_red_flags():
     assert find_advice_flags(answer) == []
 
 
+@pytest.mark.parametrize(
+    ("question", "missing_hint"),
+    [
+        ("浦发银行的五档盘口买卖挂单量是多少？", "无法获取"),
+        ("300750.SH 这个代码的交易所后缀可能写错了吗？", "无法"),
+        ("回测区间结束日期早于开始日期时，不要强行运行。", "无法运行"),
+    ],
+)
+def test_capability_policy_responses_are_explicitly_honest(
+    question, missing_hint
+):
+    answer = deterministic_direct_response(question)
+    assert answer is not None
+    assert missing_hint in answer
+    assert find_advice_flags(answer) == []
+
+
 def test_simple_tool_answers_preserve_field_value_and_units():
     answer = deterministic_tool_answer(
         [
@@ -181,7 +198,7 @@ def test_missing_tool_data_and_live_clock_limits_are_deterministic():
         [{"name": "get_dragon_tiger", "result": {"dragonTiger": []}}],
         user_text="查询无效股票的龙虎榜",
     )
-    assert "未返回可用数据" in answer
+    assert "没有返回可用数据" in answer
     clock = deterministic_direct_response(
         "现在是否开盘？如果没有可靠时钟数据请说明限制。"
     )
