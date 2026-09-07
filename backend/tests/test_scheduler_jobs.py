@@ -37,6 +37,11 @@ def test_scheduler_registers_watchlist_eod_and_news_jobs(monkeypatch):
         FakeScheduler,
     )
     monkeypatch.setattr(
+        "app.core.config.settings.enable_scheduler",
+        True,
+        raising=False,
+    )
+    monkeypatch.setattr(
         "app.core.config.settings.enable_brief_scheduler",
         False,
         raising=False,
