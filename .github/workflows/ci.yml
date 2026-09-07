@@ -64,7 +64,8 @@ jobs:
       - name: Training dataset privacy and schema audit
         run: |
           python scripts/ai_eval.py --offline \
-            --baseline tests/reports/ai_eval_baseline_20260902.json
+            --baseline tests/reports/ai_eval_baseline_20260902.json \
+            --junit-baseline tests/reports/ai_eval_baseline_20260902.xml
           python -m app.cli training audit
       - name: Redis integration contracts
         env:

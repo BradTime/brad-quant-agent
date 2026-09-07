@@ -186,6 +186,12 @@ AI_EVAL_OUTPUT_COST_PER_MILLION=2 \
 python scripts/ai_eval.py --json-output var/eval/current.json \
   --junit-output var/eval/current.xml \
   --baseline tests/reports/ai_eval_baseline_20260902.json
+
+# 对已生成的 Candidate 离线复算指标、实现哈希，并交叉校验 JSON/JUnit
+python scripts/ai_eval.py --offline \
+  --baseline var/eval/current.json \
+  --junit-baseline var/eval/current.xml \
+  --require-passing-baseline
 ```
 
 评测默认使用 checksum 固定的 `tests/fixtures/ai_eval/seed-ci-market-v1.json`，
@@ -199,6 +205,10 @@ CI 只校验该“现状参考基线”的题目、fixture、usage 与价格完�
 新报告自身通过全部硬门禁，并可用
 `--offline --baseline <candidate.json> --require-passing-baseline`
 验证候选报告不可被失败基线冒充。
+GitHub Actions 的手动工作流 `AI candidate evaluation` 使用冻结 fixture 运行完整
+150 题评测；触发前必须配置仓库 secret `DEEPSEEK_API_KEY`，并按供应商账单填写
+输入/输出 token 单价。报告、JUnit 和失败分析作为带 commit SHA 的 artifact 保存，
+普通 push/PR 不会自动触发付费评测。
 
 普通问答采用确定性优先路由：明确的行情、K 线、财务、资金流、筛选和回测意图
 直接映射到最小工具集合；生产 Pydantic schema 统一规范代码与日期并拒绝冲突参数。

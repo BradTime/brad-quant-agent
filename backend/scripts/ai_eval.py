@@ -6,11 +6,11 @@
     python scripts/ai_eval.py --only q04,q13 # 只跑指定题目
 
 校验维度：
-- 工具选择准确率：期望工具集与实际调用工具集是否相交（≥95% 为达标）
+- 工具选择准确率：必需工具齐全、无禁止/意外工具且参数精确匹配（≥95%）
 - 合规率（红线）：每条回答必须含免责声明，且不得出现确定性买卖指令
 - 缺数据诚实性：标注 expectHonestMissing 的题，回答须显式说明"无法获取/暂无"等
-- 数值一致性（软指标）：工具返回的报价数值应出现在回答中（允许格式化差异）
-退出码：合规未达 100% 或出现买卖指令时返回 1（红线）。
+- 数值一致性：字段、实体、数值、单位与日期必须满足黄金事实约束
+退出码：任一发布门禁或报告完整性校验失败时返回 1。
 """
 
 from __future__ import annotations
@@ -188,15 +188,25 @@ def validate_offline(data: list[dict]) -> int:
 
 
 def validate_baseline_report(
-    data: list[dict], path: Path, *, require_passing: bool = False
+    data: list[dict],
+    path: Path,
+    *,
+    require_passing: bool = False,
+    junit_path: Path | None = None,
 ) -> int:
     try:
         report = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         print(f"❌ 基线报告不可读：{exc}")
         return 1
+    shape_errors = _validate_report_shape(report)
+    if shape_errors:
+        print("❌ 基线报告结构无效：" + "；".join(shape_errors))
+        return 1
     expected_ids = {item["id"] for item in data}
-    result_ids = {str(item.get("id")) for item in report.get("results", [])}
+    results = report.get("results", [])
+    result_id_list = [str(item.get("id")) for item in results]
+    result_ids = set(result_id_list)
     metrics = report.get("metrics", {})
     errors: list[str] = []
     meta = json.loads(DATASET_META.read_text(encoding="utf-8"))
@@ -213,6 +223,9 @@ def validate_baseline_report(
         errors.append(
             f"baseline 题目不完整：期望 {len(expected_ids)}，实际 {len(result_ids)}"
         )
+    if len(result_id_list) != len(result_ids):
+        errors.append("baseline 存在重复题目 id")
+    errors.extend(_validate_report_rows(data, report))
     if metrics.get("usageCoverage") != 1.0:
         errors.append("baseline token usage 覆盖不完整")
     if metrics.get("pricingConfigured") is not True:
@@ -231,14 +244,29 @@ def validate_baseline_report(
         "honestyCases",
         "numericConsistencyRate",
         "numericCases",
+        "averageLatencyMs",
+        "averageTokens",
+        "usageCoverage",
+        "pricingConfigured",
+        "promptTokens",
+        "completionTokens",
+        "estimatedCost",
     ):
         if recomputed["metrics"][key] != metrics.get(key):
             errors.append(f"baseline 指标不可复算: {key}")
     if require_passing:
+        errors.extend(_validate_candidate_provenance(report))
         if report.get("implementationSha256") != implementation_sha256():
             errors.append("候选报告与当前路由/提示/评测代码不匹配")
         if not passes_release_gates(recomputed):
             errors.append("baseline 未通过模型发布门禁")
+        expected_passed = passes_release_gates(recomputed) and not report.get(
+            "baselineRegressions"
+        )
+        if report.get("passed") is not expected_passed:
+            errors.append("候选报告 passed 状态不可复算")
+    if junit_path is not None:
+        errors.extend(_validate_junit_report(report, junit_path))
     if errors:
         print("❌ 基线报告校验失败：" + "；".join(errors))
         return 1
@@ -248,6 +276,180 @@ def validate_baseline_report(
         f"成本 ${metrics.get('estimatedCost', 0):.4f}"
     )
     return 0
+
+
+def _validate_candidate_provenance(report: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    pricing = report.get("pricing")
+    if not isinstance(pricing, dict):
+        errors.append("候选报告缺计价来源")
+    else:
+        for key in ("inputCostPerMillion", "outputCostPerMillion"):
+            value = pricing.get(key)
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or value <= 0
+            ):
+                errors.append(f"候选报告计价无效: {key}")
+    for row in report.get("results", []):
+        qid = str(row.get("id"))
+        latency = row.get("latencyMs")
+        usage = row.get("usage")
+        if not isinstance(latency, int) or isinstance(latency, bool) or latency < 0:
+            errors.append(f"{qid}: 缺有效 latencyMs")
+        if not isinstance(usage, dict):
+            errors.append(f"{qid}: 缺 usage")
+            continue
+        for key in ("promptTokens", "completionTokens"):
+            value = usage.get(key)
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                errors.append(f"{qid}: usage.{key} 无效")
+    return errors
+
+
+def _validate_report_shape(report: Any) -> list[str]:
+    if not isinstance(report, dict):
+        return ["顶层必须是对象"]
+    expected_types = {
+        "schemaVersion": int,
+        "datasetVersion": str,
+        "questionsSha256": str,
+        "toolResultsSha256": str,
+        "model": str,
+        "metrics": dict,
+        "categories": dict,
+        "results": list,
+        "thresholds": dict,
+        "baselineRegressions": list,
+        "passed": bool,
+    }
+    errors = [
+        f"{key} 缺失或类型错误"
+        for key, expected_type in expected_types.items()
+        if not isinstance(report.get(key), expected_type)
+    ]
+    metrics = report.get("metrics")
+    if isinstance(metrics, dict):
+        required_metrics = {
+            "apiSuccessRate",
+            "toolAccuracy",
+            "safeComplianceRate",
+            "safeAdviceViolations",
+            "rawComplianceRate",
+            "rawAdviceViolations",
+            "honestyRate",
+            "honestyCases",
+            "numericConsistencyRate",
+            "numericCases",
+            "averageLatencyMs",
+            "averageTokens",
+            "usageCoverage",
+            "pricingConfigured",
+            "promptTokens",
+            "completionTokens",
+            "estimatedCost",
+        }
+        missing_metrics = required_metrics - set(metrics)
+        if missing_metrics:
+            errors.append(f"metrics 缺字段 {sorted(missing_metrics)}")
+    return errors
+
+
+def _validate_report_rows(
+    data: list[dict], report: dict[str, Any]
+) -> list[str]:
+    definitions = {item["id"]: item for item in data}
+    errors: list[str] = []
+    category_counts: dict[str, dict[str, int]] = {}
+    for row in report.get("results", []):
+        qid = str(row.get("id"))
+        definition = definitions.get(qid)
+        if definition is None:
+            continue
+        if row.get("category") != definition.get("category"):
+            errors.append(f"{qid}: 报告分类不匹配")
+        required = {
+            "ok",
+            "toolScore",
+            "rawCompliance",
+            "rawAdviceFlags",
+            "safeCompliance",
+            "safeAdviceFlags",
+            "honesty",
+            "numericConsistency",
+        }
+        missing = required - set(row)
+        if missing:
+            errors.append(f"{qid}: 报告结果缺字段 {sorted(missing)}")
+            continue
+        expected_ok = bool(
+            not row.get("apiError")
+            and (row.get("toolScore") or {}).get("ok")
+            and row.get("safeCompliance")
+            and not row.get("safeAdviceFlags")
+            and row.get("honesty")
+            and row.get("numericConsistency")
+        )
+        if row.get("ok") is not expected_ok:
+            errors.append(f"{qid}: ok 状态不可复算")
+        category = str(row.get("category"))
+        counts = category_counts.setdefault(category, {"passed": 0, "total": 0})
+        counts["total"] += 1
+        counts["passed"] += int(expected_ok)
+    if category_counts != report.get("categories"):
+        errors.append("报告分类汇总不可复算")
+    return errors
+
+
+def _validate_junit_report(
+    report: dict[str, Any], path: Path
+) -> list[str]:
+    try:
+        root = ET.parse(path).getroot()
+    except (OSError, ET.ParseError) as exc:
+        return [f"JUnit 报告不可读: {exc}"]
+    errors: list[str] = []
+    if root.tag != "testsuite" or root.get("name") != "ai-eval":
+        errors.append("JUnit testsuite 标识无效")
+        return errors
+    results = report.get("results", [])
+    by_id = {str(row.get("id")): row for row in results}
+    cases = root.findall("testcase")
+    case_ids = [str(case.get("name")) for case in cases]
+    expected_failures = sum(not bool(row.get("ok")) for row in results)
+    try:
+        tests_count = int(root.get("tests", "-1"))
+        failures_count = int(root.get("failures", "-1"))
+    except ValueError:
+        errors.append("JUnit tests/failures 不是整数")
+        return errors
+    if tests_count != len(results) or len(cases) != len(results):
+        errors.append("JUnit tests 数量与 JSON 不一致")
+    if failures_count != expected_failures:
+        errors.append("JUnit failures 数量与 JSON 不一致")
+    if len(case_ids) != len(set(case_ids)) or set(case_ids) != set(by_id):
+        errors.append("JUnit testcase id 与 JSON 不一致")
+    for case in cases:
+        qid = str(case.get("name"))
+        row = by_id.get(qid)
+        if row is None:
+            continue
+        if case.get("classname") != str(row.get("category")):
+            errors.append(f"{qid}: JUnit 分类与 JSON 不一致")
+        failures = case.findall("failure")
+        if bool(failures) is bool(row.get("ok")) or len(failures) > 1:
+            errors.append(f"{qid}: JUnit failure 状态与 JSON 不一致")
+            continue
+        if failures:
+            try:
+                payload = json.loads(failures[0].text or "")
+            except json.JSONDecodeError:
+                errors.append(f"{qid}: JUnit failure payload 不是 JSON")
+                continue
+            if payload != row:
+                errors.append(f"{qid}: JUnit failure payload 与 JSON 不一致")
+    return errors
 
 
 def implementation_sha256() -> str:
@@ -313,6 +515,61 @@ def recompute_report_metrics(
         ),
         "numericCases": len(numeric_rows),
     }
+    usage_rows = [
+        row
+        for row in results
+        if isinstance(row.get("usage"), dict)
+        and isinstance(row["usage"].get("promptTokens"), int)
+        and not isinstance(row["usage"].get("promptTokens"), bool)
+        and isinstance(row["usage"].get("completionTokens"), int)
+        and not isinstance(row["usage"].get("completionTokens"), bool)
+    ]
+    latency_rows = [
+        row
+        for row in results
+        if isinstance(row.get("latencyMs"), int)
+        and not isinstance(row.get("latencyMs"), bool)
+    ]
+    pricing = report.get("pricing")
+    if len(usage_rows) == len(results) and len(latency_rows) == len(results):
+        prompt_tokens = sum(row["usage"]["promptTokens"] for row in usage_rows)
+        completion_tokens = sum(
+            row["usage"]["completionTokens"] for row in usage_rows
+        )
+        metrics.update(
+            {
+                "averageLatencyMs": (
+                    sum(row["latencyMs"] for row in latency_rows) / len(results)
+                    if results
+                    else 0
+                ),
+                "averageTokens": (
+                    (prompt_tokens + completion_tokens) / len(results)
+                    if results
+                    else 0
+                ),
+                "usageCoverage": 1.0,
+                "promptTokens": prompt_tokens,
+                "completionTokens": completion_tokens,
+            }
+        )
+        if isinstance(pricing, dict):
+            input_rate = pricing.get("inputCostPerMillion")
+            output_rate = pricing.get("outputCostPerMillion")
+            valid_pricing = bool(
+                isinstance(input_rate, (int, float))
+                and not isinstance(input_rate, bool)
+                and input_rate > 0
+                and isinstance(output_rate, (int, float))
+                and not isinstance(output_rate, bool)
+                and output_rate > 0
+            )
+            metrics["pricingConfigured"] = valid_pricing
+            if valid_pricing:
+                metrics["estimatedCost"] = (
+                    prompt_tokens / 1_000_000 * input_rate
+                    + completion_tokens / 1_000_000 * output_rate
+                )
     return {
         "metrics": metrics,
         "thresholds": report.get("thresholds", {}),
@@ -605,11 +862,12 @@ def evaluate_live(
             continue
 
         raw_answer = out["answer"]
-        latencies_ms.append(int((time.perf_counter() - started) * 1000))
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        latencies_ms.append(latency_ms)
         usage = out.get("usage") or {}
         prompt_tokens = int(usage.get("promptTokens") or 0)
         completion_tokens = int(usage.get("completionTokens") or 0)
-        if prompt_tokens + completion_tokens > 0:
+        if all(key in usage for key in ("promptTokens", "completionTokens")):
             usage_rows += 1
         prompt_token_total += prompt_tokens
         completion_token_total += completion_tokens
@@ -680,6 +938,11 @@ def evaluate_live(
                 "honesty": honest_ok,
                 "numericConsistency": consist_ok,
                 "factScore": fact_score,
+                "latencyMs": latency_ms,
+                "usage": {
+                    "promptTokens": prompt_tokens,
+                    "completionTokens": completion_tokens,
+                },
             }
         )
 
@@ -725,6 +988,10 @@ def evaluate_live(
         )["fixture"]["toolResultsSha256"],
         "implementationSha256": implementation_sha256(),
         "model": os.environ.get("DEEPSEEK_MODEL", "deepseek-chat"),
+        "pricing": {
+            "inputCostPerMillion": input_cost_rate,
+            "outputCostPerMillion": output_cost_rate,
+        },
         "metrics": {
             "apiSuccessRate": metric(total - api_errors, total),
             "toolAccuracy": metric(tool_hit, tool_total),
@@ -849,6 +1116,12 @@ def main() -> int:
     parser.add_argument("--junit-output", type=Path, default=None, help="JUnit XML 报告")
     parser.add_argument("--baseline", type=Path, default=None, help="基线 JSON 报告")
     parser.add_argument(
+        "--junit-baseline",
+        type=Path,
+        default=None,
+        help="与 --baseline 对应的 JUnit 报告；离线交叉校验",
+    )
+    parser.add_argument(
         "--live-tools",
         action="store_true",
         help="使用实时数据库工具；默认使用 checksum 冻结 fixture",
@@ -868,6 +1141,7 @@ def main() -> int:
                 data,
                 args.baseline,
                 require_passing=args.require_passing_baseline,
+                junit_path=args.junit_baseline,
             )
             if args.baseline is not None
             else 0
