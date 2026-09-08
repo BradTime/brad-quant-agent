@@ -1,0 +1,58 @@
+import pytest
+
+from app.services.strategy_signals import generate_signals
+
+
+def _bars(count: int = 300) -> dict[str, list[dict]]:
+    return {
+        "600000": [
+            {"date": f"day-{index}", "close": 10 + index * 0.01}
+            for index in range(count)
+        ]
+    }
+
+
+@pytest.mark.parametrize("builtin_type", ["dual_ma", "rsi", "boll", "momentum"])
+def test_builtin_strategies_share_versioned_signal_protocol(builtin_type):
+    result = generate_signals(
+        definition_type="builtin",
+        builtin_type=builtin_type,
+        params={},
+        source_code=None,
+        context={},
+        bars=_bars(),
+    )
+    assert result["schemaVersion"] == 1
+    assert result["protocolVersion"] == "signal-v1"
+    assert result["signals"][0]["code"] == "600000.SH"
+    assert -1 <= result["signals"][0]["score"] <= 1
+    assert 0 <= result["signals"][0]["confidence"] <= 1
+
+
+def test_custom_strategy_uses_same_signal_protocol():
+    result = generate_signals(
+        definition_type="custom_python",
+        builtin_type=None,
+        params={"score": 0.5},
+        source_code=(
+            "def generate_signals(context, bars):\n"
+            "    params = get(context, 'params', {})\n"
+            "    return {'signals': [{"
+            "'code': '600000', 'score': get(params, 'score', 0), "
+            "'confidence': 0.8, 'reason': 'custom'}]}\n"
+        ),
+        context={},
+        bars={},
+    )
+    assert result == {
+        "schemaVersion": 1,
+        "protocolVersion": "signal-v1",
+        "signals": [
+            {
+                "code": "600000.SH",
+                "score": 0.5,
+                "confidence": 0.8,
+                "reason": "custom",
+            }
+        ],
+    }

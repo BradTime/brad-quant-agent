@@ -17,7 +17,7 @@ from app.models.market import (
     MinuteBar,
 )
 from app.models.research import ResearchReport
-from app.models.strategy import Strategy
+from app.models.strategy import Strategy, StrategyVersion
 from app.models.trading import SimAccount, SimOrder, SimPosition, SimTrade
 from app.models.training import (
     AIGenerationTrace,
@@ -56,6 +56,7 @@ __all__ = [
     "BacktestRun",
     "BacktestJob",
     "Strategy",
+    "StrategyVersion",
     "SimAccount",
     "SimOrder",
     "SimPosition",

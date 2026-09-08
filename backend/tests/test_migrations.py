@@ -36,7 +36,7 @@ from app.db.base import Base
 from app.models.market import Instrument
 from app.models.user import User
 from app.providers.base import FinancialSummaryDTO
-from app.services import ingest
+from app.services import ingest, strategy
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 ALEMBIC_CONFIG = BACKEND_ROOT / "alembic.ini"
@@ -49,7 +49,8 @@ BACKTEST_JOBS_REVISION = "20260717_0010"
 STATUS_HISTORY_REVISION = "20260831_0011"
 TRAINING_DATA_REVISION = "20260901_0012"
 ADMIN_AUDIT_REVISION = "20260902_0013"
-HEAD_REVISION = ADMIN_AUDIT_REVISION
+STRATEGY_VERSION_REVISION = "20260908_0014"
+HEAD_REVISION = STRATEGY_VERSION_REVISION
 HNSW_INDEX = "ix_documents_embedding_hnsw"
 LEGACY_TABLES = frozenset(
     {
@@ -92,6 +93,7 @@ POST_BASELINE_TABLES = frozenset(
         "training_datasets",
         "training_dataset_items",
         "admin_privilege_audits",
+        "strategy_versions",
     }
 )
 
@@ -99,6 +101,15 @@ POST_BASELINE_TABLES = frozenset(
 _POST_BASELINE_COLUMNS: dict[str, frozenset[str]] = {
     "users": frozenset({"token_version", "email_verified_at"}),
     "sim_orders": frozenset({"tif", "trade_date"}),
+    "strategies": frozenset(
+        {
+            "definition_type",
+            "current_version",
+            "protocol_version",
+            "definition_sha256",
+            "deleted_at",
+        }
+    ),
 }
 
 # baseline 冻结为 TEXT；当前 ORM 为 JSONB，造预迁移库时降回 TEXT
@@ -440,6 +451,67 @@ def test_sqlite_upgrade_remains_compatible_without_postgresql_lock(tmp_path: Pat
     _run_alembic(database_url, "upgrade", "head")
 
     assert _revision_rows(database_url) == [HEAD_REVISION]
+
+
+def test_strategy_version_migration_backfills_existing_definitions(
+    temporary_database: Callable[[], URL],
+) -> None:
+    database_url = temporary_database()
+    _run_alembic(database_url, "upgrade", ADMIN_AUDIT_REVISION)
+    engine = create_engine(database_url, pool_pre_ping=True)
+    try:
+        metadata = MetaData()
+        strategies = Table("strategies", metadata, autoload_with=engine)
+        with engine.begin() as connection:
+            connection.execute(
+                strategies.insert().values(
+                    id="legacy-strategy",
+                    user_id="legacy-user",
+                    name="Legacy",
+                    description="",
+                    category="trend_following",
+                    builtin_type="dual_ma",
+                    params_json={
+                        "schemaVersion": 1,
+                        "payload": {"fast": 5, "slow": 20, "target": 0.9},
+                    },
+                    status="draft",
+                )
+            )
+    finally:
+        engine.dispose()
+
+    _run_alembic(database_url, "upgrade", "head")
+    engine = create_engine(database_url, pool_pre_ping=True)
+    try:
+        with engine.connect() as connection:
+            head = connection.execute(
+                text(
+                    "SELECT definition_type, current_version, protocol_version, "
+                    "definition_sha256 FROM strategies WHERE id='legacy-strategy'"
+                )
+            ).one()
+            version = connection.execute(
+                text(
+                    "SELECT version, definition_sha256 FROM strategy_versions "
+                    "WHERE strategy_id='legacy-strategy'"
+                )
+            ).one()
+        assert head.definition_type == "builtin"
+        assert head.current_version == 1
+        assert head.protocol_version == "signal-v1"
+        assert len(head.definition_sha256) == 64
+        assert version.version == 1
+        assert version.definition_sha256 == head.definition_sha256
+        expected = strategy.validate_definition(
+            "builtin",
+            "dual_ma",
+            {"fast": 5, "slow": 20, "target": 0.9},
+            None,
+        )[4]
+        assert head.definition_sha256 == expected
+    finally:
+        engine.dispose()
 
 
 def test_email_verification_migration_marks_legacy_users_verified(tmp_path: Path) -> None:

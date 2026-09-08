@@ -224,6 +224,19 @@ function-calling 协议使用非思考模式，因此请求会显式发送
 私有 `trainingdata` volume。应用不会把训练 artifact 上传到 DeepSeek、LangSmith、Sentry
 或 embedding 服务；实际 SFT/LoRA 必须在独立审批后执行。
 
+策略定义采用 `signal-v1` 协议。内置策略与自定义 Python 均输出规范化的
+`code/score/confidence/reason` 信号，不直接生成订单。参数、类型或源码变化会追加不可变
+`strategy_versions` 记录；名称和描述修改不会产生新执行版本。可通过
+`GET /strategies/{id}/versions` 和 `GET /strategies/{id}/versions/{version}` 审计。
+定义更新必须携带当前 `expectedVersion`，陈旧写入返回 409；删除策略只隐藏并标记 head，
+不会级联删除历史版本。受限信号可通过
+`POST /strategies/{id}/versions/{version}/signals` 执行，版本协议不匹配时拒绝运行。
+
+自定义源码入口固定为 `generate_signals(context, bars)`，只接受受控 AST 子集并在独立
+进程执行。`STRATEGY_SANDBOX_TIMEOUT_SECONDS` 与 `STRATEGY_SANDBOX_MEMORY_MB`
+配置资源上限。该进程隔离是应用层基线；生产接收非可信第三方代码前必须再部署无网络、
+只读 rootfs、无 secret mount、drop capabilities 与 seccomp/AppArmor 的专用容器或 microVM。
+
 ## WebSocket 行情推送（`/ws/v1`）
 
 调度器把数据源刷新进内存缓存；一个异步推送循环每 `WS_PUSH_SECONDS`（默认 3s）把订阅主题的最新缓存推给客户端（只读缓存、不发起网络请求，故不阻塞）。

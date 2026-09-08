@@ -213,6 +213,12 @@ class Settings(BaseSettings):
     training_readiness_min_per_task: int = 50
     training_readiness_min_validation: int = 100
 
+    # Custom strategy signal sandbox. AST restrictions are mandatory; process
+    # limits are defense-in-depth.
+    strategy_sandbox_timeout_seconds: float = 2.0
+    strategy_sandbox_memory_mb: int = 128
+    strategy_sandbox_max_concurrency: int = 2
+
     # 可观测（Sentry）：仅当 sentry_dsn 非空时启用；默认关、零开销、不外联
     sentry_dsn: str = ""
     sentry_traces_sample_rate: float = 0.0
@@ -272,6 +278,12 @@ class Settings(BaseSettings):
             raise ValueError("PROCESS_ROLE=api/worker 时必须配置 REDIS_URL")
         if self.redis_scheduler_lease_seconds < self.redis_scheduler_renew_seconds * 3:
             raise ValueError("REDIS_SCHEDULER_LEASE_SECONDS 必须至少为续租间隔的 3 倍")
+        if self.strategy_sandbox_timeout_seconds <= 0:
+            raise ValueError("STRATEGY_SANDBOX_TIMEOUT_SECONDS 必须大于 0")
+        if self.strategy_sandbox_memory_mb < 64:
+            raise ValueError("STRATEGY_SANDBOX_MEMORY_MB 必须至少为 64")
+        if not 1 <= self.strategy_sandbox_max_concurrency <= 16:
+            raise ValueError("STRATEGY_SANDBOX_MAX_CONCURRENCY 必须在 1 到 16")
         if self.jwt_algorithm != "HS256":
             raise ValueError("JWT_ALGORITHM 仅允许 HS256")
         if self.is_production:
