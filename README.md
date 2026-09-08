@@ -168,6 +168,16 @@ python -c "from app.services import brief; print(brief.generate(None)['title'])"
 - **回测** `/backtest`：native + Backtrader 双引擎；日/分钟 K；参数网格（同步或异步入队）；策略库 CRUD；AI 回测点评（SSE）。
 - **接口**：`/api/v1/backtest`（run / grid / jobs / strategies / review）。
 
+## 策略进化与多 Agent 决策
+- 设计基线见 `docs/strategy-evolution-design.md`；按策略协议/沙箱、全 A 回测、预测组合、
+  四层决策链、决策室、模拟晋级、东财仿真、小资金实盘八个里程碑推进。
+- 策略定义采用不可变版本：参数或源码变化会生成新的 `StrategyVersion` 与 SHA-256，
+  名称/描述变化不影响执行版本；`GET /api/v1/strategies/{id}/versions` 可审计历史。
+- 内置策略和受限自定义 Python 统一输出 `signal-v1`，信号只表达方向、置信度和理由，
+  不直接决定订单、杠杆或绕过风险官。
+- 自定义源码仅支持无 import/属性/I/O 的小型 Python 子集，并在独立受限进程执行；
+  生产接收第三方代码前仍须叠加 rootless container/microVM、只读文件系统、无网络和 seccomp。
+
 ## 测试与 CI
 - **后端单测**：`cd backend && python -m pytest -q`
 - **前端单测（Vitest）**：`cd frontend && npm test`
