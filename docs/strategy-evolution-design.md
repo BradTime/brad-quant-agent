@@ -1,6 +1,6 @@
 # Strategy Evolution and Adversarial Decision Design
 
-Status: milestone 1 implementation baseline  
+Status: milestone 1 implementation baseline
 Protocol: `signal-v1`
 
 ## 1. Safety boundary
