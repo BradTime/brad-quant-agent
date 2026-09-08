@@ -24,6 +24,7 @@ StrategyType = Literal[
     "zscore_reversion",
     "composite_mf",
 ]
+FullAStrategyType = Literal["xs_momentum", "composite_mf"]
 GridSortMetric = Literal[
     "totalReturnPercent",
     "annualReturnPercent",
@@ -185,4 +186,37 @@ class GridSearchRequest(_BacktestRequestBase):
         keys = list(self.paramGrid)
         for values in itertools.product(*(self.paramGrid[key] for key in keys)):
             _validate_params(self.strategyType, dict(zip(keys, values, strict=True)))
+        return self
+
+
+class FullABacktestRequest(BaseModel):
+    """Asynchronous cross-sectional run over immutable PIT memberships."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    strategyType: FullAStrategyType
+    params: dict[str, Any] = Field(default_factory=dict)
+    strategyId: str | None = Field(default=None, min_length=1, max_length=36)
+    strategyVersion: int | None = Field(default=None, ge=1)
+    start: date
+    end: date
+    initialCapital: float = Field(
+        default=1_000_000.0,
+        gt=0,
+        le=MAX_INITIAL_CAPITAL,
+        allow_inf_nan=False,
+    )
+    slippage: float = Field(default=0.001, ge=0, le=0.1, allow_inf_nan=False)
+    maxParticipation: float = Field(
+        default=0.01, gt=0, le=1.0, allow_inf_nan=False
+    )
+
+    @model_validator(mode="after")
+    def validate_request(self):
+        _validate_dates(self.start, self.end)
+        if (self.end - self.start).days > 366 * 5:
+            raise ValueError("全 A 回测区间最长为 5 年")
+        self.params = _validate_params(self.strategyType, self.params)
+        if (self.strategyId is None) != (self.strategyVersion is None):
+            raise ValueError("strategyId 与 strategyVersion 必须同时提供")
         return self

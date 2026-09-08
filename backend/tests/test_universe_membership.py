@@ -1,11 +1,13 @@
 import exchange_calendars as xcals
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.backtest import full_a
 from app.db.base import Base
 from app.models.market import DailyBar, Instrument, InstrumentStatusHistory
-from app.models.universe import UniverseMembershipDaily
+from app.models.universe import UniverseMembershipDaily, UniverseSnapshotDaily
 from app.services import universe_membership
 
 
@@ -22,6 +24,7 @@ def test_materialized_full_a_universe_is_pit_filtered_and_queryable(monkeypatch)
             DailyBar.__table__,
             InstrumentStatusHistory.__table__,
             UniverseMembershipDaily.__table__,
+            UniverseSnapshotDaily.__table__,
         ],
     )
     sessions = sessionmaker(bind=engine, expire_on_commit=False)
@@ -87,4 +90,30 @@ def test_materialized_full_a_universe_is_pit_filtered_and_queryable(monkeypatch)
     repeated = universe_membership.build_for_date(as_of)
     assert repeated["reused"] is True
     assert repeated["eligible"] == 1
+    range_result = universe_membership.build_range(
+        trading_days[-2],
+        as_of,
+        chunk_sessions=2,
+    )
+    assert range_result["createdDates"] == 1
+    assert range_result["reusedDates"] == 1
+    assert universe_membership.eligible_map(
+        ["600000.SH"], trading_days[-2], as_of
+    ) == {
+        trading_days[-2].isoformat(): ("600000.SH",),
+        as_of.isoformat(): ("600000.SH",),
+    }
+    with sessions.begin() as session:
+        row = session.get(
+            UniverseMembershipDaily,
+            {
+                "code": "000001.SZ",
+                "trade_date": as_of,
+                "rules_version": universe_membership.RULES_VERSION,
+            },
+        )
+        session.delete(row)
+    monkeypatch.setattr(full_a, "SessionLocal", sessions)
+    with pytest.raises(ValueError, match="完整性校验失败"):
+        full_a._load_membership([as_of])
     engine.dispose()

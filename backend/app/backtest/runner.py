@@ -155,7 +155,7 @@ def run_on_bars(
     computed["universeQuality"] = {
         "mode": config.universe_mode,
         "rulesVersion": (
-            "pit-universe-v1"
+            "pit-universe-v2"
             if config.universe_mode == "pit_filtered"
             else None
         ),

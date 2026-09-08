@@ -73,6 +73,9 @@ class InstrumentStatusHistory(Base):
 
 class DailyBar(Base):
     __tablename__ = "daily_bars"
+    __table_args__ = (
+        Index("ix_daily_bars_trade_date", "trade_date"),
+    )
 
     code: Mapped[str] = mapped_column(String(16), primary_key=True)
     trade_date: Mapped[date] = mapped_column(Date, primary_key=True)

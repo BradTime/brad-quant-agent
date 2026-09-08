@@ -69,6 +69,7 @@ def eligible_asof(
     list_date: date | None,
     data_quality: str,
     filters: PITUniverseFilters = PITUniverseFilters(),
+    listing_sessions: int | None = None,
 ) -> Eligibility:
     visible = [bar for bar in bars if _day(bar.date) <= as_of]
     today = next(
@@ -81,7 +82,11 @@ def eligible_asof(
     if list_date is None:
         reasons.append("missing_list_date")
     else:
-        sessions = _listing_sessions(list_date, as_of)
+        sessions = (
+            listing_sessions
+            if listing_sessions is not None
+            else _listing_sessions(list_date, as_of)
+        )
         if sessions < filters.min_listing_sessions:
             reasons.append("young_listing")
     if filters.require_audited_data and data_quality != "full":

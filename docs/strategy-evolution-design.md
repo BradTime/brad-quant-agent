@@ -132,11 +132,13 @@ explicit date per invocation.
 
 Manual runs of at most 20 symbols can opt into
 `universeMode=pit_filtered`. Membership must cover every XSHG session in the
-requested range. Historical full-A execution remains blocked until a
-cancel-aware worker can stream partitioned/columnar bars without per-symbol
-queries or retaining the complete five-year market in memory.
-Rows are immutable within a rules version. Each filtered run stores its exact
-daily membership map and SHA-256, so later rules or data revisions cannot
+requested range. Historical full-A `xs_momentum`/`composite_mf` runs use a
+dedicated asynchronous executor: it queries fixed-size session chunks, retains
+only bounded rolling fields, checks cancellation each day, heartbeats the job
+lease, and never uses the per-symbol loader or retains five-year bars.
+Rows are immutable within a rules version. A bounded filtered run stores its
+exact daily membership map and SHA-256; a full-A run stores the verified daily
+manifest hashes plus a combined hash, so later rules or data revisions cannot
 silently rewrite the historical universe.
 
 Every engine uses 10bp default slippage and limits a next-open fill to 1% of the

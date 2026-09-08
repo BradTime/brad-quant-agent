@@ -28,8 +28,16 @@ class BacktestRun(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    user_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     strategy_type: Mapped[str] = mapped_column(String(32), default="")
+    job_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True, unique=True
+    )
     strategy_id: Mapped[str | None] = mapped_column(
         ForeignKey("strategies.id", ondelete="RESTRICT"), nullable=True
     )

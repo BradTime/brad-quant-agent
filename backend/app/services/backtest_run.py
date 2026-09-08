@@ -11,6 +11,7 @@ import itertools
 import json
 from collections.abc import Callable
 from dataclasses import replace
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -23,6 +24,7 @@ from app.backtest.strategies import STRATEGY_REGISTRY
 from app.core.json_payload import JsonCorruptError, dump_envelope, load_envelope
 from app.db.session import SessionLocal
 from app.models.backtest import BacktestRun
+from app.models.job import BacktestJob, BacktestJobStatus
 
 # 网格寻优组合数上限（schema 会在运行前整体拒绝超限网格）
 _MAX_GRID_COMBOS = 64
@@ -186,6 +188,7 @@ def _to_dict(row: BacktestRun, with_detail: bool = False) -> dict:
 
     out = {
         "id": row.id,
+        "jobId": row.job_id,
         "strategyType": row.strategy_type,
         "strategyId": row.strategy_id,
         "strategyVersionId": row.strategy_version_id,
@@ -374,6 +377,9 @@ def _save_run(
     cfg: BacktestConfig,
     out: dict,
     provenance: dict[str, Any] | None,
+    *,
+    job_id: str | None = None,
+    claim_token: str | None = None,
 ) -> dict:
     run_id = uuid4().hex
     status = "failed" if out.get("error") else "completed"
@@ -414,9 +420,24 @@ def _save_run(
         **(provenance or {}),
     }
     with SessionLocal() as session:
+        job: BacktestJob | None = None
+        if job_id is not None:
+            job = session.execute(
+                select(BacktestJob)
+                .where(
+                    BacktestJob.id == job_id,
+                    BacktestJob.claim_token == claim_token,
+                    BacktestJob.status == BacktestJobStatus.RUNNING,
+                )
+                .with_for_update()
+            ).scalar_one_or_none()
+            if job is None or job.cancel_requested:
+                session.rollback()
+                return {"cancelled": True}
         row = BacktestRun(
             id=run_id,
             user_id=user_id,
+            job_id=job_id,
             strategy_type=cfg.strategy_type,
             strategy_id=(
                 provenance.get("strategyId") if provenance else None
@@ -442,8 +463,115 @@ def _save_run(
             error=out.get("error"),
         )
         session.add(row)
+        if job is not None:
+            session.flush()
+            serialized = _to_dict(row, with_detail=True)
+            job.status = BacktestJobStatus.COMPLETED
+            job.result_json = dump_envelope(serialized)
+            job.finished_at = datetime.now(UTC)
+            job.updated_at = job.finished_at
         session.commit()
-        return _to_dict(row, with_detail=True)
+        return (
+            serialized
+            if job is not None
+            else _to_dict(row, with_detail=True)
+        )
+
+
+def run_full_a_and_save(
+    user_id: str,
+    req: Any,
+    *,
+    cancel_check: Callable[[], bool] | None = None,
+    on_progress: Callable[[int, int], None] | None = None,
+    job_id: str | None = None,
+    claim_token: str | None = None,
+) -> dict:
+    from app.backtest.full_a import run_chunked
+    from app.schemas.backtest import FullABacktestRequest
+    from app.services import strategy as strategy_service
+
+    if job_id is not None:
+        with SessionLocal() as session:
+            existing = session.execute(
+                select(BacktestRun).where(
+                    BacktestRun.job_id == job_id,
+                    BacktestRun.user_id == user_id,
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                return _to_dict(existing, with_detail=True)
+    validated = FullABacktestRequest.model_validate(req, from_attributes=True)
+    strategy_type = validated.strategyType
+    strategy_params = validated.params
+    provenance: dict[str, Any] | None = None
+    if validated.strategyId is not None:
+        version = strategy_service.get_version(
+            user_id,
+            validated.strategyId,
+            validated.strategyVersion,
+        )
+        if version is None:
+            raise ValueError("策略版本不存在或无权访问")
+        if version["definitionType"] != "builtin":
+            raise ValueError("全 A 回测不执行自定义 Python 策略")
+        if version["builtinType"] not in _DAILY_ONLY_STRATEGIES:
+            raise ValueError("策略版本不属于全 A 截面策略")
+        if version["builtinType"] not in {"xs_momentum", "composite_mf"}:
+            raise ValueError("全 A 回测仅支持截面动量或价格量能多因子")
+        if version["protocolVersion"] != "signal-v1":
+            raise ValueError("策略协议版本与当前回测执行器不兼容")
+        if version["implementationVersion"] != "builtin-v1":
+            raise ValueError("内置策略实现版本与当前回测执行器不兼容")
+        strategy_type = version["builtinType"]
+        strategy_params = version["params"]
+        provenance = {
+            "strategyId": validated.strategyId,
+            "strategyVersion": validated.strategyVersion,
+            "strategyVersionId": version["id"],
+            "strategyDefinitionSha256": version["definitionSha256"],
+            "strategyProtocolVersion": version["protocolVersion"],
+            "strategyImplementationVersion": version[
+                "implementationVersion"
+            ],
+        }
+    config = BacktestConfig(
+        strategy_type=strategy_type,
+        params=strategy_params,
+        codes=[],
+        start=validated.start.isoformat(),
+        end=validated.end.isoformat(),
+        initial_capital=validated.initialCapital,
+        slippage=validated.slippage,
+        max_participation=validated.maxParticipation,
+        engine="native",
+        frequency="1d",
+        universe_mode="full_a_pit",
+    )
+    result = run_chunked(
+        config,
+        cancel_check=cancel_check,
+        on_progress=on_progress,
+    )
+    if result.get("cancelled"):
+        return result
+    if cancel_check and cancel_check():
+        return {
+            "cancelled": True,
+            "progressDone": len(result.get("equityCurve", [])),
+            "progressTotal": len(result.get("equityCurve", [])),
+        }
+    saved = _save_run(
+        user_id,
+        config,
+        result,
+        provenance,
+        job_id=job_id,
+        claim_token=claim_token,
+    )
+    if saved.get("cancelled"):
+        return saved
+    return {**saved, "_jobFinalized": job_id is not None}
 
 
 def list_runs(user_id: str, limit: int = 20) -> list[dict]:

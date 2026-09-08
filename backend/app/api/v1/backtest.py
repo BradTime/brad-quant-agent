@@ -17,7 +17,11 @@ from app.api.deps import get_current_user
 from app.core.cors import apply_cors_headers
 from app.core.response import error, success
 from app.models.user import User
-from app.schemas.backtest import GridSearchRequest, RunBacktestRequest
+from app.schemas.backtest import (
+    FullABacktestRequest,
+    GridSearchRequest,
+    RunBacktestRequest,
+)
 from app.services import backtest_jobs, backtest_run, rate_limit
 
 router = APIRouter()
@@ -55,6 +59,22 @@ def grid(
         config, param_grid, sort_by = backtest_run.config_from_grid_request(req)
         return success(backtest_run.grid_search(config, param_grid, sort_by))
     return success(backtest_jobs.enqueue_grid(str(user.id), req))
+
+
+@router.post("/full-a")
+def full_a(
+    req: FullABacktestRequest,
+    user: User = Depends(get_current_user),
+):
+    """Queue a chunked, cancel-aware full-A PIT backtest."""
+    blocked = rate_limit.ai_cost_gate(str(user.id), "backtest")
+    if blocked:
+        return error(blocked, code=429, http_status=429)
+    try:
+        result = backtest_jobs.enqueue_full_a(str(user.id), req)
+    except ValueError as exc:
+        return error(str(exc), code=409, http_status=409)
+    return success(result)
 
 
 @router.get("/jobs/{job_id}")

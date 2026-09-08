@@ -40,3 +40,17 @@ class UniverseMembershipDaily(Base):
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class UniverseSnapshotDaily(Base):
+    __tablename__ = "universe_snapshot_daily"
+
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    rules_version: Mapped[str] = mapped_column(String(16), primary_key=True)
+    member_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    eligible_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    filters_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    membership_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

@@ -53,7 +53,9 @@ ADMIN_AUDIT_REVISION = "20260902_0013"
 STRATEGY_VERSION_REVISION = "20260908_0014"
 BACKTEST_STRATEGY_REVISION = "20260908_0015"
 UNIVERSE_MEMBERSHIP_REVISION = "20260908_0016"
-HEAD_REVISION = UNIVERSE_MEMBERSHIP_REVISION
+FULL_A_JOB_GUARDS_REVISION = "20260908_0017"
+UNIVERSE_SNAPSHOT_REVISION = "20260908_0018"
+HEAD_REVISION = UNIVERSE_SNAPSHOT_REVISION
 HNSW_INDEX = "ix_documents_embedding_hnsw"
 LEGACY_TABLES = frozenset(
     {
@@ -98,6 +100,7 @@ POST_BASELINE_TABLES = frozenset(
         "admin_privilege_audits",
         "strategy_versions",
         "universe_membership_daily",
+        "universe_snapshot_daily",
     }
 )
 
@@ -120,6 +123,7 @@ _POST_BASELINE_COLUMNS: dict[str, frozenset[str]] = {
             "strategy_version_id",
             "strategy_version",
             "definition_sha256",
+            "job_id",
         }
     ),
 }
@@ -260,6 +264,11 @@ def _create_pre_alembic_schema(
         for constraint in list(users_table.constraints):
             if constraint.name == "ck_users_role_allowed":
                 users_table.constraints.remove(constraint)
+    daily_bars_table = schema_metadata.tables.get("daily_bars")
+    if daily_bars_table is not None:
+        for index in list(daily_bars_table.indexes):
+            if index.name == "ix_daily_bars_trade_date":
+                daily_bars_table.indexes.remove(index)
     Table(
         "financial_summaries",
         schema_metadata,
@@ -431,6 +440,16 @@ def test_standard_alembic_layout_is_present() -> None:
         ALEMBIC_DIR
         / "versions"
         / f"{UNIVERSE_MEMBERSHIP_REVISION}_universe_membership.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{FULL_A_JOB_GUARDS_REVISION}_full_a_job_guards.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{UNIVERSE_SNAPSHOT_REVISION}_universe_snapshots.py"
     ).is_file()
 
 

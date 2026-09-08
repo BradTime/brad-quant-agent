@@ -179,7 +179,8 @@ python -c "from app.services import brief; print(brief.generate(None)['title'])"
   生产接收第三方代码前仍须叠加 rootless container/microVM、只读文件系统、无网络和 seccomp。
 - M2 进行中：已扩展至 8 个日线策略，保存版本可固定到回测；支持单日全 A PIT 股票池
   物化、最多 20 标的动态 PIT 过滤、10bp 默认滑点与 1% 信号日成交容量门禁。
-  历史全 A 异步回测将在分块加载、运行中取消和追加式事件数据具备后开放。
+  历史全 A 截面回测已支持完整性清单、分块加载、运行中取消、worker 租约回收和
+  输入 Hash 审计；追加式 PIT 财务/事件策略仍待后续完成。
 
 ## 测试与 CI
 - **后端单测**：`cd backend && python -m pytest -q`

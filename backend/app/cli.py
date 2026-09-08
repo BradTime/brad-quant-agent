@@ -71,7 +71,9 @@ def main(argv: list[str] | None = None) -> int:
         "build-pit-universe",
         help="按指定交易日物化全 A 股 PIT 股票池",
     )
-    p_universe.add_argument("--date", required=True)
+    p_universe.add_argument("--date")
+    p_universe.add_argument("--start")
+    p_universe.add_argument("--end")
 
     p_q = sub.add_parser("quotes", help="拉取实时快照（不落库，用于连通性验证）")
     p_q.add_argument("--codes", required=True, help="逗号分隔，如 600000.SH,000001.SZ")
@@ -186,9 +188,18 @@ def main(argv: list[str] | None = None) -> int:
         from app.services import universe_membership
 
         try:
-            result = universe_membership.build_for_date(
-                date.fromisoformat(args.date)
-            )
+            if args.date and not (args.start or args.end):
+                result = universe_membership.build_for_date(
+                    date.fromisoformat(args.date)
+                )
+            elif not args.date and args.start and args.end:
+                result = universe_membership.build_range(
+                    date.fromisoformat(args.start),
+                    date.fromisoformat(args.end),
+                )
+            else:
+                print("必须提供 --date，或同时提供 --start/--end")
+                return 1
         except ValueError as exc:
             print(f"股票池参数无效：{exc}")
             return 1

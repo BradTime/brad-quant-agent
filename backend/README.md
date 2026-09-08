@@ -242,14 +242,18 @@ M2 日线策略目录现含双均线、RSI、布林带、动量、唐奇安突�
 携带 `strategyId`/`strategyVersion`；服务端会固定不可变版本和 Hash。
 
 ```bash
-# 单日物化严格 PIT 全 A 股票池
+# 单日或分块历史物化严格 PIT 全 A 股票池
 python -m app.cli build-pit-universe --date 2026-09-08
+python -m app.cli build-pit-universe --start 2021-01-01 --end 2026-01-01
 ```
 
 最多 20 个手工标的的日线回测可设置 `universeMode=pit_filtered`，请求区间每个
 交易日都必须已物化，否则失败关闭。后端默认滑点 10bp，成交量上限为信号日成交量
-1%，结果通过 `executionQuality`/`universeQuality` 披露限制与排除。历史全 A
-异步回测尚未开放；它必须先具备分块/列式数据加载、运行中取消和完整交易日日历快照。
+1%，结果通过 `executionQuality`/`universeQuality` 披露限制与排除。
+`POST /backtest/full-a` 可异步运行 `xs_momentum`/`composite_mf`：逐块读取日线、
+逐日检查取消并更新租约，worker 中断后可回收重跑，且 `jobId` 保证结果幂等。
+每日股票池完整性清单、过滤器、排除原因、调整后日线和最终运行均有 SHA-256 证据。
+任一合格标的缺后复权因子、任一交易日缺沪深 300 基准都会拒绝整个全 A 回测。
 
 ## WebSocket 行情推送（`/ws/v1`）
 

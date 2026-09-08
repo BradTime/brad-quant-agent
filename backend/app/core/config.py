@@ -218,6 +218,8 @@ class Settings(BaseSettings):
     strategy_sandbox_timeout_seconds: float = 2.0
     strategy_sandbox_memory_mb: int = 128
     strategy_sandbox_max_concurrency: int = 2
+    full_a_backtest_chunk_sessions: int = 20
+    backtest_job_lease_seconds: int = 300
 
     # 可观测（Sentry）：仅当 sentry_dsn 非空时启用；默认关、零开销、不外联
     sentry_dsn: str = ""
@@ -284,6 +286,10 @@ class Settings(BaseSettings):
             raise ValueError("STRATEGY_SANDBOX_MEMORY_MB 必须至少为 64")
         if not 1 <= self.strategy_sandbox_max_concurrency <= 16:
             raise ValueError("STRATEGY_SANDBOX_MAX_CONCURRENCY 必须在 1 到 16")
+        if not 1 <= self.full_a_backtest_chunk_sessions <= 60:
+            raise ValueError("FULL_A_BACKTEST_CHUNK_SESSIONS 必须在 1 到 60")
+        if self.backtest_job_lease_seconds < 60:
+            raise ValueError("BACKTEST_JOB_LEASE_SECONDS 必须至少为 60")
         if self.jwt_algorithm != "HS256":
             raise ValueError("JWT_ALGORITHM 仅允许 HS256")
         if self.is_production:
