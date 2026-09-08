@@ -8,15 +8,23 @@ from __future__ import annotations
 
 from app.backtest.base import Strategy
 from app.backtest.strategies.boll import Boll
+from app.backtest.strategies.composite_mf import CompositeMultiFactor
+from app.backtest.strategies.donchian_breakout import DonchianBreakout
 from app.backtest.strategies.dual_ma import DualMA
 from app.backtest.strategies.momentum import Momentum
 from app.backtest.strategies.rsi import RSI
+from app.backtest.strategies.xs_momentum import CrossSectionalMomentum
+from app.backtest.strategies.zscore_reversion import ZScoreReversion
 
 STRATEGY_REGISTRY: dict[str, type[Strategy]] = {
     "dual_ma": DualMA,
     "rsi": RSI,
     "boll": Boll,
     "momentum": Momentum,
+    "donchian_breakout": DonchianBreakout,
+    "xs_momentum": CrossSectionalMomentum,
+    "zscore_reversion": ZScoreReversion,
+    "composite_mf": CompositeMultiFactor,
 }
 
 

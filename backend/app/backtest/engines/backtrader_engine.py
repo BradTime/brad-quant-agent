@@ -66,13 +66,26 @@ class BacktraderEngine(BacktestEngine):
             bars = ordered_bars.get(code, [])
             start = max(0, index - n)
             window = bars[start:index]
-            return [float(getattr(bar, field)) for bar in window]
+            return [
+                float(value)
+                for bar in window
+                if (value := getattr(bar, field)) is not None
+            ]
 
-        broker = Broker(config.initial_capital, config.slippage)
+        broker = Broker(
+            config.initial_capital,
+            config.slippage,
+            config.max_participation,
+        )
         for code, bars in ordered_bars.items():
             if bars[0].previous_close is not None:
                 broker.seed_previous_close(code, bars[0].previous_close)
-        context = Context(broker, config.params, history_fn, universe=config.codes)
+        context = Context(
+            broker,
+            config.params,
+            history_fn,
+            universe=config.codes,
+        )
         equity_curve: list[dict] = []
 
         code_order = list(ordered_bars)
@@ -87,6 +100,7 @@ class BacktraderEngine(BacktestEngine):
             bars_by_code=ordered_bars,
             code_order=code_order,
             equity_curve=equity_curve,
+            config=config,
         )
         for code in code_order:
             frame = self._to_frame(ordered_bars[code])
@@ -110,6 +124,12 @@ class BacktraderEngine(BacktestEngine):
             equity_curve=equity_curve,
             fills=broker.fills,
             data_quality={code: "provided" for code in code_order},
+            execution_quality={
+                "slippage": broker.slippage,
+                "maxParticipation": broker.max_participation,
+                "volumeCappedFills": broker.volume_capped_fills,
+                "volumeMissingRejections": broker.volume_missing_rejections,
+            },
         )
 
     @staticmethod
@@ -140,6 +160,7 @@ class BacktraderEngine(BacktestEngine):
                 ("bars_by_code", None),
                 ("code_order", None),
                 ("equity_curve", None),
+                ("config", None),
             )
 
             def __init__(self) -> None:
@@ -167,11 +188,31 @@ class BacktraderEngine(BacktestEngine):
                     return
 
                 when = max(bar.date for bar in changed.values())
+                config = self.p.config
+                if config.universe_mode == "pit_filtered":
+                    eligible = set(
+                        config.eligible_by_date.get(str(when)[:10], ())
+                    )
+                    signal_bars = {
+                        code: bar
+                        for code, bar in changed.items()
+                        if code in eligible
+                    }
+                else:
+                    eligible = set(config.codes)
+                    signal_bars = changed
                 ledger = self.p.execution_broker
                 ledger.settle_t1(when)
                 ledger.execute_open(changed, when)
                 self.p.context._set_date(when)
-                self.p.host_strategy.handle_bar(self.p.context, changed)
+                self.p.context.set_universe(
+                    [code for code in config.codes if code in eligible]
+                )
+                ledger.set_signal_bars(changed)
+                for code, position in ledger.positions.items():
+                    if position.qty > 0 and code not in eligible:
+                        self.p.context.order_target_percent(code, 0.0)
+                self.p.host_strategy.handle_bar(self.p.context, signal_bars)
                 equity = round(ledger.mark_to_market(changed), 2)
                 cash = round(ledger.cash, 2)
                 self.p.equity_curve.append(

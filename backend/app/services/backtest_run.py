@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import itertools
+import json
 from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
@@ -26,6 +28,12 @@ from app.models.backtest import BacktestRun
 _MAX_GRID_COMBOS = 64
 # 排名：回撤越小越好（升序），其余指标越大越好（降序）
 _ASC_METRICS = {"maxDrawdownPercent"}
+_DAILY_ONLY_STRATEGIES = {
+    "donchian_breakout",
+    "xs_momentum",
+    "zscore_reversion",
+    "composite_mf",
+}
 
 # 内置策略目录：type / 名称 / 说明 / 参数 schema（前端按 schema 渲染表单）
 _TARGET_PARAM = {"key": "target", "label": "目标仓位", "type": "float", "default": 0.95, "min": 0.1, "max": 1.0}
@@ -68,6 +76,49 @@ _STRATEGY_CATALOG = [
         "description": "过去 N 日收益为正则持有、为负则清仓（趋势延续）",
         "params": [
             {"key": "lookback", "label": "回看天数", "type": "int", "default": 20, "min": 1, "max": 250},
+            _TARGET_PARAM,
+        ],
+    },
+    {
+        "type": "donchian_breakout",
+        "name": "唐奇安突破",
+        "description": "收盘突破前 N 日通道高点建仓、跌破低点退出",
+        "params": [
+            {"key": "channel", "label": "通道周期", "type": "int", "default": 20, "min": 10, "max": 120},
+            _TARGET_PARAM,
+        ],
+    },
+    {
+        "type": "xs_momentum",
+        "name": "截面动量",
+        "description": "按过去 N 日收益排序并等权持有前若干标的",
+        "params": [
+            {"key": "lookback", "label": "回看天数", "type": "int", "default": 60, "min": 20, "max": 250},
+            {"key": "topN", "label": "持仓数量", "type": "int", "default": 3, "min": 1, "max": 20},
+            _TARGET_PARAM,
+        ],
+    },
+    {
+        "type": "zscore_reversion",
+        "name": "Z-Score 反转",
+        "description": "价格偏离滚动均值达到阈值时建仓并在均值附近退出",
+        "params": [
+            {"key": "period", "label": "统计周期", "type": "int", "default": 20, "min": 5, "max": 120},
+            {"key": "entryZ", "label": "入场 Z 值", "type": "float", "default": -2.0, "min": -4.0, "max": -0.5},
+            {"key": "exitZ", "label": "退出 Z 值", "type": "float", "default": 0.0, "min": -1.0, "max": 2.0},
+            _TARGET_PARAM,
+        ],
+    },
+    {
+        "type": "composite_mf",
+        "name": "价格量能多因子",
+        "description": "截面组合动量、低波动和流动性因子；不冒充财务基本面",
+        "params": [
+            {"key": "lookback", "label": "回看天数", "type": "int", "default": 60, "min": 20, "max": 250},
+            {"key": "topN", "label": "持仓数量", "type": "int", "default": 5, "min": 1, "max": 20},
+            {"key": "wMom", "label": "动量权重", "type": "float", "default": 0.4, "min": 0.0, "max": 1.0},
+            {"key": "wLowVol", "label": "低波权重", "type": "float", "default": 0.3, "min": 0.0, "max": 1.0},
+            {"key": "wLiq", "label": "流动性权重", "type": "float", "default": 0.3, "min": 0.0, "max": 1.0},
             _TARGET_PARAM,
         ],
     },
@@ -136,6 +187,10 @@ def _to_dict(row: BacktestRun, with_detail: bool = False) -> dict:
     out = {
         "id": row.id,
         "strategyType": row.strategy_type,
+        "strategyId": row.strategy_id,
+        "strategyVersionId": row.strategy_version_id,
+        "strategyVersion": row.strategy_version,
+        "definitionSha256": row.definition_sha256,
         "status": status,
         "engine": row.engine,
         "error": error,
@@ -144,6 +199,16 @@ def _to_dict(row: BacktestRun, with_detail: bool = False) -> dict:
         "metrics": None if "metrics_json" in corrupt_fields else metrics,
         "actualRange": None if "config_json" in corrupt_fields else config.get("actualRange"),
         "ruleQuality": None if "config_json" in corrupt_fields else config.get("ruleQuality"),
+        "executionQuality": (
+            None
+            if "config_json" in corrupt_fields
+            else config.get("executionQuality")
+        ),
+        "universeQuality": (
+            None
+            if "config_json" in corrupt_fields
+            else config.get("universeQuality")
+        ),
     }
     if with_detail:
         out["equityCurve"] = None if "equity_json" in corrupt_fields else equity
@@ -158,19 +223,86 @@ def _validated_run_request(req: Any):
     return RunBacktestRequest.model_validate(req, from_attributes=True)
 
 
-def _config_from_run_request(req: Any) -> BacktestConfig:
+def _bind_pit_membership(config: BacktestConfig) -> BacktestConfig:
+    if config.universe_mode != "pit_filtered":
+        return config
+    from datetime import date
+
+    from app.backtest.universe import expected_session_dates
+    from app.services import universe_membership
+
+    start = date.fromisoformat(config.start[:10])
+    end = date.fromisoformat(config.end[:10])
+    expected_dates = set(expected_session_dates(start, end))
+    eligible_by_date = universe_membership.eligible_map(
+        config.codes,
+        start,
+        end,
+    )
+    if not eligible_by_date:
+        raise ValueError(
+            "请求区间尚未物化 PIT 股票池，请先运行 build-pit-universe"
+        )
+    missing_dates = sorted(expected_dates - set(eligible_by_date))
+    if missing_dates:
+        raise ValueError(
+            "PIT 股票池日期覆盖不完整，缺少 "
+            f"{missing_dates[0]} 等 {len(missing_dates)} 日"
+        )
+    return replace(config, eligible_by_date=eligible_by_date)
+
+
+def _config_from_run_request(
+    req: Any, user_id: str
+) -> tuple[BacktestConfig, dict[str, Any] | None]:
     validated = _validated_run_request(req)
-    return BacktestConfig(
-        strategy_type=validated.strategyType,
-        params=validated.params,
+    strategy_type = validated.strategyType
+    strategy_params = validated.params
+    provenance: dict[str, Any] | None = None
+    if validated.strategyId is not None:
+        from app.services import strategy as strategy_service
+
+        version = strategy_service.get_version(
+            user_id,
+            validated.strategyId,
+            validated.strategyVersion,
+        )
+        if version is None:
+            raise ValueError("策略版本不存在或无权访问")
+        if version["definitionType"] != "builtin":
+            raise ValueError("自定义策略的版本化回测将在 M2 沙箱执行阶段开放")
+        if version["protocolVersion"] != "signal-v1":
+            raise ValueError("策略协议版本与当前回测执行器不兼容")
+        if version["implementationVersion"] != "builtin-v1":
+            raise ValueError("内置策略实现版本与当前回测执行器不兼容")
+        strategy_type = version["builtinType"]
+        strategy_params = version["params"]
+        provenance = {
+            "strategyId": validated.strategyId,
+            "strategyVersion": validated.strategyVersion,
+            "strategyVersionId": version["id"],
+            "strategyDefinitionSha256": version["definitionSha256"],
+            "strategyProtocolVersion": version["protocolVersion"],
+            "strategyImplementationVersion": version[
+                "implementationVersion"
+            ],
+        }
+    if strategy_type in _DAILY_ONLY_STRATEGIES and validated.frequency != "1d":
+        raise ValueError("固定策略版本按交易日定义，仅支持日线回测")
+    config = BacktestConfig(
+        strategy_type=strategy_type,
+        params=strategy_params,
         codes=validated.codes,
         start=validated.start.isoformat(),
         end=validated.end.isoformat(),
         initial_capital=validated.initialCapital,
         slippage=validated.slippage,
+        max_participation=validated.maxParticipation,
         engine=validated.engine,
         frequency=validated.frequency,
+        universe_mode=validated.universeMode,
     )
+    return _bind_pit_membership(config), provenance
 
 
 def _validated_grid_request(
@@ -197,8 +329,10 @@ def _validated_grid_request(
             "end": base_config.end,
             "initialCapital": base_config.initial_capital,
             "slippage": base_config.slippage,
+            "maxParticipation": base_config.max_participation,
             "engine": base_config.engine,
             "frequency": base_config.frequency,
+            "universeMode": base_config.universe_mode,
             "sortBy": sort_by,
         }
     )
@@ -221,17 +355,44 @@ def config_from_grid_request(req: Any) -> tuple[BacktestConfig, dict[str, list],
         end=validated.end.isoformat(),
         initial_capital=validated.initialCapital,
         slippage=validated.slippage,
+        max_participation=validated.maxParticipation,
         engine=validated.engine,
         frequency=validated.frequency,
+        universe_mode=validated.universeMode,
     )
     return config, validated.paramGrid, validated.sortBy
 
 
 def run_and_save(user_id: str, req) -> dict:
-    cfg = _config_from_run_request(req)
+    cfg, provenance = _config_from_run_request(req, user_id)
     out = run_backtest(cfg)
+    return _save_run(user_id, cfg, out, provenance)
+
+
+def _save_run(
+    user_id: str,
+    cfg: BacktestConfig,
+    out: dict,
+    provenance: dict[str, Any] | None,
+) -> dict:
     run_id = uuid4().hex
     status = "failed" if out.get("error") else "completed"
+    membership_snapshot = {
+        day: list(codes)
+        for day, codes in sorted(cfg.eligible_by_date.items())
+    }
+    membership_sha256 = (
+        hashlib.sha256(
+            json.dumps(
+                membership_snapshot,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        if membership_snapshot
+        else None
+    )
     config_dict = {
         "strategyType": cfg.strategy_type,
         "params": cfg.params,
@@ -240,16 +401,37 @@ def run_and_save(user_id: str, req) -> dict:
         "end": cfg.end,
         "initialCapital": cfg.initial_capital,
         "slippage": cfg.slippage,
+        "maxParticipation": cfg.max_participation,
         "engine": cfg.engine,
         "frequency": cfg.frequency,
+        "universeMode": cfg.universe_mode,
+        "universeMembership": membership_snapshot or None,
+        "universeMembershipSha256": membership_sha256,
         "actualRange": out.get("actualRange"),
         "ruleQuality": out.get("ruleQuality"),
+        "executionQuality": out.get("executionQuality"),
+        "universeQuality": out.get("universeQuality"),
+        **(provenance or {}),
     }
     with SessionLocal() as session:
         row = BacktestRun(
             id=run_id,
             user_id=user_id,
             strategy_type=cfg.strategy_type,
+            strategy_id=(
+                provenance.get("strategyId") if provenance else None
+            ),
+            strategy_version_id=(
+                provenance.get("strategyVersionId") if provenance else None
+            ),
+            strategy_version=(
+                provenance.get("strategyVersion") if provenance else None
+            ),
+            definition_sha256=(
+                provenance.get("strategyDefinitionSha256")
+                if provenance
+                else None
+            ),
             status=status,
             config_json=dump_envelope(config_dict),
             metrics_json=dump_envelope(out.get("metrics") or {}),
@@ -359,9 +541,12 @@ def grid_search(
         end=validated.end.isoformat(),
         initial_capital=validated.initialCapital,
         slippage=validated.slippage,
+        max_participation=validated.maxParticipation,
         engine=validated.engine,
         frequency=validated.frequency,
+        universe_mode=validated.universeMode,
     )
+    base_config = _bind_pit_membership(base_config)
     param_grid = validated.paramGrid
     sort_by = validated.sortBy
     keys = [k for k in param_grid if param_grid[k]]

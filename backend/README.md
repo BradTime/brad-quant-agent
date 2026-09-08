@@ -237,6 +237,20 @@ function-calling 协议使用非思考模式，因此请求会显式发送
 配置资源上限。该进程隔离是应用层基线；生产接收非可信第三方代码前必须再部署无网络、
 只读 rootfs、无 secret mount、drop capabilities 与 seccomp/AppArmor 的专用容器或 microVM。
 
+M2 日线策略目录现含双均线、RSI、布林带、动量、唐奇安突破、截面动量、Z-Score
+反转和价格量能多因子。保存策略回测可在 `POST /backtest/run`
+携带 `strategyId`/`strategyVersion`；服务端会固定不可变版本和 Hash。
+
+```bash
+# 单日物化严格 PIT 全 A 股票池
+python -m app.cli build-pit-universe --date 2026-09-08
+```
+
+最多 20 个手工标的的日线回测可设置 `universeMode=pit_filtered`，请求区间每个
+交易日都必须已物化，否则失败关闭。后端默认滑点 10bp，成交量上限为信号日成交量
+1%，结果通过 `executionQuality`/`universeQuality` 披露限制与排除。历史全 A
+异步回测尚未开放；它必须先具备分块/列式数据加载、运行中取消和完整交易日日历快照。
+
 ## WebSocket 行情推送（`/ws/v1`）
 
 调度器把数据源刷新进内存缓存；一个异步推送循环每 `WS_PUSH_SECONDS`（默认 3s）把订阅主题的最新缓存推给客户端（只读缓存、不发起网络请求，故不阻塞）。

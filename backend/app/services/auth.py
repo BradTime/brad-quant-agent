@@ -218,7 +218,7 @@ def delete_account(user_id: str) -> bool:
     from app.models.chat import ChatSession, UserMemory
     from app.models.job import BacktestJob
     from app.models.research import ResearchReport
-    from app.models.strategy import Strategy
+    from app.models.strategy import Strategy, StrategyVersion
     from app.models.trading import SimAccount, SimOrder, SimPosition, SimTrade
     from app.models.watchlist import WatchlistItem
     from app.services.training_data import erase_user_data
@@ -233,6 +233,7 @@ def delete_account(user_id: str) -> bool:
             BacktestRun,
             MorningBrief,
             ResearchReport,
+            StrategyVersion,
             Strategy,
             WatchlistItem,
             UserMemory,

@@ -201,12 +201,19 @@ def claim_next_job() -> BacktestJob | None:
 
 
 def process_job(row: BacktestJob) -> None:
-    """执行已认领任务（当前仅 grid）。"""
+    """Execute a claimed grid-search job."""
     job_id = row.id
     try:
         raw = load_envelope(row.request_json, expect="dict", field="request_json")
         if not isinstance(raw, dict):
             _finish(job_id, status=BacktestJobStatus.FAILED, error="invalid request payload")
+            return
+        if row.kind != "grid":
+            _finish(
+                job_id,
+                status=BacktestJobStatus.FAILED,
+                error=f"unsupported job kind: {row.kind}",
+            )
             return
         req = GridSearchRequest.model_validate(raw)
         config, param_grid, sort_by = backtest_run.config_from_grid_request(req)

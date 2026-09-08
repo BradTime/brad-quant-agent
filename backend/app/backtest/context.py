@@ -29,6 +29,9 @@ class Context:
     def _set_date(self, d: date | datetime) -> None:
         self.current_date = d
 
+    def set_universe(self, codes: list[str] | tuple[str, ...]) -> None:
+        self.universe = tuple(codes)
+
     @property
     def portfolio(self) -> dict:
         return {

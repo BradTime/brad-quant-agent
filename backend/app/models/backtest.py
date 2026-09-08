@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, String, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -18,10 +18,28 @@ from app.db.types import PortableJSON
 
 class BacktestRun(Base):
     __tablename__ = "backtest_runs"
+    __table_args__ = (
+        Index(
+            "ix_backtest_runs_user_strategy_created",
+            "user_id",
+            "strategy_id",
+            "created_at",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     strategy_type: Mapped[str] = mapped_column(String(32), default="")
+    strategy_id: Mapped[str | None] = mapped_column(
+        ForeignKey("strategies.id", ondelete="RESTRICT"), nullable=True
+    )
+    strategy_version_id: Mapped[str | None] = mapped_column(
+        ForeignKey("strategy_versions.id", ondelete="RESTRICT"), nullable=True
+    )
+    strategy_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    definition_sha256: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
     # completed / failed / data_corrupt
     status: Mapped[str] = mapped_column(String(16), default="completed")
     config_json: Mapped[dict[str, Any] | list[Any] | None] = mapped_column(

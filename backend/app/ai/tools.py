@@ -38,6 +38,16 @@ _MAX_DRAGON = 50
 _MAX_NEWS = 50
 _MAX_RAG_K = 20
 _MAX_SCREEN = 100
+StrategyName = Literal[
+    "dual_ma",
+    "rsi",
+    "boll",
+    "momentum",
+    "donchian_breakout",
+    "xs_momentum",
+    "zscore_reversion",
+    "composite_mf",
+]
 
 
 class _Strict(BaseModel):
@@ -170,7 +180,7 @@ class ScreenStocksArgs(_Strict):
 class RunBacktestArgs(_Strict):
     """有界单标的同步回测（不落库、不下单）。"""
 
-    strategyType: Literal["dual_ma", "rsi", "boll", "momentum"] = "dual_ma"
+    strategyType: StrategyName = "dual_ma"
     code: str = Field(min_length=1, max_length=_MAX_CODE_LEN)
     start: str = Field(min_length=8, max_length=10)
     end: str = Field(min_length=8, max_length=10)
@@ -197,7 +207,7 @@ class RunBacktestArgs(_Strict):
 class GridSearchArgs(_Strict):
     """有界参数网格（默认 dual_ma，组合数由 schema 上限约束）。"""
 
-    strategyType: Literal["dual_ma", "rsi", "boll", "momentum"] = "dual_ma"
+    strategyType: StrategyName = "dual_ma"
     code: str = Field(min_length=1, max_length=_MAX_CODE_LEN)
     start: str = Field(min_length=8, max_length=10)
     end: str = Field(min_length=8, max_length=10)

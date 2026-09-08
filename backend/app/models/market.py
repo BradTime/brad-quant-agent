@@ -60,8 +60,8 @@ class InstrumentStatusHistory(Base):
     start_date: Mapped[date] = mapped_column(Date, primary_key=True)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     name: Mapped[str] = mapped_column(String(64), default="")
-    # normal / st / star_st. Boards such as ChiNext still apply their board
-    # limit; this status is consumed by trading_rules after board detection.
+    # normal / st / star_st / suspended / delisting / delisted. Boards such as
+    # ChiNext still apply their board limit; trading_rules consumes ST states.
     status_type: Mapped[str] = mapped_column(String(16), default="normal", index=True)
     change_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
     announced_date: Mapped[date | None] = mapped_column(Date, nullable=True)

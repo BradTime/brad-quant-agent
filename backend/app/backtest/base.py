@@ -28,10 +28,16 @@ class BacktestConfig:
     start: str
     end: str
     initial_capital: float = trading_rules.INITIAL_CASH
-    slippage: float = 0.0
+    slippage: float = 0.001
+    max_participation: float = 0.01
     benchmark: str = "000300.SH"
     engine: BacktestEngineName = "native"
     frequency: BacktestFrequency = "1d"
+    universe_mode: str = "manual"
+    eligible_by_date: dict[str, tuple[str, ...]] = field(
+        default_factory=dict,
+        repr=False,
+    )
 
 
 @dataclass
@@ -55,6 +61,7 @@ class EngineResult:
     equity_curve: list[dict]  # [{date, equity, cash, marketValue}]
     fills: list[Fill]
     data_quality: dict = field(default_factory=dict)  # {code: coverage}
+    execution_quality: dict = field(default_factory=dict)
 
 
 class Strategy(ABC):

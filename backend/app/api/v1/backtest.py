@@ -34,7 +34,11 @@ def run_backtest_endpoint(req: RunBacktestRequest, user: User = Depends(get_curr
     blocked = rate_limit.ai_cost_gate(str(user.id), "backtest")
     if blocked:
         return error(blocked, code=429, http_status=429)
-    return success(backtest_run.run_and_save(str(user.id), req))
+    try:
+        result = backtest_run.run_and_save(str(user.id), req)
+    except ValueError as exc:
+        return error(str(exc), code=400, http_status=400)
+    return success(result)
 
 
 @router.post("/grid")

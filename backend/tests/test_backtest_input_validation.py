@@ -199,6 +199,166 @@ def test_internal_run_entry_revalidates_before_engine_or_database(monkeypatch):
         )
 
 
+def test_run_request_requires_complete_strategy_version_reference():
+    with pytest.raises(ValidationError, match="必须同时提供"):
+        RunBacktestRequest.model_validate(
+            valid_run(strategyId="strategy-1")
+        )
+
+
+def test_run_request_defaults_capacity_controls_and_rejects_invalid_rate():
+    payload = valid_run()
+    payload.pop("slippage")
+    request = RunBacktestRequest.model_validate(payload)
+    assert request.slippage == 0.001
+    assert request.maxParticipation == 0.01
+    with pytest.raises(ValidationError):
+        RunBacktestRequest.model_validate(valid_run(maxParticipation=1.1))
+
+
+def test_daily_only_strategies_and_pit_universe_reject_incompatible_modes():
+    with pytest.raises(ValidationError, match="仅支持日线"):
+        RunBacktestRequest.model_validate(
+            valid_run(
+                strategyType="donchian_breakout",
+                params={},
+                frequency="5m",
+            )
+        )
+    with pytest.raises(ValidationError, match="native"):
+        RunBacktestRequest.model_validate(
+            valid_run(
+                universeMode="pit_filtered",
+                engine="backtrader",
+            )
+        )
+
+
+def test_versioned_run_uses_immutable_builtin_definition(monkeypatch):
+    from app.services import strategy as strategy_service
+
+    monkeypatch.setattr(
+        strategy_service,
+        "get_version",
+        lambda user_id, strategy_id, version: {
+            "id": "version-3",
+            "definitionType": "builtin",
+            "builtinType": "rsi",
+            "params": {"period": 12, "low": 25.0, "high": 75.0, "target": 0.7},
+            "definitionSha256": "a" * 64,
+            "protocolVersion": "signal-v1",
+            "implementationVersion": "builtin-v1",
+        },
+    )
+    config, provenance = backtest_run._config_from_run_request(
+        RunBacktestRequest.model_validate(
+            valid_run(
+                strategyType="dual_ma",
+                params={"fast": 5, "slow": 20},
+                strategyId="strategy-1",
+                strategyVersion=3,
+            )
+        ),
+        "user-a",
+    )
+    assert config.strategy_type == "rsi"
+    assert config.params["period"] == 12
+    assert provenance == {
+        "strategyId": "strategy-1",
+        "strategyVersion": 3,
+        "strategyVersionId": "version-3",
+        "strategyDefinitionSha256": "a" * 64,
+        "strategyProtocolVersion": "signal-v1",
+        "strategyImplementationVersion": "builtin-v1",
+    }
+
+
+def test_versioned_run_rejects_custom_definition_until_sandbox_backtest_stage(
+    monkeypatch,
+):
+    from app.services import strategy as strategy_service
+
+    monkeypatch.setattr(
+        strategy_service,
+        "get_version",
+        lambda *args: {
+            "definitionType": "custom_python",
+            "builtinType": "custom_python",
+            "params": {},
+            "definitionSha256": "b" * 64,
+            "protocolVersion": "signal-v1",
+        },
+    )
+    with pytest.raises(ValueError, match="M2"):
+        backtest_run._config_from_run_request(
+            RunBacktestRequest.model_validate(
+                valid_run(
+                    strategyId="strategy-1",
+                    strategyVersion=1,
+                )
+            ),
+            "user-a",
+        )
+
+
+def test_versioned_run_rejects_incompatible_builtin_executor(monkeypatch):
+    from app.services import strategy as strategy_service
+
+    monkeypatch.setattr(
+        strategy_service,
+        "get_version",
+        lambda *args: {
+            "id": "version-1",
+            "definitionType": "builtin",
+            "builtinType": "dual_ma",
+            "params": {"fast": 5, "slow": 20, "target": 0.95},
+            "definitionSha256": "c" * 64,
+            "protocolVersion": "signal-v1",
+            "implementationVersion": "builtin-v0",
+        },
+    )
+    with pytest.raises(ValueError, match="实现版本"):
+        backtest_run._config_from_run_request(
+            RunBacktestRequest.model_validate(
+                valid_run(
+                    strategyId="strategy-1",
+                    strategyVersion=1,
+                )
+            ),
+            "user-a",
+        )
+
+
+def test_pinned_daily_strategy_cannot_hide_behind_minute_placeholder(
+    monkeypatch,
+):
+    from app.services import strategy as strategy_service
+
+    monkeypatch.setattr(
+        strategy_service,
+        "get_version",
+        lambda *args: {
+            "id": "version-1",
+            "definitionType": "builtin",
+            "builtinType": "donchian_breakout",
+            "params": {"channel": 20, "target": 0.95},
+            "definitionSha256": "d" * 64,
+            "protocolVersion": "signal-v1",
+            "implementationVersion": "builtin-v1",
+        },
+    )
+    request = RunBacktestRequest.model_validate(
+        valid_run(
+            strategyType="dual_ma",
+            frequency="5m",
+            strategyId="strategy-1",
+            strategyVersion=1,
+        )
+    )
+    with pytest.raises(ValueError, match="仅支持日线"):
+        backtest_run._config_from_run_request(request, "user-a")
+
+
 def test_internal_grid_rejects_invalid_combination_before_loading_data(monkeypatch):
     monkeypatch.setattr(
         backtest_run.runner,
@@ -271,6 +431,30 @@ def test_internal_grid_rejects_combo_equal_to_base_slow_before_loading(monkeypat
 
     with pytest.raises(ValidationError):
         backtest_run.grid_search(config, {"fast": [20]}, "sharpeRatio")
+
+
+def test_pit_filtered_grid_rejects_missing_membership_date(monkeypatch):
+    from app.services import universe_membership
+
+    monkeypatch.setattr(
+        universe_membership,
+        "eligible_map",
+        lambda codes, start, end: {"2024-01-02": ("600000.SH",)},
+    )
+    config = BacktestConfig(
+        strategy_type="dual_ma",
+        params={"slow": 30},
+        codes=["600000.SH"],
+        start="2024-01-02",
+        end="2024-01-03",
+        universe_mode="pit_filtered",
+    )
+    with pytest.raises(ValueError, match="缺少 2024-01-03"):
+        backtest_run.grid_search(
+            config,
+            {"fast": [10]},
+            "sharpeRatio",
+        )
 
 
 def test_dual_ma_rejects_invalid_parameters_instead_of_relabeling_defaults():

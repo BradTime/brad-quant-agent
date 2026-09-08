@@ -17,6 +17,7 @@ from sqlalchemy import (
     Column,
     Date,
     DateTime,
+    ForeignKeyConstraint,
     MetaData,
     Numeric,
     String,
@@ -50,7 +51,9 @@ STATUS_HISTORY_REVISION = "20260831_0011"
 TRAINING_DATA_REVISION = "20260901_0012"
 ADMIN_AUDIT_REVISION = "20260902_0013"
 STRATEGY_VERSION_REVISION = "20260908_0014"
-HEAD_REVISION = STRATEGY_VERSION_REVISION
+BACKTEST_STRATEGY_REVISION = "20260908_0015"
+UNIVERSE_MEMBERSHIP_REVISION = "20260908_0016"
+HEAD_REVISION = UNIVERSE_MEMBERSHIP_REVISION
 HNSW_INDEX = "ix_documents_embedding_hnsw"
 LEGACY_TABLES = frozenset(
     {
@@ -94,6 +97,7 @@ POST_BASELINE_TABLES = frozenset(
         "training_dataset_items",
         "admin_privilege_audits",
         "strategy_versions",
+        "universe_membership_daily",
     }
 )
 
@@ -108,6 +112,14 @@ _POST_BASELINE_COLUMNS: dict[str, frozenset[str]] = {
             "protocol_version",
             "definition_sha256",
             "deleted_at",
+        }
+    ),
+    "backtest_runs": frozenset(
+        {
+            "strategy_id",
+            "strategy_version_id",
+            "strategy_version",
+            "definition_sha256",
         }
     ),
 }
@@ -232,6 +244,17 @@ def _create_pre_alembic_schema(
         if table_name == "financial_summaries":
             continue
         Base.metadata.tables[table_name].to_metadata(schema_metadata)
+    for table in schema_metadata.tables.values():
+        for constraint in list(table.constraints):
+            if isinstance(constraint, ForeignKeyConstraint) and any(
+                element.target_fullname.split(".", 1)[0]
+                not in schema_metadata.tables
+                for element in constraint.elements
+            ):
+                for element in constraint.elements:
+                    table.foreign_keys.discard(element)
+                    element.parent.foreign_keys.discard(element)
+                table.constraints.remove(constraint)
     users_table = schema_metadata.tables.get("users")
     if users_table is not None:
         for constraint in list(users_table.constraints):
@@ -394,6 +417,21 @@ def test_standard_alembic_layout_is_present() -> None:
         / "versions"
         / f"{ADMIN_AUDIT_REVISION}_admin_privilege_audit.py"
     ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{STRATEGY_VERSION_REVISION}_strategy_versions.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{BACKTEST_STRATEGY_REVISION}_backtest_strategy_binding.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{UNIVERSE_MEMBERSHIP_REVISION}_universe_membership.py"
+    ).is_file()
 
 
 def test_legacy_table_contract_matches_pre_branch_metadata() -> None:
@@ -493,7 +531,8 @@ def test_strategy_version_migration_backfills_existing_definitions(
             ).one()
             version = connection.execute(
                 text(
-                    "SELECT version, definition_sha256 FROM strategy_versions "
+                    "SELECT version, definition_sha256, implementation_version "
+                    "FROM strategy_versions "
                     "WHERE strategy_id='legacy-strategy'"
                 )
             ).one()
@@ -503,6 +542,7 @@ def test_strategy_version_migration_backfills_existing_definitions(
         assert len(head.definition_sha256) == 64
         assert version.version == 1
         assert version.definition_sha256 == head.definition_sha256
+        assert version.implementation_version == "builtin-v1"
         expected = strategy.validate_definition(
             "builtin",
             "dual_ma",

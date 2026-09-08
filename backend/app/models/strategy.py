@@ -83,6 +83,9 @@ class StrategyVersion(Base):
     source_code: Mapped[str | None] = mapped_column(Text)
     definition_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     protocol_version: Mapped[str] = mapped_column(String(16), nullable=False)
+    implementation_version: Mapped[str] = mapped_column(
+        String(32), nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

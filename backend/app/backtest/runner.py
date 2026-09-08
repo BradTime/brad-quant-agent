@@ -11,7 +11,10 @@ from dataclasses import replace
 from datetime import date, timedelta
 
 from app.backtest.base import BacktestConfig
-from app.backtest.data import Bar, load_bars_with_quality
+from app.backtest.data import (
+    Bar,
+    load_bars_with_quality,
+)
 from app.backtest.metrics import compute_metrics
 from app.backtest.registry import get_engine
 from app.backtest.strategies import get_strategy
@@ -95,7 +98,14 @@ def run_on_bars(
             "ruleQuality": {**rule_quality, "benchmarkData": benchmark_quality},
             "error": "沪深300基准数据不可信，已拒绝回测",
         }
-    aligned_bars, actual_range = _align_bars_to_common_range(bars_by_code)
+    if config.universe_mode == "pit_filtered":
+        aligned_bars, actual_range = _align_sparse_bars(
+            bars_by_code,
+            config.start,
+            config.end,
+        )
+    else:
+        aligned_bars, actual_range = _align_bars_to_common_range(bars_by_code)
     if aligned_bars is None or actual_range is None:
         return {
             "metrics": {},
@@ -141,6 +151,26 @@ def run_on_bars(
     )
     _attach_benchmark(computed, aligned_bars, config.start, config.end, benchmark_bars)
     computed["dataQuality"] = result_quality
+    computed["executionQuality"] = result.execution_quality
+    computed["universeQuality"] = {
+        "mode": config.universe_mode,
+        "rulesVersion": (
+            "pit-universe-v1"
+            if config.universe_mode == "pit_filtered"
+            else None
+        ),
+        "materializedDates": len(config.eligible_by_date),
+        "minEligible": (
+            min(map(len, config.eligible_by_date.values()))
+            if config.eligible_by_date
+            else len(config.codes)
+        ),
+        "maxEligible": (
+            max(map(len, config.eligible_by_date.values()))
+            if config.eligible_by_date
+            else len(config.codes)
+        ),
+    }
     computed["ruleQuality"] = {
         **rule_quality,
         **(
@@ -202,8 +232,74 @@ def _align_bars_to_common_range(
     return aligned, actual_range
 
 
+def _align_sparse_bars(
+    bars_by_code: dict[str, list[Bar]],
+    start: str,
+    end: str,
+) -> tuple[dict[str, list[Bar]] | None, tuple | None]:
+    """Keep sparse PIT-universe histories without imposing survivor overlap."""
+    start_day = date.fromisoformat(start[:10])
+    end_day = date.fromisoformat(end[:10])
+    aligned: dict[str, list[Bar]] = {}
+    for code, bars in bars_by_code.items():
+        selected = [
+            bar
+            for bar in bars
+            if start_day
+            <= (bar.date.date() if hasattr(bar.date, "date") else bar.date)
+            <= end_day
+        ]
+        if selected:
+            aligned[code] = selected
+    if not aligned:
+        return None, None
+    starts = [rows[0].date for rows in aligned.values()]
+    ends = [rows[-1].date for rows in aligned.values()]
+    return aligned, (min(starts), max(ends))
+
+
 def run_backtest(config: BacktestConfig) -> dict:
+    if config.universe_mode == "pit_filtered" and not config.eligible_by_date:
+        from app.services import universe_membership
+
+        eligible_by_date = universe_membership.eligible_map(
+            config.codes,
+            date.fromisoformat(config.start[:10]),
+            date.fromisoformat(config.end[:10]),
+        )
+        if not eligible_by_date:
+            return {
+                "metrics": {},
+                "equityCurve": [],
+                "trades": [],
+                "dataQuality": {},
+                "error": "请求区间尚未物化 PIT 股票池，请先运行 build-pit-universe",
+            }
+        config = replace(config, eligible_by_date=eligible_by_date)
     bars_by_code, data_quality = load_bars(config)
+    if config.universe_mode == "pit_filtered":
+        from app.backtest.universe import expected_session_dates
+
+        expected_dates = set(
+            expected_session_dates(
+                date.fromisoformat(config.start[:10]),
+                date.fromisoformat(config.end[:10]),
+            )
+        )
+        missing_membership = sorted(
+            expected_dates - set(config.eligible_by_date)
+        )
+        if missing_membership:
+            return {
+                "metrics": {},
+                "equityCurve": [],
+                "trades": [],
+                "dataQuality": data_quality,
+                "error": (
+                    "PIT 股票池日期覆盖不完整，缺少 "
+                    f"{missing_membership[0]} 等 {len(missing_membership)} 日"
+                ),
+            }
     missing = unusable_data_codes(config, bars_by_code, data_quality)
     if missing:
         return {

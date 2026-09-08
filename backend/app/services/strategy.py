@@ -22,11 +22,24 @@ from app.models.strategy import Strategy, StrategyVersion
 from app.services.backtest_run import strategy_catalog
 from app.services.strategy_sandbox import PROTOCOL_VERSION, validate_source
 
-ALLOWED_BUILTIN_TYPES = frozenset({"dual_ma", "rsi", "boll", "momentum"})
+ALLOWED_BUILTIN_TYPES = frozenset(
+    {
+        "dual_ma",
+        "rsi",
+        "boll",
+        "momentum",
+        "donchian_breakout",
+        "xs_momentum",
+        "zscore_reversion",
+        "composite_mf",
+    }
+)
 STRATEGY_STATUSES = frozenset({"draft", "active", "disabled"})
 DEFINITION_TYPES = frozenset({"builtin", "custom_python"})
 CUSTOM_BUILTIN_TYPE = "custom_python"
 MAX_CUSTOM_PARAMS_BYTES = 20_000
+BUILTIN_IMPLEMENTATION_VERSION = "builtin-v1"
+CUSTOM_IMPLEMENTATION_VERSION = "sandbox-signal-v1"
 
 
 class StrategyConflictError(RuntimeError):
@@ -37,6 +50,10 @@ _CATEGORY_BY_BUILTIN = {
     "rsi": "mean_reversion",
     "boll": "mean_reversion",
     "momentum": "momentum",
+    "donchian_breakout": "trend_following",
+    "xs_momentum": "momentum",
+    "zscore_reversion": "mean_reversion",
+    "composite_mf": "multi_factor",
 }
 
 
@@ -85,6 +102,15 @@ def validate_params(
         raise ValueError("参数 fast 必须小于 slow")
     if builtin_type == "rsi" and normalized["low"] >= normalized["high"]:
         raise ValueError("参数 low 必须小于 high")
+    if (
+        builtin_type == "zscore_reversion"
+        and normalized["entryZ"] >= normalized["exitZ"]
+    ):
+        raise ValueError("参数 entryZ 必须小于 exitZ")
+    if builtin_type == "composite_mf" and (
+        normalized["wMom"] + normalized["wLowVol"] + normalized["wLiq"] <= 0
+    ):
+        raise ValueError("多因子权重之和必须大于 0")
 
     return _CATEGORY_BY_BUILTIN[builtin_type], normalized
 
@@ -177,6 +203,15 @@ def _serialize(row: Strategy, current: StrategyVersion | None = None) -> dict:
         "definitionType": row.definition_type,
         "currentVersion": row.current_version,
         "protocolVersion": row.protocol_version,
+        "implementationVersion": (
+            current.implementation_version
+            if current is not None
+            else (
+                BUILTIN_IMPLEMENTATION_VERSION
+                if row.definition_type == "builtin"
+                else CUSTOM_IMPLEMENTATION_VERSION
+            )
+        ),
         "definitionSha256": row.definition_sha256,
         "status": row.status,
         "createdAt": row.created_at.isoformat() if row.created_at else None,
@@ -204,6 +239,7 @@ def _serialize_version(row: StrategyVersion, *, include_source: bool = True) -> 
         "params": _loads_params(row.params_json),
         "definitionSha256": row.definition_sha256,
         "protocolVersion": row.protocol_version,
+        "implementationVersion": row.implementation_version,
         "createdAt": row.created_at.isoformat() if row.created_at else None,
     }
     if include_source and row.definition_type == "custom_python":
@@ -242,6 +278,11 @@ def _append_version(
         source_code=source_code,
         definition_sha256=row.definition_sha256,
         protocol_version=row.protocol_version,
+        implementation_version=(
+            BUILTIN_IMPLEMENTATION_VERSION
+            if row.definition_type == "builtin"
+            else CUSTOM_IMPLEMENTATION_VERSION
+        ),
     )
     session.add(version)
     return version
@@ -538,6 +579,15 @@ def run_version_signals(
         if row.protocol_version != PROTOCOL_VERSION:
             raise ValueError(
                 f"不支持历史策略协议 {row.protocol_version}，需要对应版本执行器"
+            )
+        expected_implementation = (
+            BUILTIN_IMPLEMENTATION_VERSION
+            if row.definition_type == "builtin"
+            else CUSTOM_IMPLEMENTATION_VERSION
+        )
+        if row.implementation_version != expected_implementation:
+            raise ValueError(
+                "策略实现版本与当前执行器不兼容，需要对应版本执行器"
             )
         params = _loads_params(row.params_json)
         definition = {

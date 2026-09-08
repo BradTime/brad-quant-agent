@@ -27,6 +27,7 @@ from app.models.training import (
     TrainingDataset,
     TrainingDatasetItem,
 )
+from app.models.universe import UniverseMembershipDaily
 from app.models.user import User
 from app.models.watchlist import WatchlistItem
 
@@ -67,4 +68,5 @@ __all__ = [
     "TrainingCandidate",
     "TrainingDataset",
     "TrainingDatasetItem",
+    "UniverseMembershipDaily",
 ]
