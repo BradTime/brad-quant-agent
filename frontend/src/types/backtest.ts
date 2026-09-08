@@ -3,7 +3,15 @@
  */
 export type BacktestFrequency = '1d' | '5m' | '15m' | '30m' | '60m';
 export type BacktestEngine = 'native' | 'backtrader';
-export type BacktestStrategyType = 'dual_ma' | 'rsi' | 'boll' | 'momentum';
+export type BacktestStrategyType =
+  | 'dual_ma'
+  | 'rsi'
+  | 'boll'
+  | 'momentum'
+  | 'donchian_breakout'
+  | 'xs_momentum'
+  | 'zscore_reversion'
+  | 'composite_mf';
 export type GridSortMetric =
   | 'totalReturnPercent'
   | 'annualReturnPercent'

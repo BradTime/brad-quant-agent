@@ -40,6 +40,10 @@ const BUILTIN_LABELS: Record<StrategyImplementationType, string> = {
   rsi: 'RSI 反转',
   boll: '布林带',
   momentum: '动量',
+  donchian_breakout: '唐奇安突破',
+  xs_momentum: '截面动量',
+  zscore_reversion: 'Z-Score 反转',
+  composite_mf: '价格量能多因子',
   custom_python: '自定义 Python',
 };
 
@@ -47,6 +51,7 @@ const CATEGORY_LABELS: Record<Strategy['category'], string> = {
   trend_following: '趋势跟随',
   mean_reversion: '均值回归',
   momentum: '动量',
+  multi_factor: '多因子',
   custom: '自定义',
 };
 

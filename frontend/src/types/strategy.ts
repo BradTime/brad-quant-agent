@@ -2,13 +2,22 @@
  * 策略管理相关类型定义
  */
 
-export type BuiltinStrategyType = 'dual_ma' | 'rsi' | 'boll' | 'momentum';
+export type BuiltinStrategyType =
+  | 'dual_ma'
+  | 'rsi'
+  | 'boll'
+  | 'momentum'
+  | 'donchian_breakout'
+  | 'xs_momentum'
+  | 'zscore_reversion'
+  | 'composite_mf';
 export type StrategyImplementationType = BuiltinStrategyType | 'custom_python';
 export type StrategyDefinitionType = 'builtin' | 'custom_python';
 export type StrategyCategory =
   | 'trend_following'
   | 'mean_reversion'
   | 'momentum'
+  | 'multi_factor'
   | 'custom';
 export type StrategyStatus = 'draft' | 'active' | 'disabled';
 
@@ -21,6 +30,7 @@ export interface Strategy {
   definitionType: StrategyDefinitionType;
   currentVersion: number;
   protocolVersion: string;
+  implementationVersion: string;
   definitionSha256: string;
   sourceCode?: string;
   status: StrategyStatus;

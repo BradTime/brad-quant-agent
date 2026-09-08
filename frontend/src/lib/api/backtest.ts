@@ -35,11 +35,15 @@ export interface StrategyCatalogItem {
 export interface BacktestRunRequest {
   strategyType: BacktestStrategyType;
   params: Record<string, number>;
+  strategyId?: string;
+  strategyVersion?: number;
   codes: string[];
   start: string;
   end: string;
   initialCapital: number;
   slippage: number;
+  maxParticipation?: number;
+  universeMode?: 'manual' | 'pit_filtered';
   engine: BacktestEngine;
   frequency: BacktestFrequency;
 }
@@ -57,6 +61,10 @@ export interface BacktestMetricsExt extends Partial<BacktestMetrics> {
 export interface BacktestRunResult {
   id: string;
   strategyType: BacktestStrategyType;
+  strategyId?: string | null;
+  strategyVersionId?: string | null;
+  strategyVersion?: number | null;
+  definitionSha256?: string | null;
   status: 'completed' | 'failed';
   engine: string;
   error?: string | null;
