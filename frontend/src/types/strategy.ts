@@ -3,7 +3,13 @@
  */
 
 export type BuiltinStrategyType = 'dual_ma' | 'rsi' | 'boll' | 'momentum';
-export type StrategyCategory = 'trend_following' | 'mean_reversion' | 'momentum';
+export type StrategyImplementationType = BuiltinStrategyType | 'custom_python';
+export type StrategyDefinitionType = 'builtin' | 'custom_python';
+export type StrategyCategory =
+  | 'trend_following'
+  | 'mean_reversion'
+  | 'momentum'
+  | 'custom';
 export type StrategyStatus = 'draft' | 'active' | 'disabled';
 
 export interface Strategy {
@@ -11,7 +17,12 @@ export interface Strategy {
   name: string;
   description: string;
   category: StrategyCategory;
-  builtinType: BuiltinStrategyType;
+  builtinType: StrategyImplementationType;
+  definitionType: StrategyDefinitionType;
+  currentVersion: number;
+  protocolVersion: string;
+  definitionSha256: string;
+  sourceCode?: string;
   status: StrategyStatus;
   createdAt: string;
   updatedAt: string;
@@ -24,7 +35,7 @@ export interface StrategyListParams {
   pageSize?: number;
   status?: StrategyStatus;
   category?: StrategyCategory;
-  builtinType?: BuiltinStrategyType;
+  builtinType?: StrategyImplementationType;
   sortBy?: 'name' | 'createdAt' | 'updatedAt' | 'status';
   sortOrder?: 'asc' | 'desc';
   search?: string;
@@ -39,4 +50,5 @@ export interface StrategyCreateRequest {
 
 export interface StrategyUpdateRequest extends Partial<StrategyCreateRequest> {
   id: string;
+  expectedVersion?: number;
 }

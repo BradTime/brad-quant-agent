@@ -365,6 +365,9 @@ export function BacktestPageInner({ initialCode = '600000.SH' }: { initialCode?:
   const invalidDates = !!error && error.includes('日期');
   const invalidCapital = !!error && error.includes('初始资金');
   const invalidSlippage = !!error && error.includes('滑点');
+  const savedBuiltinStrategies = savedStrategies.filter(
+    (strategy) => strategy.definitionType !== 'custom_python',
+  );
 
   return (
     <div className="container mx-auto max-w-6xl p-6">
@@ -391,7 +394,7 @@ export function BacktestPageInner({ initialCode = '600000.SH' }: { initialCode?:
                 onChange={(e) => {
                   const id = e.target.value;
                   setSavedStrategyId(id);
-                  const saved = savedStrategies.find((item) => item.id === id);
+                  const saved = savedBuiltinStrategies.find((item) => item.id === id);
                   if (saved) {
                     setStrategyType(saved.builtinType as BacktestStrategyType);
                     setParams({ ...saved.params });
@@ -402,7 +405,7 @@ export function BacktestPageInner({ initialCode = '600000.SH' }: { initialCode?:
                 className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
               >
                 <option value="">不使用已保存策略</option>
-                {savedStrategies.map((saved) => (
+                {savedBuiltinStrategies.map((saved) => (
                   <option key={saved.id} value={saved.id}>
                     {saved.name} · {saved.builtinType}
                   </option>

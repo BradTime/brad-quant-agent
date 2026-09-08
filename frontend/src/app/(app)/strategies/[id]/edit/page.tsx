@@ -25,7 +25,11 @@ export default function EditStrategyPage() {
   });
   const update = useMutation({
     mutationFn: (data: StrategyCreateRequest) =>
-      strategiesApi.update({ id, ...data }),
+      strategiesApi.update({
+        id,
+        ...data,
+        expectedVersion: strategy.data?.currentVersion,
+      }),
   });
 
   const save = async (data: StrategyCreateRequest) => {
@@ -47,6 +51,27 @@ export default function EditStrategyPage() {
         <Button asChild variant="outline" className="mt-4">
           <Link href="/strategies">返回策略库</Link>
         </Button>
+      </div>
+    );
+  }
+  if (strategy.data.definitionType === 'custom_python') {
+    return (
+      <div className="container mx-auto max-w-4xl space-y-5 p-6">
+        <Link
+          href={`/strategies/${id}`}
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ChevronLeft className="h-4 w-4" />
+          返回策略详情
+        </Link>
+        <Card>
+          <CardHeader>
+            <CardTitle>自定义策略版本不可原地编辑</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            当前版本由源码指纹锁定。代码编辑器将在策略决策室里以新版本方式提供。
+          </CardContent>
+        </Card>
       </div>
     );
   }
