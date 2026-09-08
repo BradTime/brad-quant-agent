@@ -26,6 +26,7 @@ definition is copied to an append-only `strategy_versions` row:
 - category, built-in implementation type and normalized parameters
 - normalized source for custom strategies
 - `signal-v1` protocol version
+- executor implementation version (`builtin-v1` / `sandbox-signal-v1`)
 - SHA-256 over the complete canonical definition
 - creation timestamp
 
@@ -108,3 +109,37 @@ application secrets.
 
 Each milestone must preserve tenant isolation, append-only evidence, point-in-
 time correctness and reproducibility by strategy/data/code version.
+
+## 6. Milestone 2 progress
+
+The first M2 slice adds four representative daily strategies to the original four:
+Donchian breakout, cross-sectional momentum, z-score reversion, a deliberately
+price/volume-only composite factor. Fundamental and event factors are not
+approximated from price or mutable `(code, trade_date)` rows; they remain
+blocked until append-only as-of panels are available.
+
+Saved built-in strategies may be backtested with `strategyId` and
+`strategyVersion`. The server resolves the immutable row and persists the
+strategy/version IDs, protocol and definition SHA-256 both as indexed run
+columns and in the configuration envelope.
+
+`build-pit-universe` materializes daily full-A membership from historical bars,
+effective-dated status and immutable listing dates. The strict defaults are:
+120 listed sessions, 20 complete amount observations, average amount at least
+RMB 50 million, normal PIT status, a traded bar and complete OHLC. Suspended,
+ST and delisting states fail closed. The current command materializes one
+explicit date per invocation.
+
+Manual runs of at most 20 symbols can opt into
+`universeMode=pit_filtered`. Membership must cover every XSHG session in the
+requested range. Historical full-A execution remains blocked until a
+cancel-aware worker can stream partitioned/columnar bars without per-symbol
+queries or retaining the complete five-year market in memory.
+Rows are immutable within a rules version. Each filtered run stores its exact
+daily membership map and SHA-256, so later rules or data revisions cannot
+silently rewrite the historical universe.
+
+Every engine uses 10bp default slippage and limits a next-open fill to 1% of the
+signal-day volume. Missing signal-day volume rejects the fill; a volume-capped
+partial fill does not silently carry an oversized remainder. Result payloads
+surface execution and universe quality counters.
