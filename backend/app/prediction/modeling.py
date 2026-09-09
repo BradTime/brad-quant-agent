@@ -8,7 +8,7 @@ from typing import Any, Literal
 import numpy as np
 from sklearn.isotonic import IsotonicRegression
 
-from app.prediction.features import PredictionExample
+from app.prediction.features import PredictionExample, PredictionFeature
 
 ModelProvider = Literal["lightgbm", "xgboost"]
 FEATURE_ORDER = (
@@ -23,15 +23,27 @@ FEATURE_ORDER = (
 
 
 @dataclass
+class IsotonicCalibrator:
+    x: list[float]
+    y: list[float]
+
+    def predict(self, values) -> np.ndarray:
+        return np.interp(values, self.x, self.y)
+
+
+@dataclass
 class TrainedPredictionModel:
     provider: ModelProvider
     classifier: Any
-    calibrator: IsotonicRegression
+    calibrator: IsotonicCalibrator
     quantile_models: tuple[Any, Any, Any]
 
-    def predict(self, examples: list[PredictionExample]) -> list[dict[str, float]]:
+    def predict(self, examples: list[PredictionFeature]) -> list[dict[str, float]]:
         matrix = _matrix(examples)
-        raw_probability = self.classifier.predict_proba(matrix)[:, 1]
+        if hasattr(self.classifier, "predict_proba"):
+            raw_probability = self.classifier.predict_proba(matrix)[:, 1]
+        else:
+            raw_probability = self.classifier.predict(matrix)
         probability = self.calibrator.predict(raw_probability)
         quantiles = [
             model.predict(matrix) for model in self.quantile_models
@@ -50,7 +62,7 @@ class TrainedPredictionModel:
         return results
 
 
-def _matrix(examples: list[PredictionExample]) -> np.ndarray:
+def _matrix(examples: list[PredictionFeature]) -> np.ndarray:
     if not examples:
         raise ValueError("模型输入不能为空")
     return np.asarray(
@@ -136,12 +148,16 @@ def train_prediction_model(
         out_of_bounds="clip",
     )
     calibrator.fit(raw_calibration, calibration_labels)
+    portable_calibrator = IsotonicCalibrator(
+        x=[float(value) for value in calibrator.X_thresholds_],
+        y=[float(value) for value in calibrator.y_thresholds_],
+    )
     targets = np.asarray([row.next_return for row in training])
     for model in quantile_models:
         model.fit(_matrix(training), targets)
     return TrainedPredictionModel(
         provider=provider,
         classifier=classifier,
-        calibrator=calibrator,
+        calibrator=portable_calibrator,
         quantile_models=quantile_models,
     )

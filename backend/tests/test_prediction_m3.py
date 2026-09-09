@@ -3,10 +3,19 @@ from datetime import date, timedelta
 import pytest
 
 from app.backtest.data import Bar
-from app.prediction.artifacts import save_model_bundle, verify_model_bundle
+from app.prediction.artifacts import (
+    load_model_bundle,
+    save_model_bundle,
+    verify_model_bundle,
+)
 from app.prediction.evaluation import evaluate_predictions
-from app.prediction.features import PredictionExample, build_daily_examples
+from app.prediction.features import (
+    PredictionExample,
+    build_daily_examples,
+    build_latest_features,
+)
 from app.prediction.modeling import FEATURE_ORDER, _models, train_prediction_model
+from app.prediction.orchestration import evaluate_walk_forward
 from app.prediction.portfolio import StrategyProposal, allocate_portfolio
 from app.prediction.regime import classify_market_regime
 from app.prediction.temporal import purged_walk_forward
@@ -55,6 +64,34 @@ def test_daily_features_never_label_across_missing_market_sessions():
     gap_label = bars[21].date
     examples = build_daily_examples({"600000.SH": bars})
     assert all(row.label_date != gap_label for row in examples)
+
+
+def test_training_selection_never_uses_future_label_date_membership():
+    bars = _bars(60)
+    baseline = build_daily_examples({"600000.SH": bars})
+    target = baseline[0]
+    eligible = {
+        bar.date.isoformat(): ("600000.SH",)
+        for bar in bars
+    }
+    eligible[target.label_date.isoformat()] = ()
+    filtered = build_daily_examples(
+        {"600000.SH": bars},
+        eligible_by_date=eligible,
+    )
+    assert any(row.signal_date == target.signal_date for row in filtered)
+
+
+def test_latest_inference_features_do_not_require_future_label():
+    bars = _bars(30)
+    signal_date = bars[-1].date
+    features = build_latest_features(
+        {"600000.SH": bars},
+        signal_date=signal_date,
+        eligible_codes={"600000.SH"},
+    )
+    assert len(features) == 1
+    assert not hasattr(features[0], "next_return")
 
 
 def test_purged_walk_forward_has_embargo_and_no_date_overlap():
@@ -182,29 +219,32 @@ def test_lightgbm_direction_and_quantile_adapter_is_bounded(
     )
     verified = verify_model_bundle(
         artifact["artifactPath"],
-        expected_sha256=artifact["modelSha256"],
         expected_manifest_sha256=artifact["manifestSha256"],
     )
     assert verified["version"] == "candidate-1"
     assert verified["promotionEligible"] is False
-    manifest_path = artifact["manifestPath"]
+    restored = load_model_bundle(
+        artifact["artifactPath"],
+        expected_manifest_sha256=artifact["manifestSha256"],
+    )
+    assert restored.predict(examples[-1:])[0]["probabilityUp"] >= 0
+    manifest_path = artifact["artifactPath"]
+    original_manifest = open(manifest_path, "rb").read()
     with open(manifest_path, "a", encoding="utf-8") as handle:
         handle.write(" ")
     with pytest.raises(ValueError, match="manifest checksum"):
         verify_model_bundle(
             artifact["artifactPath"],
-            expected_sha256=artifact["modelSha256"],
             expected_manifest_sha256=artifact["manifestSha256"],
         )
-    with open(manifest_path, "rb+") as handle:
-        handle.seek(-1, 2)
-        handle.truncate()
-    with open(artifact["artifactPath"], "ab") as handle:
+    with open(manifest_path, "wb") as handle:
+        handle.write(original_manifest)
+    classifier_path = tmp_path / "candidate-1" / "classifier.txt"
+    with open(classifier_path, "ab") as handle:
         handle.write(b"tampered")
-    with pytest.raises(ValueError, match="checksum"):
+    with pytest.raises(ValueError, match="模型文件 checksum"):
         verify_model_bundle(
             artifact["artifactPath"],
-            expected_sha256=artifact["modelSha256"],
             expected_manifest_sha256=artifact["manifestSha256"],
         )
 
@@ -234,3 +274,34 @@ def test_correlated_strategy_category_shares_one_risk_pool():
         row["grossContribution"] for row in result["strategyAudit"]
     )
     assert contribution <= 0.25
+
+
+def test_walk_forward_report_cannot_promote_without_all_regimes():
+    start = date(2024, 1, 1)
+    examples = [
+        PredictionExample(
+            code=f"CODE-{index % 5}",
+            signal_date=start + timedelta(days=index // 5),
+            label_date=start + timedelta(days=index // 5 + 1),
+            features={
+                field: ((index % 11) - 5) / 10 + position / 100
+                for position, field in enumerate(FEATURE_ORDER)
+            },
+            next_return=0.01 if index % 2 else -0.01,
+            next_up=index % 2,
+        )
+        for index in range(600)
+    ]
+    report = evaluate_walk_forward(
+        examples,
+        regime_by_date={
+            row.signal_date: "bull" for row in examples
+        },
+        minimum_train_dates=50,
+        validation_dates=20,
+        embargo_dates=2,
+        max_folds=3,
+    )
+    assert len(report["folds"]) == 3
+    assert report["regimes"]["bear"]["passed"] is False
+    assert report["promotionEligible"] is False

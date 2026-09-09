@@ -12,7 +12,7 @@ from app.db.session import SessionLocal
 from app.models.admin import AdminPrivilegeAudit
 from app.models.user import User
 
-EXPECTED_ALEMBIC_HEAD = "20260909_0020"
+EXPECTED_ALEMBIC_HEAD = "20260909_0021"
 
 
 class AdminBootstrapError(ValueError):

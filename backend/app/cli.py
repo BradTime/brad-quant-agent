@@ -108,6 +108,35 @@ def main(argv: list[str] | None = None) -> int:
     p_training_export = training_sub.add_parser("export", help="验证并显示数据集位置")
     p_training_export.add_argument("--version", required=True)
 
+    p_prediction = sub.add_parser(
+        "prediction", help="M3 预测模型训练与注册"
+    )
+    prediction_sub = p_prediction.add_subparsers(
+        dest="prediction_cmd", required=True
+    )
+    p_prediction_train = prediction_sub.add_parser(
+        "train", help="运行 Purged OOS 门禁并注册候选"
+    )
+    p_prediction_train.add_argument("--version", required=True)
+    p_prediction_train.add_argument(
+        "--provider",
+        choices=["lightgbm", "xgboost"],
+        default="lightgbm",
+    )
+    p_prediction_train.add_argument("--codes", required=True)
+    p_prediction_train.add_argument("--start", required=True)
+    p_prediction_train.add_argument("--end", required=True)
+    p_prediction_train.add_argument("--user-id", default=None)
+    p_prediction_infer = prediction_sub.add_parser(
+        "infer", help="使用 Champion 生成并落库每日预测"
+    )
+    p_prediction_infer.add_argument("--date", required=True)
+    p_prediction_infer.add_argument("--codes", required=True)
+    p_prediction_recover = prediction_sub.add_parser(
+        "recover", help="恢复或失败关闭中断的模型注册"
+    )
+    p_prediction_recover.add_argument("--version", required=True)
+
     p_admin = sub.add_parser("admin", help="管理员引导与审计")
     admin_sub = p_admin.add_subparsers(dest="admin_cmd", required=True)
     admin_sub.add_parser("list", help="列出当前管理员（邮箱默认脱敏）")
@@ -295,6 +324,58 @@ def main(argv: list[str] | None = None) -> int:
             result = training_dataset.dataset_info(args.version)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result.get("ok", result.get("checksumOk", True)) else 1
+
+    if args.cmd == "prediction":
+        import json
+        from datetime import date
+
+        from app.providers.symbols import normalize_a_share_codes
+        from app.services import prediction_training
+
+        try:
+            if args.prediction_cmd == "train":
+                codes = normalize_a_share_codes(
+                    [
+                        code.strip()
+                        for code in args.codes.split(",")
+                        if code.strip()
+                    ]
+                )
+                result = prediction_training.train_from_database(
+                    version=args.version,
+                    provider=args.provider,
+                    codes=codes,
+                    start=date.fromisoformat(args.start),
+                    end=date.fromisoformat(args.end),
+                    user_id=args.user_id,
+                )
+            elif args.prediction_cmd == "infer":
+                codes = normalize_a_share_codes(
+                    [
+                        code.strip()
+                        for code in args.codes.split(",")
+                        if code.strip()
+                    ]
+                )
+                result = prediction_training.infer_from_database(
+                    signal_date=date.fromisoformat(args.date),
+                    codes=codes,
+                )
+            else:
+                from app.services import prediction_registry
+
+                result = prediction_registry.recover_registration(
+                    args.version
+                )
+        except ValueError as exc:
+            print(f"预测训练拒绝：{exc}")
+            return 1
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        if args.prediction_cmd == "train":
+            return 0 if result["status"] == "validated" else 1
+        if args.prediction_cmd == "recover":
+            return 0 if result["status"] == "validated" else 1
+        return 0
 
     if args.cmd == "admin":
         import json

@@ -14,11 +14,15 @@ MIN_HISTORY = 21
 
 
 @dataclass(frozen=True)
-class PredictionExample:
+class PredictionFeature:
     code: str
     signal_date: date
-    label_date: date
     features: dict[str, float]
+
+
+@dataclass(frozen=True)
+class PredictionExample(PredictionFeature):
+    label_date: date
     next_return: float
     next_up: int
 
@@ -36,6 +40,51 @@ def _zscore_last(values: list[float]) -> float:
     variance = sum((value - mean) ** 2 for value in values) / len(values)
     std = math.sqrt(variance)
     return (values[-1] - mean) / std if std > 0 else 0.0
+
+
+def _features_at(bars: list[Bar], index: int) -> dict[str, float] | None:
+    signal = bars[index]
+    window = bars[index - 20 : index + 1]
+    closes = [bar.close for bar in window]
+    if len(closes) != 21 or any(
+        value <= 0 or not math.isfinite(value) for value in closes
+    ):
+        return None
+    amounts = [
+        float(bar.amount)
+        for bar in window[-20:]
+        if bar.amount is not None
+        and float(bar.amount) > 0
+        and math.isfinite(float(bar.amount))
+    ]
+    volumes = [
+        float(bar.volume)
+        for bar in window[-20:]
+        if bar.volume is not None and bar.volume > 0
+    ]
+    if len(amounts) != 20 or len(volumes) != 20:
+        return None
+    returns = _returns(closes)
+    if len(returns) != 20:
+        return None
+    mean_return = sum(returns) / len(returns)
+    volatility = math.sqrt(
+        sum((value - mean_return) ** 2 for value in returns)
+        / len(returns)
+    )
+    return {
+        "return1": closes[-1] / closes[-2] - 1,
+        "return5": closes[-1] / closes[-6] - 1,
+        "return20": closes[-1] / closes[0] - 1,
+        "volatility20": volatility,
+        "range1": (
+            (signal.high - signal.low) / signal.close
+            if signal.close > 0
+            else 0.0
+        ),
+        "amountZ20": _zscore_last(amounts),
+        "volumeZ20": _zscore_last(volumes),
+    }
 
 
 def build_daily_examples(
@@ -74,37 +123,9 @@ def build_daily_examples(
                 signal_day.isoformat(), ()
             ):
                 continue
-            if eligible_sets is not None and code not in eligible_sets.get(
-                next_day.isoformat(), ()
-            ):
+            features = _features_at(bars, index)
+            if features is None or next_bar.open <= 0:
                 continue
-            window = bars[index - 20 : index + 1]
-            closes = [bar.close for bar in window]
-            if any(value <= 0 or not math.isfinite(value) for value in closes):
-                continue
-            amounts = [
-                float(bar.amount)
-                for bar in window[-20:]
-                if bar.amount is not None
-                and float(bar.amount) > 0
-                and math.isfinite(float(bar.amount))
-            ]
-            volumes = [
-                float(bar.volume)
-                for bar in window[-20:]
-                if bar.volume is not None
-                and bar.volume > 0
-            ]
-            if len(amounts) != 20 or len(volumes) != 20:
-                continue
-            returns = _returns(closes)
-            if len(returns) != 20 or next_bar.open <= 0:
-                continue
-            mean_return = sum(returns) / len(returns)
-            volatility = math.sqrt(
-                sum((value - mean_return) ** 2 for value in returns)
-                / len(returns)
-            )
             next_return = next_bar.close / next_bar.open - 1
             if not math.isfinite(next_return):
                 continue
@@ -113,21 +134,48 @@ def build_daily_examples(
                     code=code,
                     signal_date=signal_day,
                     label_date=next_day,
-                    features={
-                        "return1": closes[-1] / closes[-2] - 1,
-                        "return5": closes[-1] / closes[-6] - 1,
-                        "return20": closes[-1] / closes[0] - 1,
-                        "volatility20": volatility,
-                        "range1": (
-                            (signal.high - signal.low) / signal.close
-                            if signal.close > 0
-                            else 0.0
-                        ),
-                        "amountZ20": _zscore_last(amounts),
-                        "volumeZ20": _zscore_last(volumes),
-                    },
+                    features=features,
                     next_return=next_return,
                     next_up=int(next_return > 0),
                 )
             )
     return sorted(examples, key=lambda row: (row.signal_date, row.code))
+
+
+def build_latest_features(
+    bars_by_code: dict[str, list[Bar]],
+    *,
+    signal_date: date,
+    eligible_codes: set[str],
+) -> list[PredictionFeature]:
+    features: list[PredictionFeature] = []
+    for code in sorted(eligible_codes):
+        bars = sorted(bars_by_code.get(code, []), key=lambda bar: bar.date)
+        indexes = [
+            index
+            for index, bar in enumerate(bars)
+            if (
+                bar.date.date()
+                if hasattr(bar.date, "date")
+                else bar.date
+            )
+            <= signal_date
+        ]
+        if not indexes:
+            continue
+        values = _features_at(bars, indexes[-1])
+        bar_day = (
+            bars[indexes[-1]].date.date()
+            if hasattr(bars[indexes[-1]].date, "date")
+            else bars[indexes[-1]].date
+        )
+        if values is None or bar_day != signal_date:
+            continue
+        features.append(
+            PredictionFeature(
+                code=code,
+                signal_date=signal_date,
+                features=values,
+            )
+        )
+    return features

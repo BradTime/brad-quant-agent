@@ -260,7 +260,20 @@ python -m app.cli build-pit-universe --start 2021-01-01 --end 2026-01-01
 M3 预测基础使用 `daily-pit-v1` 特征与相邻 XSHG 交易日的次日开盘→收盘标签，
 禁止跨停牌/缺失日期拼接标签。LightGBM/XGBoost 候选经 Purged Walk-Forward、
 isotonic 概率校准和 P10/P50/P90 分位数评测。候选 artifact 与 manifest 分别校验
-SHA-256；当前尚未接入可信模型注册，故始终标记 `promotionEligible=false`。
+SHA-256；模型版本先在数据库占位，原生文件只有绑定独立可信 manifest checksum 后
+才能加载。Champion 晋级需要四类市场状态和全部 OOS 折通过，并写入管理员不可变审计。
+
+```bash
+python -m app.cli prediction train --version 2026-W37 --provider lightgbm \
+  --codes 600000.SH,000001.SZ --start 2023-01-01 --end 2026-09-09
+python -m app.cli prediction infer --date 2026-09-09 \
+  --codes 600000.SH,000001.SZ
+python -m app.cli prediction recover --version 2026-W37
+```
+
+`GET /predictions?code=600000.SH&asOf=2026-09-09` 按当时已发生的 Champion 晋级和
+预测推理时间返回 PIT 结果；管理员可用 `POST /predictions/models/{id}/promote`
+晋级已验证候选。
 
 `POST /portfolio/regime` 只提供明确标注的非权威规则预览。内部组合器已实现 20 万
 权益、2 倍总敞口、单票 20%、行业 30%、相关策略池 25%、预计日损失 2% 和

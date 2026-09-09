@@ -16,6 +16,7 @@ from sqlalchemy import (
     UniqueConstraint,
     false,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -25,6 +26,15 @@ from app.db.types import PortableJSON
 
 class PredictionModelRun(Base):
     __tablename__ = "prediction_model_runs"
+    __table_args__ = (
+        Index(
+            "uq_prediction_model_single_champion",
+            "is_champion",
+            unique=True,
+            postgresql_where=text("is_champion = true"),
+            sqlite_where=text("is_champion = 1"),
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     user_id: Mapped[str | None] = mapped_column(
@@ -82,4 +92,30 @@ class PredictionForecast(Base):
     )
 
 
-__all__ = ["PredictionForecast", "PredictionModelRun"]
+class PredictionPromotionAudit(Base):
+    __tablename__ = "prediction_promotion_audits"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    model_run_id: Mapped[str] = mapped_column(
+        ForeignKey("prediction_model_runs.id", ondelete="RESTRICT")
+    )
+    previous_model_run_id: Mapped[str | None] = mapped_column(
+        ForeignKey("prediction_model_runs.id", ondelete="SET NULL")
+    )
+    promoted_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    promoted_by_user_id_snapshot: Mapped[str] = mapped_column(
+        String(36), nullable=False
+    )
+    artifact_sha256: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+__all__ = [
+    "PredictionForecast",
+    "PredictionModelRun",
+    "PredictionPromotionAudit",
+]

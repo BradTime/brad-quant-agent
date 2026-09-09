@@ -22,7 +22,11 @@ from app.models.market import (
     InstrumentStatusHistory,
     MinuteBar,
 )
-from app.models.prediction import PredictionForecast, PredictionModelRun
+from app.models.prediction import (
+    PredictionForecast,
+    PredictionModelRun,
+    PredictionPromotionAudit,
+)
 from app.models.research import ResearchReport
 from app.models.strategy import Strategy, StrategyVersion
 from app.models.trading import SimAccount, SimOrder, SimPosition, SimTrade
@@ -64,6 +68,7 @@ __all__ = [
     "ResearchReport",
     "PredictionModelRun",
     "PredictionForecast",
+    "PredictionPromotionAudit",
     "BacktestRun",
     "BacktestJob",
     "Strategy",

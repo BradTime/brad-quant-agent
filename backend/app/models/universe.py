@@ -49,6 +49,8 @@ class UniverseSnapshotDaily(Base):
     rules_version: Mapped[str] = mapped_column(String(16), primary_key=True)
     member_count: Mapped[int] = mapped_column(Integer, nullable=False)
     eligible_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    advancing_count: Mapped[int | None] = mapped_column(Integer)
+    declining_count: Mapped[int | None] = mapped_column(Integer)
     filters_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     membership_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     computed_at: Mapped[datetime] = mapped_column(

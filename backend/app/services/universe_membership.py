@@ -19,7 +19,7 @@ from app.db.session import SessionLocal
 from app.models.market import DailyBar, Instrument, InstrumentStatusHistory
 from app.models.universe import UniverseMembershipDaily, UniverseSnapshotDaily
 
-RULES_VERSION = "pit-universe-v2"
+RULES_VERSION = "pit-universe-v3"
 DEFAULT_FILTERS = PITUniverseFilters()
 FILTERS_SHA256 = hashlib.sha256(
     json.dumps(
@@ -87,6 +87,8 @@ def build_for_date(
                 "total": existing.member_count,
                 "eligible": existing.eligible_count,
                 "excluded": existing.member_count - existing.eligible_count,
+                "advancing": existing.advancing_count,
+                "declining": existing.declining_count,
                 "reasons": {},
                 "membershipSha256": existing.membership_sha256,
                 "reused": True,
@@ -131,6 +133,8 @@ def build_for_date(
         status_by_code = {row.code: row.status_type for row in statuses}
         reason_counts: dict[str, int] = defaultdict(int)
         eligible_count = 0
+        advancing_count = 0
+        declining_count = 0
         digest = hashlib.sha256()
         for instrument in instruments:
             source_rows = rows_by_code.get(instrument.code, [])
@@ -162,6 +166,14 @@ def build_for_date(
                 filters=filters,
             )
             eligible_count += int(eligibility.eligible)
+            if eligibility.eligible and len(source_rows) >= 2:
+                previous_close = source_rows[-2].close
+                current_close = source_rows[-1].close
+                if previous_close is not None and current_close is not None:
+                    if current_close > previous_close:
+                        advancing_count += 1
+                    elif current_close < previous_close:
+                        declining_count += 1
             for reason in eligibility.reasons:
                 reason_counts[reason] += 1
             update_membership_digest(
@@ -189,6 +201,8 @@ def build_for_date(
                 rules_version=RULES_VERSION,
                 member_count=len(instruments),
                 eligible_count=eligible_count,
+                advancing_count=advancing_count,
+                declining_count=declining_count,
                 filters_sha256=FILTERS_SHA256,
                 membership_sha256=digest.hexdigest(),
             )
@@ -199,6 +213,8 @@ def build_for_date(
         "total": len(instruments),
         "eligible": eligible_count,
         "excluded": len(instruments) - eligible_count,
+        "advancing": advancing_count,
+        "declining": declining_count,
         "reasons": dict(sorted(reason_counts.items())),
         "membershipSha256": digest.hexdigest(),
         "reused": False,
@@ -331,6 +347,8 @@ def build_range(
             }
             member_counts = {trade_date: 0 for trade_date in date_chunk}
             eligible_counts = {trade_date: 0 for trade_date in date_chunk}
+            advancing_counts = {trade_date: 0 for trade_date in date_chunk}
+            declining_counts = {trade_date: 0 for trade_date in date_chunk}
             for trade_date in date_chunk:
                 market_index = bisect.bisect_right(
                     all_market_dates, trade_date
@@ -403,6 +421,17 @@ def build_range(
                     eligible_counts[trade_date] += int(
                         eligibility.eligible
                     )
+                    if eligibility.eligible and len(source_rows) >= 2:
+                        previous_close = source_rows[-2].close
+                        current_close = source_rows[-1].close
+                        if (
+                            previous_close is not None
+                            and current_close is not None
+                        ):
+                            if current_close > previous_close:
+                                advancing_counts[trade_date] += 1
+                            elif current_close < previous_close:
+                                declining_counts[trade_date] += 1
                     update_membership_digest(
                         digests[trade_date],
                         code=instrument.code,
@@ -432,6 +461,8 @@ def build_range(
                         rules_version=RULES_VERSION,
                         member_count=member_counts[trade_date],
                         eligible_count=eligible_counts[trade_date],
+                        advancing_count=advancing_counts[trade_date],
+                        declining_count=declining_counts[trade_date],
                         filters_sha256=FILTERS_SHA256,
                         membership_sha256=digests[
                             trade_date
