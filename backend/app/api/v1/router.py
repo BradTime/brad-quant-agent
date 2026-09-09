@@ -13,6 +13,7 @@ from app.api.v1 import (
     brief,
     dashboard,
     market,
+    portfolio,
     sim,
     strategies,
     training,
@@ -41,6 +42,7 @@ def api_root() -> dict:
                 "backtest",
                 "sim",
                 "training",
+                "portfolio",
             ],
         },
         message="API v1 root",
@@ -57,3 +59,4 @@ api_router.include_router(strategies.router, prefix="/strategies", tags=["strate
 api_router.include_router(backtest.router, prefix="/backtest", tags=["backtest"])
 api_router.include_router(sim.router, prefix="/sim", tags=["sim"])
 api_router.include_router(training.router, prefix="/training", tags=["training"])
+api_router.include_router(portfolio.router, prefix="/portfolio", tags=["portfolio"])

@@ -257,6 +257,16 @@ python -m app.cli build-pit-universe --start 2021-01-01 --end 2026-01-01
 每日股票池完整性清单、过滤器、排除原因、调整后日线和最终运行均有 SHA-256 证据。
 任一合格标的缺后复权因子、任一交易日缺沪深 300 基准都会拒绝整个全 A 回测。
 
+M3 预测基础使用 `daily-pit-v1` 特征与相邻 XSHG 交易日的次日开盘→收盘标签，
+禁止跨停牌/缺失日期拼接标签。LightGBM/XGBoost 候选经 Purged Walk-Forward、
+isotonic 概率校准和 P10/P50/P90 分位数评测。候选 artifact 与 manifest 分别校验
+SHA-256；当前尚未接入可信模型注册，故始终标记 `promotionEligible=false`。
+
+`POST /portfolio/regime` 只提供明确标注的非权威规则预览。内部组合器已实现 20 万
+权益、2 倍总敞口、单票 20%、行业 30%、相关策略池 25%、预计日损失 2% 和
+15/18/20% 回撤规则，但在账户、行业和预测改为服务端可信输入前不开放 allocation API。
+详见 `docs/prediction-portfolio-design.md`。
+
 ## WebSocket 行情推送（`/ws/v1`）
 
 调度器把数据源刷新进内存缓存；一个异步推送循环每 `WS_PUSH_SECONDS`（默认 3s）把订阅主题的最新缓存推给客户端（只读缓存、不发起网络请求，故不阻塞）。

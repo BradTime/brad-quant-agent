@@ -220,6 +220,10 @@ class Settings(BaseSettings):
     strategy_sandbox_max_concurrency: int = 2
     full_a_backtest_chunk_sessions: int = 20
     backtest_job_lease_seconds: int = 300
+    prediction_artifact_dir: str = "./var/prediction"
+    prediction_rolling_years: int = 3
+    prediction_cv_folds: int = 5
+    prediction_embargo_sessions: int = 5
 
     # 可观测（Sentry）：仅当 sentry_dsn 非空时启用；默认关、零开销、不外联
     sentry_dsn: str = ""
@@ -290,6 +294,12 @@ class Settings(BaseSettings):
             raise ValueError("FULL_A_BACKTEST_CHUNK_SESSIONS 必须在 1 到 60")
         if self.backtest_job_lease_seconds < 60:
             raise ValueError("BACKTEST_JOB_LEASE_SECONDS 必须至少为 60")
+        if not 3 <= self.prediction_rolling_years <= 5:
+            raise ValueError("PREDICTION_ROLLING_YEARS 必须在 3 到 5")
+        if not 2 <= self.prediction_cv_folds <= 10:
+            raise ValueError("PREDICTION_CV_FOLDS 必须在 2 到 10")
+        if not 1 <= self.prediction_embargo_sessions <= 20:
+            raise ValueError("PREDICTION_EMBARGO_SESSIONS 必须在 1 到 20")
         if self.jwt_algorithm != "HS256":
             raise ValueError("JWT_ALGORITHM 仅允许 HS256")
         if self.is_production:

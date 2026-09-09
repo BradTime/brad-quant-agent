@@ -56,7 +56,8 @@ UNIVERSE_MEMBERSHIP_REVISION = "20260908_0016"
 FULL_A_JOB_GUARDS_REVISION = "20260908_0017"
 UNIVERSE_SNAPSHOT_REVISION = "20260908_0018"
 CAPITAL_FLOW_VINTAGE_REVISION = "20260909_0019"
-HEAD_REVISION = CAPITAL_FLOW_VINTAGE_REVISION
+PREDICTION_PORTFOLIO_REVISION = "20260909_0020"
+HEAD_REVISION = PREDICTION_PORTFOLIO_REVISION
 HNSW_INDEX = "ix_documents_embedding_hnsw"
 LEGACY_TABLES = frozenset(
     {
@@ -103,6 +104,8 @@ POST_BASELINE_TABLES = frozenset(
         "universe_membership_daily",
         "universe_snapshot_daily",
         "capital_flow_vintages",
+        "prediction_model_runs",
+        "prediction_forecasts",
     }
 )
 
@@ -457,6 +460,11 @@ def test_standard_alembic_layout_is_present() -> None:
         ALEMBIC_DIR
         / "versions"
         / f"{CAPITAL_FLOW_VINTAGE_REVISION}_capital_flow_vintages.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{PREDICTION_PORTFOLIO_REVISION}_prediction_portfolio.py"
     ).is_file()
 
 
