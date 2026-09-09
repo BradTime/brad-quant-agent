@@ -11,7 +11,9 @@ export type BacktestStrategyType =
   | 'donchian_breakout'
   | 'xs_momentum'
   | 'zscore_reversion'
-  | 'composite_mf';
+  | 'composite_mf'
+  | 'flow_surge'
+  | 'fundamental_quality';
 export type GridSortMetric =
   | 'totalReturnPercent'
   | 'annualReturnPercent'

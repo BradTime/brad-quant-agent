@@ -10,7 +10,9 @@ export type BuiltinStrategyType =
   | 'donchian_breakout'
   | 'xs_momentum'
   | 'zscore_reversion'
-  | 'composite_mf';
+  | 'composite_mf'
+  | 'flow_surge'
+  | 'fundamental_quality';
 export type StrategyImplementationType = BuiltinStrategyType | 'custom_python';
 export type StrategyDefinitionType = 'builtin' | 'custom_python';
 export type StrategyCategory =
@@ -18,6 +20,7 @@ export type StrategyCategory =
   | 'mean_reversion'
   | 'momentum'
   | 'multi_factor'
+  | 'event'
   | 'custom';
 export type StrategyStatus = 'draft' | 'active' | 'disabled';
 

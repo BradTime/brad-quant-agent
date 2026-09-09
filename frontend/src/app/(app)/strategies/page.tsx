@@ -44,6 +44,8 @@ const BUILTIN_LABELS: Record<StrategyImplementationType, string> = {
   xs_momentum: '截面动量',
   zscore_reversion: 'Z-Score 反转',
   composite_mf: '价格量能多因子',
+  flow_surge: '资金流连续增强',
+  fundamental_quality: 'PIT 价值质量',
   custom_python: '自定义 Python',
 };
 
@@ -52,6 +54,7 @@ const CATEGORY_LABELS: Record<Strategy['category'], string> = {
   mean_reversion: '均值回归',
   momentum: '动量',
   multi_factor: '多因子',
+  event: '事件驱动',
   custom: '自定义',
 };
 
