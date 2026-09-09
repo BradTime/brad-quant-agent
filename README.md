@@ -183,8 +183,9 @@ python -c "from app.services import brief; print(brief.generate(None)['title'])"
   历史全 A 截面回测已支持完整性清单、分块加载、运行中取消、worker 租约回收和
   输入 Hash 审计；资金流和财务策略仅使用当时已可见的追加式 Vintage。
 - M3 进行中：已完成相邻交易日标签、Purged Walk-Forward、LightGBM/XGBoost
-  概率/分位数适配、校准指标、规则市场状态和内部确定性风险预算；在可信模型注册和
-  服务端权威账户/行业/预测编排完成前，不开放 allocation 或自动执行审批。
+  概率/分位数适配、校准指标、规则市场状态、可信模型注册/唯一 Champion/每日预测和
+  内部确定性风险预算；在服务端权威账户、PIT 行业和 Champion 预测编排完成前，
+  不开放 allocation 或自动执行审批。
 
 ## 测试与 CI
 - **后端单测**：`cd backend && python -m pytest -q`

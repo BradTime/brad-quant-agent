@@ -1,7 +1,7 @@
 # M3 Prediction and Portfolio Design
 
-Status: trust foundation implemented; production model registry and
-authoritative allocation remain pending.
+Status: trusted model registry and operator training/inference implemented;
+authoritative allocation and weekly scheduling remain pending.
 
 ## Prediction contract
 
@@ -11,9 +11,10 @@ or suspended sessions are never bridged to a later bar. Every example stores
 both `signal_date` and `label_date`.
 
 Feature schema `daily-pit-v1` contains only current/prior HFQ price, range,
-volatility, amount and volume transformations. Universe filtering must pass on
-both signal and label dates. Financial, capital-flow and event features will
-reuse M2 `available_at` readers rather than current snapshots.
+volatility, amount and volume transformations. Universe filtering uses only the
+signal date; consulting label-date membership would leak future suspension/ST/
+delisting state. The next bar must nevertheless be the immediately adjacent
+XSHG session or the example is dropped.
 
 Purged expanding-window folds use trading dates only. Training labels must end
 before the embargo boundary; validation remains contiguous and ordered.
@@ -29,14 +30,16 @@ M3 supports LightGBM and XGBoost adapters:
 
 Out-of-sample promotion gates are balanced accuracy at least 53%, expected
 calibration error at most 10%, and 80% interval coverage between 75% and 85%.
-Evaluation requires at least 100 samples. The current foundation does not yet
-assemble fold/regime promotion evidence, so every saved artifact explicitly
-sets `promotionEligible=false`.
+Evaluation requires at least 100 samples. Promotion requires at least three
+Purged OOS folds and at least 100 OOS samples in each of bull, bear, range and
+risk-off, with every fold/regime report passing.
 
 Artifacts are internal candidate files under `PREDICTION_ARTIFACT_DIR`.
-Model and manifest have separate SHA-256 values. Verification reads manifest
-bytes once before hashing/parsing. No model deserialization API exists until an
-independently trusted database registry supplies path and checksums.
+LightGBM/XGBoost native model files, calibrator JSON and manifest have separate
+SHA-256 values. The database reserves a model version before evaluation and is
+the independent source of the manifest checksum. Verified file bytes are
+copied to a private temporary directory before native parsing; pickle/joblib is
+never loaded.
 
 ## Regime and portfolio boundary
 
@@ -59,10 +62,7 @@ order.
 
 ## Remaining M3 work
 
-1. Build a 3–5 year PIT dataset orchestrator over immutable universe snapshots.
-2. Persist model-run lifecycle and OOS fold/regime evidence.
-3. Register checksummed candidates without unsafe pickle loading.
-4. Materialize daily forecasts from a trusted champion.
-5. Build server-owned account/industry/forecast allocation orchestration.
-6. Persist append-only regime/allocation/risk decisions.
-7. Add weekly, lease-protected retraining and inference jobs.
+1. Build server-owned account/industry/forecast allocation orchestration.
+2. Persist append-only authoritative regime/allocation/risk decisions.
+3. Add weekly, lease-protected retraining and inference jobs.
+4. Add an admin model-run/OOS/calibration dashboard.
