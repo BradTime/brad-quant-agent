@@ -83,4 +83,3 @@ class PredictionForecast(Base):
 
 
 __all__ = ["PredictionForecast", "PredictionModelRun"]
-
