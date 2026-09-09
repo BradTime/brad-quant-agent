@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.deps import get_current_user
 from app.core.asof import parse_as_of
@@ -77,8 +77,16 @@ def stock_profile(code: str) -> dict:
 
 
 @router.get("/capital-flow")
-def capital_flow(code: str, limit: int = 30) -> dict:
-    return success(market.get_capital_flow(code, limit))
+def capital_flow(
+    code: str,
+    limit: int = Query(default=30, ge=1, le=120),
+    asOf: str | None = None,
+) -> dict:
+    return success(
+        market.get_capital_flow(
+            code, limit, _parse_financial_as_of(asOf)
+        )
+    )
 
 
 @router.get("/financials")

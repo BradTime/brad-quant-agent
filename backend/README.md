@@ -238,8 +238,10 @@ function-calling 协议使用非思考模式，因此请求会显式发送
 只读 rootfs、无 secret mount、drop capabilities 与 seccomp/AppArmor 的专用容器或 microVM。
 
 M2 日线策略目录现含双均线、RSI、布林带、动量、唐奇安突破、截面动量、Z-Score
-反转和价格量能多因子。保存策略回测可在 `POST /backtest/run`
+反转、价格量能多因子、资金流连续增强和 PIT 价值质量。保存策略回测可在 `POST /backtest/run`
 携带 `strategyId`/`strategyVersion`；服务端会固定不可变版本和 Hash。
+资金流写入 first-observed `capital_flow_vintages`，重复观测只更新 `last_seen_at`；
+财务复用 `available_at` Vintage。两类策略缺少逐日可见数据时直接拒绝回测。
 
 ```bash
 # 单日或分块历史物化严格 PIT 全 A 股票池

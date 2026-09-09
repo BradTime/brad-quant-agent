@@ -55,7 +55,8 @@ BACKTEST_STRATEGY_REVISION = "20260908_0015"
 UNIVERSE_MEMBERSHIP_REVISION = "20260908_0016"
 FULL_A_JOB_GUARDS_REVISION = "20260908_0017"
 UNIVERSE_SNAPSHOT_REVISION = "20260908_0018"
-HEAD_REVISION = UNIVERSE_SNAPSHOT_REVISION
+CAPITAL_FLOW_VINTAGE_REVISION = "20260909_0019"
+HEAD_REVISION = CAPITAL_FLOW_VINTAGE_REVISION
 HNSW_INDEX = "ix_documents_embedding_hnsw"
 LEGACY_TABLES = frozenset(
     {
@@ -101,6 +102,7 @@ POST_BASELINE_TABLES = frozenset(
         "strategy_versions",
         "universe_membership_daily",
         "universe_snapshot_daily",
+        "capital_flow_vintages",
     }
 )
 
@@ -451,6 +453,11 @@ def test_standard_alembic_layout_is_present() -> None:
         / "versions"
         / f"{UNIVERSE_SNAPSHOT_REVISION}_universe_snapshots.py"
     ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{CAPITAL_FLOW_VINTAGE_REVISION}_capital_flow_vintages.py"
+    ).is_file()
 
 
 def test_legacy_table_contract_matches_pre_branch_metadata() -> None:
@@ -569,6 +576,43 @@ def test_strategy_version_migration_backfills_existing_definitions(
             None,
         )[4]
         assert head.definition_sha256 == expected
+    finally:
+        engine.dispose()
+
+
+def test_capital_flow_vintage_migration_preserves_first_observed_row(
+    temporary_database: Callable[[], URL],
+) -> None:
+    database_url = temporary_database()
+    _run_alembic(database_url, "upgrade", UNIVERSE_SNAPSHOT_REVISION)
+    engine = create_engine(database_url, pool_pre_ping=True)
+    observed_at = datetime(2026, 9, 1, 8, tzinfo=UTC)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO capital_flows "
+                    "(code, trade_date, main_net, main_net_ratio, source, fetched_at) "
+                    "VALUES ('600000.SH', '2026-08-31', 100000000, 5, "
+                    "'legacy', :observed_at)"
+                ),
+                {"observed_at": observed_at},
+            )
+    finally:
+        engine.dispose()
+
+    _run_alembic(database_url, "upgrade", "head")
+    engine = create_engine(database_url, pool_pre_ping=True)
+    try:
+        with engine.connect() as connection:
+            row = connection.execute(
+                text(
+                    "SELECT available_at, fetched_at, vintage "
+                    "FROM capital_flow_vintages WHERE code='600000.SH'"
+                )
+            ).one()
+        assert row.available_at == row.fetched_at
+        assert len(row.vintage) == 64
     finally:
         engine.dispose()
 

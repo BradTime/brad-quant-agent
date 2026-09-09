@@ -38,6 +38,10 @@ class BacktestConfig:
         default_factory=dict,
         repr=False,
     )
+    auxiliary_panels: dict[str, dict[str, list[dict]]] = field(
+        default_factory=dict,
+        repr=False,
+    )
 
 
 @dataclass

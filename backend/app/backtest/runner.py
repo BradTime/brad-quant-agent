@@ -11,9 +11,11 @@ from dataclasses import replace
 from datetime import date, timedelta
 
 from app.backtest.base import BacktestConfig
+from app.backtest.context import make_panel_history_reader
 from app.backtest.data import (
     Bar,
     load_bars_with_quality,
+    load_pit_auxiliary_panels,
 )
 from app.backtest.metrics import compute_metrics
 from app.backtest.registry import get_engine
@@ -258,6 +260,83 @@ def _align_sparse_bars(
     return aligned, (min(starts), max(ends))
 
 
+def validate_pit_auxiliary_panels(
+    config: BacktestConfig,
+    panels: dict[str, dict[str, list[dict]]],
+) -> None:
+    from app.backtest.universe import expected_session_dates
+
+    sessions = [
+        date.fromisoformat(value)
+        for value in expected_session_dates(
+            date.fromisoformat(config.start[:10]),
+            date.fromisoformat(config.end[:10]),
+        )
+    ]
+    if not sessions:
+        raise ValueError("请求区间没有 XSHG 交易日")
+    panel_history = make_panel_history_reader(panels)
+    if config.strategy_type == "flow_surge":
+        window = int(config.params.get("window", 3))
+        calendar_dates = list(
+            expected_session_dates(
+                sessions[0] - timedelta(days=window * 4),
+                sessions[-1],
+            )
+        )
+        session_set = set(sessions)
+        expected_by_day = {
+            day: calendar_dates[
+                max(0, index - window + 1) : index + 1
+            ]
+            for index, value in enumerate(calendar_dates)
+            if (day := date.fromisoformat(value)) in session_set
+        }
+        for day in sessions:
+            active_codes = (
+                config.eligible_by_date.get(day.isoformat(), ())
+                if config.universe_mode == "pit_filtered"
+                else config.codes
+            )
+            for code in active_codes:
+                rows = panel_history(code, "capital_flow", window, day)
+                row_dates = [row.get("date") for row in rows]
+                expected = expected_by_day[day]
+                if (
+                    row_dates != expected
+                    or any(
+                        not isinstance(row.get("mainNetRatio"), (int, float))
+                        for row in rows
+                    )
+                ):
+                    raise ValueError(
+                        f"{code} 在 {day} 缺少连续且可用的 PIT 资金流窗口"
+                    )
+    elif config.strategy_type == "fundamental_quality":
+        for day in sessions:
+            active_codes = (
+                config.eligible_by_date.get(day.isoformat(), ())
+                if config.universe_mode == "pit_filtered"
+                else config.codes
+            )
+            if len(active_codes) < 3:
+                raise ValueError(
+                    f"{day} 的动态股票池少于 3 个标的"
+                )
+            usable = 0
+            for code in active_codes:
+                rows = panel_history(code, "financials", 1, day)
+                if rows and all(
+                    isinstance(rows[-1].get(field), (int, float))
+                    for field in ("bps", "roe")
+                ):
+                    usable += 1
+            if usable < 3:
+                raise ValueError(
+                    f"{day} 只有 {usable} 个标的具备可用 PIT 财务数据"
+                )
+
+
 def run_backtest(config: BacktestConfig) -> dict:
     if config.universe_mode == "pit_filtered" and not config.eligible_by_date:
         from app.services import universe_membership
@@ -276,6 +355,25 @@ def run_backtest(config: BacktestConfig) -> dict:
                 "error": "请求区间尚未物化 PIT 股票池，请先运行 build-pit-universe",
             }
         config = replace(config, eligible_by_date=eligible_by_date)
+    if config.strategy_type in {"flow_surge", "fundamental_quality"}:
+        panels = load_pit_auxiliary_panels(
+            config.codes,
+            config.start,
+            config.end,
+            capital_flow=config.strategy_type == "flow_surge",
+            financials=config.strategy_type == "fundamental_quality",
+        )
+        try:
+            validate_pit_auxiliary_panels(config, panels)
+        except ValueError as exc:
+            return {
+                "metrics": {},
+                "equityCurve": [],
+                "trades": [],
+                "dataQuality": {"pitPanel": "incomplete"},
+                "error": str(exc),
+            }
+        config = replace(config, auxiliary_panels=panels)
     bars_by_code, data_quality = load_bars(config)
     if config.universe_mode == "pit_filtered":
         from app.backtest.universe import expected_session_dates

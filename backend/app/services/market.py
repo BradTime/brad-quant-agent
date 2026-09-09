@@ -22,7 +22,12 @@ from app.core.config import settings
 from app.core.ohlc import InvalidOHLCError, validate_ohlc, validate_previous_close
 from app.core.tz import MARKET_TZ
 from app.db.session import SessionLocal
-from app.models.extra import CapitalFlow, DragonTiger, FinancialSummary, NewsItem
+from app.models.extra import (
+    CapitalFlowVintage,
+    DragonTiger,
+    FinancialSummary,
+    NewsItem,
+)
 from app.models.market import DailyBar, Instrument, MinuteBar
 from app.providers import symbols
 from app.providers.base import QuoteDTO
@@ -699,16 +704,54 @@ def _canonical(code: str) -> str:
     return code if "." in code else symbols.to_canonical(symbols.to_six(code))
 
 
-def get_capital_flow(code: str, limit: int = 30) -> dict:
+def get_capital_flow(
+    code: str,
+    limit: int = 30,
+    as_of: datetime | None = None,
+) -> dict:
+    if not 1 <= limit <= 120:
+        raise ValueError("limit 必须在 1 到 120")
     canonical = _canonical(code)
     with SessionLocal() as session:
-        stmt = (
-            select(CapitalFlow)
-            .where(CapitalFlow.code == canonical)
-            .order_by(CapitalFlow.trade_date.desc())
+        conditions = [CapitalFlowVintage.code == canonical]
+        if as_of is not None:
+            conditions.append(
+                CapitalFlowVintage.available_at <= _as_utc(as_of)
+            )
+        ranked = (
+            select(
+                CapitalFlowVintage.id.label("id"),
+                CapitalFlowVintage.trade_date.label("trade_date"),
+                func.row_number()
+                .over(
+                    partition_by=CapitalFlowVintage.trade_date,
+                    order_by=(
+                        CapitalFlowVintage.available_at.desc(),
+                        CapitalFlowVintage.id.desc(),
+                    ),
+                )
+                .label("rank"),
+            )
+            .where(*conditions)
+            .subquery()
+        )
+        selected_ids = (
+            select(ranked.c.id)
+            .where(ranked.c.rank == 1)
+            .order_by(ranked.c.trade_date.desc())
             .limit(limit)
         )
-        orm_rows = list(session.execute(stmt).scalars().all())
+        orm_rows = list(
+            session.execute(
+                select(CapitalFlowVintage)
+                .where(
+                    CapitalFlowVintage.id.in_(
+                        selected_ids.scalar_subquery()
+                    )
+                )
+                .order_by(CapitalFlowVintage.trade_date.desc())
+            ).scalars()
+        )
         items = [
             {
                 "date": r.trade_date.isoformat(),
@@ -725,7 +768,15 @@ def get_capital_flow(code: str, limit: int = 30) -> dict:
         return {
             "items": items,
             "meta": _panel_meta(
-                as_of=_max_fetched_at(orm_rows),
+                as_of=max(
+                    (
+                        row.available_at
+                        if as_of is not None
+                        else row.last_seen_at
+                        for row in orm_rows
+                    ),
+                    default=None,
+                ),
                 source=source,
                 row_count=len(items),
             ),

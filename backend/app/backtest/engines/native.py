@@ -14,7 +14,7 @@ from datetime import date
 
 from app.backtest.base import BacktestConfig, BacktestEngine, EngineResult, Strategy
 from app.backtest.broker import Broker
-from app.backtest.context import Context
+from app.backtest.context import Context, make_panel_history_reader
 from app.backtest.data import Bar
 
 
@@ -63,10 +63,12 @@ class NativeEngine(BacktestEngine):
                 if (value := getattr(b, field)) is not None
             ]
 
+        panel_history = make_panel_history_reader(config.auxiliary_panels)
         ctx = Context(
             broker,
             config.params,
             history_fn,
+            panel_history_fn=panel_history,
             universe=config.codes,
         )
         strategy.initialize(ctx)

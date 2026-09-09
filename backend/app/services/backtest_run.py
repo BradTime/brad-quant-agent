@@ -124,6 +124,27 @@ _STRATEGY_CATALOG = [
             _TARGET_PARAM,
         ],
     },
+    {
+        "type": "flow_surge",
+        "name": "资金流连续增强",
+        "description": "仅使用当日已可见的追加式资金流版本，缺日或陈旧即退出",
+        "params": [
+            {"key": "window", "label": "连续天数", "type": "int", "default": 3, "min": 1, "max": 10},
+            {"key": "minRatio", "label": "最低主力净占比", "type": "float", "default": 5.0, "min": 0.0, "max": 50.0},
+            _TARGET_PARAM,
+        ],
+    },
+    {
+        "type": "fundamental_quality",
+        "name": "PIT 价值质量",
+        "description": "按当时已披露的 BPS/价格与 ROE 截面排名",
+        "params": [
+            {"key": "topN", "label": "持仓数量", "type": "int", "default": 5, "min": 1, "max": 20},
+            {"key": "wValue", "label": "价值权重", "type": "float", "default": 0.5, "min": 0.0, "max": 1.0},
+            {"key": "wQuality", "label": "质量权重", "type": "float", "default": 0.5, "min": 0.0, "max": 1.0},
+            _TARGET_PARAM,
+        ],
+    },
 ]
 
 

@@ -12,14 +12,16 @@ import bisect
 import json
 import math
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import distinct, func, inspect, or_, select
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
 from app.core.ohlc import InvalidOHLCError, validate_ohlc, validate_previous_close
+from app.core.tz import MARKET_TZ
 from app.db.session import SessionLocal
+from app.models.extra import CapitalFlowVintage, FinancialSummary
 from app.models.ingestion import IngestionRun
 from app.models.market import (
     AdjustFactor,
@@ -55,6 +57,99 @@ def trading_calendar(start: str, end: str) -> list[date]:
             .order_by(DailyBar.trade_date)
         )
         return [d for (d,) in session.execute(stmt).all()]
+
+
+def load_pit_auxiliary_panels(
+    codes: list[str],
+    start: str,
+    end: str,
+    *,
+    capital_flow: bool = False,
+    financials: bool = False,
+) -> dict[str, dict[str, list[dict]]]:
+    start_date = date.fromisoformat(start[:10])
+    end_date = date.fromisoformat(end[:10])
+    cutoff = datetime.combine(
+        end_date, time.max, tzinfo=MARKET_TZ
+    ).astimezone(UTC)
+    panels: dict[str, dict[str, list[dict]]] = {}
+    with SessionLocal() as session:
+        if capital_flow:
+            flow_start = start_date - timedelta(days=60)
+            rows = session.execute(
+                select(CapitalFlowVintage)
+                .where(
+                    CapitalFlowVintage.code.in_(codes),
+                    CapitalFlowVintage.trade_date >= flow_start,
+                    CapitalFlowVintage.trade_date <= end_date,
+                    CapitalFlowVintage.available_at <= cutoff,
+                )
+                .order_by(
+                    CapitalFlowVintage.code,
+                    CapitalFlowVintage.trade_date,
+                    CapitalFlowVintage.available_at,
+                    CapitalFlowVintage.id,
+                )
+            ).scalars().all()
+            flow_panel: dict[str, list[dict]] = {
+                code: [] for code in codes
+            }
+            for row in rows:
+                flow_panel.setdefault(row.code, []).append(
+                    {
+                        "date": row.trade_date.isoformat(),
+                        "availableAt": _comparable_timestamp(
+                            row.available_at
+                        ).astimezone(UTC).isoformat(),
+                        "vintage": row.vintage,
+                        "mainNet": (
+                            float(row.main_net)
+                            if row.main_net is not None
+                            else None
+                        ),
+                        "mainNetRatio": (
+                            float(row.main_net_ratio)
+                            if row.main_net_ratio is not None
+                            else None
+                        ),
+                    }
+                )
+            panels["capital_flow"] = flow_panel
+        if financials:
+            financial_start = start_date - timedelta(days=366 * 3)
+            rows = session.execute(
+                select(FinancialSummary)
+                .where(
+                    FinancialSummary.code.in_(codes),
+                    FinancialSummary.report_date >= financial_start,
+                    FinancialSummary.report_date <= end_date,
+                    FinancialSummary.available_at <= cutoff,
+                )
+                .order_by(
+                    FinancialSummary.code,
+                    FinancialSummary.report_date,
+                    FinancialSummary.available_at,
+                    FinancialSummary.id,
+                )
+            ).scalars().all()
+            financial_panel: dict[str, list[dict]] = {
+                code: [] for code in codes
+            }
+            for row in rows:
+                financial_panel.setdefault(row.code, []).append(
+                    {
+                        "date": row.report_date.isoformat(),
+                        "availableAt": _comparable_timestamp(
+                            row.available_at
+                        ).astimezone(UTC).isoformat(),
+                        "vintage": row.vintage,
+                        "eps": float(row.eps) if row.eps is not None else None,
+                        "bps": float(row.bps) if row.bps is not None else None,
+                        "roe": float(row.roe) if row.roe is not None else None,
+                    }
+                )
+            panels["financials"] = financial_panel
+    return panels
 
 
 def _is_missing_ingestion_table(exc: Exception) -> bool:

@@ -18,7 +18,7 @@ import pandas as pd
 
 from app.backtest.base import BacktestConfig, BacktestEngine, EngineResult, Strategy
 from app.backtest.broker import Broker
-from app.backtest.context import Context
+from app.backtest.context import Context, make_panel_history_reader
 from app.backtest.data import Bar
 
 
@@ -80,10 +80,12 @@ class BacktraderEngine(BacktestEngine):
         for code, bars in ordered_bars.items():
             if bars[0].previous_close is not None:
                 broker.seed_previous_close(code, bars[0].previous_close)
+        panel_history = make_panel_history_reader(config.auxiliary_panels)
         context = Context(
             broker,
             config.params,
             history_fn,
+            panel_history_fn=panel_history,
             universe=config.codes,
         )
         equity_curve: list[dict] = []

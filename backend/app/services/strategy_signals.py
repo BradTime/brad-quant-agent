@@ -127,6 +127,10 @@ def generate_builtin_signals(
     bars: dict[str, list[dict[str, Any]]],
 ) -> dict[str, Any]:
     _, normalized = validate_params(builtin_type, params)
+    if builtin_type in {"flow_surge", "fundamental_quality"}:
+        raise ValueError(
+            "该策略需要服务端 PIT 面板，不能通过用户提供的 bars 执行"
+        )
     if builtin_type == "composite_mf":
         return {
             "schemaVersion": 1,

@@ -13,6 +13,9 @@ def _bars(count: int = 300) -> dict[str, list[dict]]:
                 "low": base + index * step - 0.05,
                 "volume": 1_000_000 + index,
                 "amount": (1_000_000 + index) * (base + index * step),
+                "mainNetRatio": 6.0,
+                "bps": base,
+                "roe": 8.0,
             }
             for index in range(count)
         ]
@@ -80,3 +83,20 @@ def test_custom_strategy_uses_same_signal_protocol():
             }
         ],
     }
+
+
+@pytest.mark.parametrize(
+    "builtin_type", ["flow_surge", "fundamental_quality"]
+)
+def test_pit_panel_strategies_reject_user_supplied_signal_payloads(
+    builtin_type,
+):
+    with pytest.raises(ValueError, match="服务端 PIT 面板"):
+        generate_signals(
+            definition_type="builtin",
+            builtin_type=builtin_type,
+            params={},
+            source_code=None,
+            context={},
+            bars=_bars(),
+        )

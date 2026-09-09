@@ -11,6 +11,8 @@ from app.backtest.strategies.boll import Boll
 from app.backtest.strategies.composite_mf import CompositeMultiFactor
 from app.backtest.strategies.donchian_breakout import DonchianBreakout
 from app.backtest.strategies.dual_ma import DualMA
+from app.backtest.strategies.flow_surge import FlowSurge
+from app.backtest.strategies.fundamental_quality import FundamentalQuality
 from app.backtest.strategies.momentum import Momentum
 from app.backtest.strategies.rsi import RSI
 from app.backtest.strategies.xs_momentum import CrossSectionalMomentum
@@ -25,6 +27,8 @@ STRATEGY_REGISTRY: dict[str, type[Strategy]] = {
     "xs_momentum": CrossSectionalMomentum,
     "zscore_reversion": ZScoreReversion,
     "composite_mf": CompositeMultiFactor,
+    "flow_surge": FlowSurge,
+    "fundamental_quality": FundamentalQuality,
 }
 
 

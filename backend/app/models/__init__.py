@@ -6,7 +6,13 @@ from app.models.backtest import BacktestRun
 from app.models.brief import MorningBrief
 from app.models.chat import ChatMessage, ChatSession, UserMemory
 from app.models.document import Document
-from app.models.extra import CapitalFlow, DragonTiger, FinancialSummary, NewsItem
+from app.models.extra import (
+    CapitalFlow,
+    CapitalFlowVintage,
+    DragonTiger,
+    FinancialSummary,
+    NewsItem,
+)
 from app.models.ingestion import IngestionRun
 from app.models.job import BacktestJob
 from app.models.market import (
@@ -43,6 +49,7 @@ __all__ = [
     "MinuteBar",
     "AdjustFactor",
     "CapitalFlow",
+    "CapitalFlowVintage",
     "FinancialSummary",
     "DragonTiger",
     "NewsItem",

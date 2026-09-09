@@ -32,6 +32,8 @@ ALLOWED_BUILTIN_TYPES = frozenset(
         "xs_momentum",
         "zscore_reversion",
         "composite_mf",
+        "flow_surge",
+        "fundamental_quality",
     }
 )
 STRATEGY_STATUSES = frozenset({"draft", "active", "disabled"})
@@ -54,6 +56,8 @@ _CATEGORY_BY_BUILTIN = {
     "xs_momentum": "momentum",
     "zscore_reversion": "mean_reversion",
     "composite_mf": "multi_factor",
+    "flow_surge": "event",
+    "fundamental_quality": "multi_factor",
 }
 
 
@@ -111,6 +115,10 @@ def validate_params(
         normalized["wMom"] + normalized["wLowVol"] + normalized["wLiq"] <= 0
     ):
         raise ValueError("多因子权重之和必须大于 0")
+    if builtin_type == "fundamental_quality" and (
+        normalized["wValue"] + normalized["wQuality"] <= 0
+    ):
+        raise ValueError("价值质量权重之和必须大于 0")
 
     return _CATEGORY_BY_BUILTIN[builtin_type], normalized
 

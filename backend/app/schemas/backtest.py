@@ -23,6 +23,8 @@ StrategyType = Literal[
     "xs_momentum",
     "zscore_reversion",
     "composite_mf",
+    "flow_surge",
+    "fundamental_quality",
 ]
 FullAStrategyType = Literal["xs_momentum", "composite_mf"]
 GridSortMetric = Literal[
@@ -44,6 +46,8 @@ _DAILY_ONLY_STRATEGIES = {
     "xs_momentum",
     "zscore_reversion",
     "composite_mf",
+    "flow_surge",
+    "fundamental_quality",
 }
 
 
@@ -180,6 +184,8 @@ class GridSearchRequest(_BacktestRequestBase):
 
     @model_validator(mode="after")
     def validate_grid_combinations(self):
+        if self.strategyType in {"flow_surge", "fundamental_quality"}:
+            raise ValueError("PIT 面板策略暂不支持同步网格搜索")
         combo_count = math.prod(len(values) for values in self.paramGrid.values())
         if combo_count > MAX_GRID_COMBOS:
             raise ValueError(f"参数组合不能超过 {MAX_GRID_COMBOS} 组")
