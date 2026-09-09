@@ -33,6 +33,27 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _read_regular_nofollow(path: Path) -> bytes:
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    if nofollow is None:
+        raise ValueError("当前平台不支持安全模型文件读取")
+    flags = os.O_RDONLY | nofollow
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise ValueError(f"模型文件不可安全打开: {path.name}") from exc
+    try:
+        file_stat = os.fstat(descriptor)
+        if not stat.S_ISREG(file_stat.st_mode):
+            raise ValueError(f"模型文件类型不受信任: {path.name}")
+        with os.fdopen(descriptor, "rb", closefd=False) as handle:
+            return handle.read()
+    finally:
+        os.close(descriptor)
+
+
 def _save_estimator(estimator: Any, path: Path, provider: str) -> None:
     if provider == "lightgbm":
         booster = getattr(estimator, "booster_", estimator)
@@ -128,16 +149,15 @@ def _verified_bundle(
 ) -> tuple[dict[str, Any], dict[str, bytes]]:
     root = Path(settings.prediction_artifact_dir).resolve()
     raw_path = Path(manifest_path)
-    if raw_path.is_symlink():
+    parent = raw_path.parent.resolve()
+    path = parent / raw_path.name
+    if root not in parent.parents and parent != root:
         raise ValueError("模型 manifest 路径不受信任")
-    path = raw_path.resolve()
-    if root not in path.parents or path.name != "manifest.json":
+    if path.name != "manifest.json":
         raise ValueError("模型 manifest 路径不受信任")
-    if not stat.S_ISREG(path.lstat().st_mode):
-        raise ValueError("模型 manifest 类型不受信任")
     try:
-        manifest_bytes = path.read_bytes()
-    except OSError as exc:
+        manifest_bytes = _read_regular_nofollow(path)
+    except ValueError as exc:
         raise ValueError("模型 manifest 不可读") from exc
     if hashlib.sha256(manifest_bytes).hexdigest() != expected_manifest_sha256:
         raise ValueError("模型 manifest checksum 不匹配")
@@ -161,10 +181,7 @@ def _verified_bundle(
     verified_files: dict[str, bytes] = {}
     for filename, checksum in manifest["files"].items():
         file_path = path.parent / filename
-        file_stat = file_path.lstat()
-        if not stat.S_ISREG(file_stat.st_mode) or file_path.is_symlink():
-            raise ValueError(f"模型文件类型不受信任: {filename}")
-        file_bytes = file_path.read_bytes()
+        file_bytes = _read_regular_nofollow(file_path)
         if hashlib.sha256(file_bytes).hexdigest() != checksum:
             raise ValueError(f"模型文件 checksum 不匹配: {filename}")
         verified_files[filename] = file_bytes

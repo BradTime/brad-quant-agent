@@ -240,6 +240,18 @@ def test_lightgbm_direction_and_quantile_adapter_is_bounded(
     with open(manifest_path, "wb") as handle:
         handle.write(original_manifest)
     classifier_path = tmp_path / "candidate-1" / "classifier.txt"
+    classifier_bytes = classifier_path.read_bytes()
+    external = tmp_path / "external-model.txt"
+    external.write_bytes(classifier_bytes)
+    classifier_path.unlink()
+    classifier_path.symlink_to(external)
+    with pytest.raises(ValueError, match="安全打开|类型不受信任"):
+        verify_model_bundle(
+            artifact["artifactPath"],
+            expected_manifest_sha256=artifact["manifestSha256"],
+        )
+    classifier_path.unlink()
+    classifier_path.write_bytes(classifier_bytes)
     with open(classifier_path, "ab") as handle:
         handle.write(b"tampered")
     with pytest.raises(ValueError, match="模型文件 checksum"):
