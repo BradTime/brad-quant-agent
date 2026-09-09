@@ -1,7 +1,7 @@
 # M3 Prediction and Portfolio Design
 
-Status: trusted model registry and operator training/inference implemented;
-authoritative allocation and weekly scheduling remain pending.
+Status: M3 core complete. Trusted model registry, operator training/inference,
+and server-authoritative allocation are implemented.
 
 ## Prediction contract
 
@@ -54,15 +54,15 @@ The internal allocator enforces:
 - predicted daily loss no greater than 2%
 - 15% warning, 18% no-new-position and 20% force-reduce states
 
-The allocator is not exposed as an approval endpoint. Authoritative allocation
-must obtain account equity/positions, PIT industry, champion forecasts and
-regime from server-owned records. Agents and clients may not submit those
-facts. Backtest-to-simulation now links to manual review instead of placing an
-order.
+`/portfolio/authoritative-preview` accepts only codes and the latest materialized
+session. In one PostgreSQL `REPEATABLE READ` transaction it locks the account
+and positions, values them from that session's daily bars, and reads
+first-observed PIT industry, Champion forecasts, benchmark, market breadth and
+risk profile. It persists immutable user-ID snapshots plus input/output hashes.
+Agents and clients may not submit those facts. The output explicitly keeps
+`executionApproved=false`; backtest-to-simulation links to manual review.
 
-## Remaining M3 work
+## Operational follow-up
 
-1. Build server-owned account/industry/forecast allocation orchestration.
-2. Persist append-only authoritative regime/allocation/risk decisions.
-3. Add weekly, lease-protected retraining and inference jobs.
-4. Add an admin model-run/OOS/calibration dashboard.
+1. Add weekly, lease-protected retraining and inference jobs.
+2. Add an admin model-run/OOS/calibration dashboard.

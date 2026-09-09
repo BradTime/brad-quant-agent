@@ -277,7 +277,16 @@ python -m app.cli prediction recover --version 2026-W37
 
 `POST /portfolio/regime` 只提供明确标注的非权威规则预览。内部组合器已实现 20 万
 权益、2 倍总敞口、单票 20%、行业 30%、相关策略池 25%、预计日损失 2% 和
-15/18/20% 回撤规则，但在账户、行业和预测改为服务端可信输入前不开放 allocation API。
+15/18/20% 回撤规则。先以 first-observed 方式采集行业：
+
+```bash
+python -m app.cli ingest-industry --code 600000.SH
+```
+
+`POST /portfolio/authoritative-preview` 仅接收最多 20 个代码和最新已物化交易日，
+在一个 `REPEATABLE READ` 事务内锁定服务端账户/持仓，并读取估值日收盘价、PIT
+行业、Champion 预测、基准、市场宽度和风险档案。结果与证据追加落库且
+`executionApproved=false`；客户端不能提交或覆盖这些风险事实，该接口不会下单。
 详见 `docs/prediction-portfolio-design.md`。
 
 ## WebSocket 行情推送（`/ws/v1`）

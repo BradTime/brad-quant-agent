@@ -305,12 +305,13 @@ brad-quant-agent/
    以及可取消/可续租、按交易日分块加载、数据与股票池 Hash 固定的历史全 A 异步截面回测。
    资金流改为 first-observed 追加式 Vintage，财务复用 `available_at` Vintage；资金流连续增强和
    PIT 价值质量策略逐交易日校验可见性/连续性，缺失即拒绝，不允许进入同步网格搜索
-3. [ ] **预测与组合层（进行中）**：已完成次日开盘→收盘 PIT 特征/标签、Purged
+3. [x] **预测与组合层**：已完成次日开盘→收盘 PIT 特征/标签、Purged
    Walk-Forward + embargo、LightGBM/XGBoost 方向与 P10/P50/P90 适配、概率/区间校准门禁、
    规则市场状态和内部确定性风险预算；可信注册使用原生模型文件、数据库 manifest Hash、
    唯一 Champion、管理员晋级审计和中断失败恢复，逐折 OOS + 牛/熊/震荡/risk-off 门禁通过后
-   才能晋级并按 PIT 落每日预测。组合 API 仍只开放非权威 regime 预览；待绑定服务端真实
-   账户、PIT 行业和 Champion 预测后，才开放 allocation/执行审批
+   才能晋级并按 PIT 落每日预测。权威组合目标在同一 REPEATABLE READ 快照中读取服务端
+   账户/持仓、估值日收盘价、first-observed PIT 行业、Champion 预测、基准和市场宽度，
+   并写入删除用户后仍保留 ID 快照的追加式审计；该接口不批准或提交订单，执行审批留到 M5
 4. [ ] **四层决策链**：研究员、反证官、投资委员会、风险官的盲审/质询/裁决/审计闭环
 5. [ ] **策略决策室与通知**：完整证据、组合风险、模式切换、人工覆盖、Kill Switch、飞书/WebSocket
 6. [ ] **自动模拟与晋级**：Champion–Challenger 状态机、60 日模拟、20 日影子、自动降级与行为复盘
