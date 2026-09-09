@@ -110,13 +110,15 @@ application secrets.
 Each milestone must preserve tenant isolation, append-only evidence, point-in-
 time correctness and reproducibility by strategy/data/code version.
 
-## 6. Milestone 2 progress
+## 6. Milestone 2 implementation
 
-The first M2 slice adds four representative daily strategies to the original four:
+M2 adds six representative daily strategies to the original four:
 Donchian breakout, cross-sectional momentum, z-score reversion, a deliberately
-price/volume-only composite factor. Fundamental and event factors are not
-approximated from price or mutable `(code, trade_date)` rows; they remain
-blocked until append-only as-of panels are available.
+price/volume-only composite factor, capital-flow surge and PIT value/quality.
+Capital flow uses first-observed append-only vintages; financial factors use
+existing `available_at` vintages. Neither is approximated from price or mutable
+`(code, trade_date)` rows. Missing, stale or non-consecutive panel coverage
+rejects the run, and panel strategies are excluded from synchronous grid search.
 
 Saved built-in strategies may be backtested with `strategyId` and
 `strategyVersion`. The server resolves the immutable row and persists the

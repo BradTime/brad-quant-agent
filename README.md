@@ -177,10 +177,11 @@ python -c "from app.services import brief; print(brief.generate(None)['title'])"
   不直接决定订单、杠杆或绕过风险官。
 - 自定义源码仅支持无 import/属性/I/O 的小型 Python 子集，并在独立受限进程执行；
   生产接收第三方代码前仍须叠加 rootless container/microVM、只读文件系统、无网络和 seccomp。
-- M2 进行中：已扩展至 8 个日线策略，保存版本可固定到回测；支持单日全 A PIT 股票池
+- M2 已完成：10 个日线策略覆盖趋势、动量、反转、价格量能多因子、PIT 资金流事件和
+  PIT 价值质量；保存版本可固定到回测。支持单日/区间全 A PIT 股票池
   物化、最多 20 标的动态 PIT 过滤、10bp 默认滑点与 1% 信号日成交容量门禁。
   历史全 A 截面回测已支持完整性清单、分块加载、运行中取消、worker 租约回收和
-  输入 Hash 审计；追加式 PIT 财务/事件策略仍待后续完成。
+  输入 Hash 审计；资金流和财务策略仅使用当时已可见的追加式 Vintage。
 
 ## 测试与 CI
 - **后端单测**：`cd backend && python -m pytest -q`
