@@ -81,3 +81,6 @@ class PredictionForecast(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
+
+__all__ = ["PredictionForecast", "PredictionModelRun"]
+
