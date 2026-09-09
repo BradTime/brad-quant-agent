@@ -375,62 +375,69 @@ def infer_and_store(
     return output
 
 
+def get_prediction_in_session(
+    session,
+    code: str,
+    *,
+    as_of: date | None = None,
+) -> dict[str, Any] | None:
+    cutoff = None
+    if as_of is None:
+        champion = _champion(session)
+    else:
+        cutoff = datetime.combine(
+            as_of, time.max, tzinfo=MARKET_TZ
+        ).astimezone(UTC)
+        audit = session.execute(
+            select(PredictionPromotionAudit)
+            .where(PredictionPromotionAudit.created_at <= cutoff)
+            .order_by(PredictionPromotionAudit.created_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        if audit is None:
+            return None
+        champion = session.get(PredictionModelRun, audit.model_run_id)
+        if champion is None:
+            return None
+    conditions = [
+        PredictionForecast.model_run_id == champion.id,
+        PredictionForecast.code == code,
+    ]
+    if as_of is not None:
+        conditions.append(PredictionForecast.signal_date <= as_of)
+        conditions.append(PredictionForecast.inferred_at <= cutoff)
+    forecast = session.execute(
+        select(PredictionForecast)
+        .where(*conditions)
+        .order_by(PredictionForecast.signal_date.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if forecast is None:
+        return None
+    return {
+        "code": forecast.code,
+        "signalDate": forecast.signal_date.isoformat(),
+        "probabilityUp": forecast.probability_up,
+        "probabilityDown": 1 - forecast.probability_up,
+        "returnInterval80": {
+            "low": forecast.return_p10,
+            "median": forecast.return_p50,
+            "high": forecast.return_p90,
+        },
+        "featureSha256": forecast.feature_sha256,
+        "model": {
+            "runId": champion.id,
+            "version": champion.version,
+            "provider": champion.provider,
+            "artifactSha256": champion.artifact_sha256,
+        }
+    }
+
+
 def get_prediction(
     code: str,
     *,
     as_of: date | None = None,
 ) -> dict[str, Any] | None:
     with SessionLocal() as session:
-        cutoff = None
-        if as_of is None:
-            champion = _champion(session)
-        else:
-            cutoff = datetime.combine(
-                as_of, time.max, tzinfo=MARKET_TZ
-            ).astimezone(UTC)
-            audit = session.execute(
-                select(PredictionPromotionAudit)
-                .where(PredictionPromotionAudit.created_at <= cutoff)
-                .order_by(PredictionPromotionAudit.created_at.desc())
-                .limit(1)
-            ).scalar_one_or_none()
-            if audit is None:
-                return None
-            champion = session.get(
-                PredictionModelRun, audit.model_run_id
-            )
-            if champion is None:
-                return None
-        conditions = [
-            PredictionForecast.model_run_id == champion.id,
-            PredictionForecast.code == code,
-        ]
-        if as_of is not None:
-            conditions.append(PredictionForecast.signal_date <= as_of)
-            conditions.append(PredictionForecast.inferred_at <= cutoff)
-        forecast = session.execute(
-            select(PredictionForecast)
-            .where(*conditions)
-            .order_by(PredictionForecast.signal_date.desc())
-            .limit(1)
-        ).scalar_one_or_none()
-        if forecast is None:
-            return None
-        return {
-            "code": forecast.code,
-            "signalDate": forecast.signal_date.isoformat(),
-            "probabilityUp": forecast.probability_up,
-            "probabilityDown": 1 - forecast.probability_up,
-            "returnInterval80": {
-                "low": forecast.return_p10,
-                "median": forecast.return_p50,
-                "high": forecast.return_p90,
-            },
-            "featureSha256": forecast.feature_sha256,
-            "model": {
-                "runId": champion.id,
-                "version": champion.version,
-                "provider": champion.provider,
-                "artifactSha256": champion.artifact_sha256,
-            },
-        }
+        return get_prediction_in_session(session, code, as_of=as_of)

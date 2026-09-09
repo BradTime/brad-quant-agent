@@ -114,8 +114,77 @@ class PredictionPromotionAudit(Base):
     )
 
 
+class PortfolioRiskProfile(Base):
+    __tablename__ = "portfolio_risk_profiles"
+
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    capital_limit: Mapped[float] = mapped_column(Float, nullable=False)
+    leverage_limit: Mapped[float] = mapped_column(Float, nullable=False)
+    high_water_mark: Mapped[float] = mapped_column(Float, nullable=False)
+    kill_switch_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class RegimeSnapshot(Base):
+    __tablename__ = "regime_snapshots"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    user_id_snapshot: Mapped[str] = mapped_column(String(36))
+    as_of: Mapped[date] = mapped_column(Date)
+    regime: Mapped[str] = mapped_column(String(16))
+    rules_version: Mapped[str] = mapped_column(String(32))
+    input_sha256: Mapped[str] = mapped_column(String(64))
+    payload_json: Mapped[dict[str, Any] | list[Any]] = mapped_column(
+        PortableJSON, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class PortfolioAllocationDecision(Base):
+    __tablename__ = "portfolio_allocation_decisions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    user_id_snapshot: Mapped[str] = mapped_column(String(36))
+    regime_snapshot_id: Mapped[str] = mapped_column(
+        ForeignKey("regime_snapshots.id", ondelete="RESTRICT")
+    )
+    model_run_id: Mapped[str] = mapped_column(
+        ForeignKey("prediction_model_runs.id", ondelete="RESTRICT")
+    )
+    as_of: Mapped[date] = mapped_column(Date)
+    input_sha256: Mapped[str] = mapped_column(String(64))
+    output_sha256: Mapped[str] = mapped_column(String(64))
+    risk_state: Mapped[str] = mapped_column(String(24))
+    payload_json: Mapped[dict[str, Any] | list[Any]] = mapped_column(
+        PortableJSON, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 __all__ = [
+    "PortfolioAllocationDecision",
+    "PortfolioRiskProfile",
     "PredictionForecast",
     "PredictionModelRun",
     "PredictionPromotionAudit",
+    "RegimeSnapshot",
 ]

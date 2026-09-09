@@ -58,7 +58,8 @@ UNIVERSE_SNAPSHOT_REVISION = "20260908_0018"
 CAPITAL_FLOW_VINTAGE_REVISION = "20260909_0019"
 PREDICTION_PORTFOLIO_REVISION = "20260909_0020"
 PREDICTION_TRUST_REVISION = "20260909_0021"
-HEAD_REVISION = PREDICTION_TRUST_REVISION
+AUTHORITATIVE_ALLOCATION_REVISION = "20260910_0022"
+HEAD_REVISION = AUTHORITATIVE_ALLOCATION_REVISION
 HNSW_INDEX = "ix_documents_embedding_hnsw"
 LEGACY_TABLES = frozenset(
     {
@@ -108,6 +109,10 @@ POST_BASELINE_TABLES = frozenset(
         "prediction_model_runs",
         "prediction_forecasts",
         "prediction_promotion_audits",
+        "instrument_industry_vintages",
+        "portfolio_risk_profiles",
+        "regime_snapshots",
+        "portfolio_allocation_decisions",
     }
 )
 
@@ -472,6 +477,11 @@ def test_standard_alembic_layout_is_present() -> None:
         ALEMBIC_DIR
         / "versions"
         / f"{PREDICTION_TRUST_REVISION}_prediction_trust.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{AUTHORITATIVE_ALLOCATION_REVISION}_authoritative_allocation.py"
     ).is_file()
 
 

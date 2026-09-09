@@ -87,6 +87,11 @@ def main(argv: list[str] | None = None) -> int:
     p_fin.add_argument("--code", required=True)
     p_fin.add_argument("--provider", default=None)
 
+    p_industry = sub.add_parser(
+        "ingest-industry", help="首次观测并追加行业分类 Vintage"
+    )
+    p_industry.add_argument("--code", required=True)
+
     p_lhb = sub.add_parser("ingest-dragon-tiger", help="拉取并落库龙虎榜")
     p_lhb.add_argument("--start", required=True)
     p_lhb.add_argument("--end", required=True)
@@ -446,6 +451,13 @@ def main(argv: list[str] | None = None) -> int:
     elif args.cmd == "ingest-financials":
         n = ingest.ingest_financials(args.code, args.provider)
         print(f"✅ {args.code} 财务摘要落库 {n} 条")
+    elif args.cmd == "ingest-industry":
+        import json
+
+        from app.services import industry_history
+
+        result = industry_history.refresh(args.code)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
     elif args.cmd == "ingest-dragon-tiger":
         n = ingest.ingest_dragon_tiger(args.start, args.end, args.provider)
         print(f"✅ 龙虎榜落库 {n} 条")

@@ -8,7 +8,9 @@ from app.api.deps import get_current_user
 from app.core.response import success
 from app.models.user import User
 from app.prediction.regime import classify_market_regime
-from app.schemas.portfolio import RegimeRequest
+from app.providers.symbols import normalize_a_share_codes
+from app.schemas.portfolio import AuthoritativeAllocationRequest, RegimeRequest
+from app.services import authoritative_allocation
 
 router = APIRouter()
 
@@ -33,3 +35,19 @@ def regime(
             "notice": "仅规则预览；未绑定服务端行情、账户或预测，不可用于下单审批",
         }
     )
+
+
+@router.post("/authoritative-preview")
+def authoritative_preview(
+    body: AuthoritativeAllocationRequest,
+    user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        result = authoritative_allocation.preview(
+            str(user.id),
+            requested_codes=normalize_a_share_codes(body.codes),
+            as_of=body.asOf,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return success(result)

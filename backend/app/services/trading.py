@@ -24,6 +24,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from app.core.tz import market_today
 from app.db.session import SessionLocal
+from app.models.market import DailyBar
 from app.models.trading import SimAccount, SimOrder, SimPosition, SimTrade
 from app.services import market
 from app.services.trading_rules import INITIAL_CASH, LOT, price_limit_ratio, stamp_tax
@@ -522,63 +523,107 @@ def _order_dict(o: SimOrder) -> dict:
     }
 
 
+def get_portfolio_snapshot_in_session(
+    session,
+    user_id: str,
+    *,
+    valuation_date: date | None = None,
+) -> tuple[dict, list[dict]]:
+    acct = _get_or_create_account(session, user_id, for_update=True)
+    _settle(session, acct)
+    positions = list(
+        session.execute(
+            select(SimPosition)
+            .where(
+                SimPosition.user_id == user_id,
+                SimPosition.qty > 0,
+            )
+            .with_for_update()
+        ).scalars()
+    )
+    close_by_code: dict[str, float] = {}
+    if valuation_date is not None and positions:
+        close_by_code = {
+            code: float(close)
+            for code, close in session.execute(
+                select(DailyBar.code, DailyBar.close).where(
+                    DailyBar.code.in_(
+                        [position.code for position in positions]
+                    ),
+                    DailyBar.trade_date == valuation_date,
+                    DailyBar.close.is_not(None),
+                )
+            ).all()
+        }
+        missing_prices = sorted(
+            {position.code for position in positions} - set(close_by_code)
+        )
+        if missing_prices:
+            raise ValueError(
+                f"{missing_prices[0]} 等 {len(missing_prices)} 个持仓缺少估值日收盘价"
+            )
+    market_value = 0.0
+    position_items = []
+    for position in positions:
+        price = (
+            close_by_code[position.code]
+            if valuation_date is not None
+            else (_valuation_price(position.code) or position.avg_cost)
+        )
+        market_value_for_position = _r(price * position.qty)
+        market_value += market_value_for_position
+        cost = _r(position.avg_cost * position.qty)
+        position_items.append(
+            {
+                "code": position.code,
+                "name": position.name,
+                "qty": position.qty,
+                "availableQty": position.available_qty,
+                "avgCost": round(position.avg_cost, 4),
+                "price": price,
+                "marketValue": market_value_for_position,
+                "pnl": _r(market_value_for_position - cost),
+                "pnlPct": (
+                    round(
+                        (price - position.avg_cost)
+                        / position.avg_cost
+                        * 100,
+                        2,
+                    )
+                    if position.avg_cost
+                    else 0.0
+                ),
+            }
+        )
+    market_value = _r(market_value)
+    total = _r(acct.cash + acct.frozen_cash + market_value)
+    pnl = _r(total - acct.initial_cash)
+    account = {
+        "cash": _r(acct.cash),
+        "frozenCash": _r(acct.frozen_cash),
+        "initialCash": _r(acct.initial_cash),
+        "marketValue": market_value,
+        "totalAssets": total,
+        "pnl": pnl,
+        "pnlPct": (
+            round(pnl / acct.initial_cash * 100, 2)
+            if acct.initial_cash
+            else 0.0
+        ),
+    }
+    return account, position_items
+
+
 def get_account(user_id: str) -> dict:
     with SessionLocal() as session:
-        acct = _get_or_create_account(session, user_id, for_update=True)
-        _settle(session, acct)
-        positions = list(
-            session.execute(
-                select(SimPosition).where(SimPosition.user_id == user_id, SimPosition.qty > 0)
-            ).scalars()
-        )
-        market_value = 0.0
-        for p in positions:
-            px = _valuation_price(p.code) or p.avg_cost
-            market_value += px * p.qty
-        market_value = _r(market_value)
-        total = _r(acct.cash + acct.frozen_cash + market_value)
-        pnl = _r(total - acct.initial_cash)
-        out = {
-            "cash": _r(acct.cash),
-            "frozenCash": _r(acct.frozen_cash),
-            "initialCash": _r(acct.initial_cash),
-            "marketValue": market_value,
-            "totalAssets": total,
-            "pnl": pnl,
-            "pnlPct": round(pnl / acct.initial_cash * 100, 2) if acct.initial_cash else 0.0,
-        }
+        account, _ = get_portfolio_snapshot_in_session(session, user_id)
         session.commit()
-        return out
+        return account
 
 
 def get_positions(user_id: str) -> list[dict]:
     with SessionLocal() as session:
-        acct = _get_or_create_account(session, user_id, for_update=True)
-        _settle(session, acct)
-        rows = list(
-            session.execute(
-                select(SimPosition).where(SimPosition.user_id == user_id, SimPosition.qty > 0)
-            ).scalars()
-        )
-        out = []
-        for p in rows:
-            px = _valuation_price(p.code)
-            cur = px if px is not None else p.avg_cost
-            mv = _r(cur * p.qty)
-            cost = _r(p.avg_cost * p.qty)
-            out.append(
-                {
-                    "code": p.code,
-                    "name": p.name,
-                    "qty": p.qty,
-                    "availableQty": p.available_qty,
-                    "avgCost": round(p.avg_cost, 4),
-                    "price": cur,
-                    "marketValue": mv,
-                    "pnl": _r(mv - cost),
-                    "pnlPct": round((cur - p.avg_cost) / p.avg_cost * 100, 2) if p.avg_cost else 0.0,
-                }
-            )
+        _, out = get_portfolio_snapshot_in_session(session, user_id)
         session.commit()
         return out
 

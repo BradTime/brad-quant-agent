@@ -13,7 +13,17 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, Index, Numeric, String, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Date,
+    DateTime,
+    Index,
+    Numeric,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -68,6 +78,39 @@ class InstrumentStatusHistory(Base):
     source: Mapped[str] = mapped_column(String(32), default="")
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class InstrumentIndustryVintage(Base):
+    """First-observed, append-only industry classification."""
+
+    __tablename__ = "instrument_industry_vintages"
+    __table_args__ = (
+        UniqueConstraint(
+            "code",
+            "vintage",
+            name="uq_instrument_industry_code_vintage",
+        ),
+        Index(
+            "ix_instrument_industry_code_available",
+            "code",
+            "available_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    code: Mapped[str] = mapped_column(String(16), nullable=False)
+    industry: Mapped[str] = mapped_column(String(64), nullable=False)
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    vintage: Mapped[str] = mapped_column(String(64), nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
     )
 
 

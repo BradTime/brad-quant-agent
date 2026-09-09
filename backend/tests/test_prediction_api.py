@@ -66,5 +66,19 @@ def test_prediction_portfolio_endpoints_require_auth_and_enforce_limits(
         )
         promoted = client.post("/api/v1/predictions/models/run-1/promote")
         assert promoted.status_code == 200
+        monkeypatch.setattr(
+            "app.services.authoritative_allocation.preview",
+            lambda user_id, requested_codes, as_of: {
+                "authoritative": True,
+                "executionApproved": False,
+                "codes": requested_codes,
+            },
+        )
+        allocation = client.post(
+            "/api/v1/portfolio/authoritative-preview",
+            json={"codes": ["600000"], "asOf": "2026-09-09"},
+        )
+        assert allocation.status_code == 200
+        assert allocation.json()["data"]["codes"] == ["600000.SH"]
     finally:
         app.dependency_overrides.pop(get_current_user, None)

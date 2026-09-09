@@ -19,13 +19,17 @@ from app.models.market import (
     AdjustFactor,
     DailyBar,
     Instrument,
+    InstrumentIndustryVintage,
     InstrumentStatusHistory,
     MinuteBar,
 )
 from app.models.prediction import (
+    PortfolioAllocationDecision,
+    PortfolioRiskProfile,
     PredictionForecast,
     PredictionModelRun,
     PredictionPromotionAudit,
+    RegimeSnapshot,
 )
 from app.models.research import ResearchReport
 from app.models.strategy import Strategy, StrategyVersion
@@ -49,6 +53,7 @@ __all__ = [
     "EmailVerification",
     "VerificationEmailOutbox",
     "Instrument",
+    "InstrumentIndustryVintage",
     "InstrumentStatusHistory",
     "DailyBar",
     "MinuteBar",
@@ -69,6 +74,9 @@ __all__ = [
     "PredictionModelRun",
     "PredictionForecast",
     "PredictionPromotionAudit",
+    "PortfolioRiskProfile",
+    "RegimeSnapshot",
+    "PortfolioAllocationDecision",
     "BacktestRun",
     "BacktestJob",
     "Strategy",

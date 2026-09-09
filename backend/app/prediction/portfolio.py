@@ -70,6 +70,7 @@ def allocate_portfolio(
     predicted_loss_rates: dict[str, float],
     current_weights: dict[str, float] | None = None,
     drawdown: float = 0.0,
+    max_gross_exposure: float = MAX_GROSS_EXPOSURE,
 ) -> dict[str, Any]:
     if regime not in _REGIME_MULTIPLIERS:
         raise ValueError("未知市场状态")
@@ -77,6 +78,8 @@ def allocate_portfolio(
         raise ValueError("equity 必须是正的有限数且不超过 20 万")
     if not 0 <= drawdown <= 1:
         raise ValueError("drawdown 必须在 [0,1]")
+    if not 0 < max_gross_exposure <= MAX_GROSS_EXPOSURE:
+        raise ValueError("总敞口上限必须在 (0,2]")
     current = current_weights or {}
     if drawdown >= 0.20:
         return {
@@ -152,7 +155,7 @@ def allocate_portfolio(
             factor = MAX_INDUSTRY / total
             for code in codes:
                 combined[code] *= factor
-    combined = _scale(combined, MAX_GROSS_EXPOSURE)
+    combined = _scale(combined, max_gross_exposure)
     missing_losses = sorted(set(combined) - set(predicted_loss_rates))
     if missing_losses:
         raise ValueError(
@@ -206,7 +209,7 @@ def allocate_portfolio(
         "reasons": reasons,
         "strategyAudit": strategy_audit,
         "limits": {
-            "grossExposure": MAX_GROSS_EXPOSURE,
+            "grossExposure": max_gross_exposure,
             "singleName": MAX_SINGLE_NAME,
             "industry": MAX_INDUSTRY,
             "strategyRisk": MAX_STRATEGY_RISK,

@@ -13,3 +13,10 @@ class RegimeRequest(BaseModel):
     indexCloses: list[float] = Field(min_length=60, max_length=1500)
     marketBreadth: float = Field(ge=0, le=1, allow_inf_nan=False)
     asOf: date
+
+
+class AuthoritativeAllocationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    codes: list[str] = Field(min_length=1, max_length=20)
+    asOf: date
