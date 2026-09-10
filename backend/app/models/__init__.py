@@ -5,6 +5,7 @@ from app.models.auth import AuthThrottle, EmailVerification, VerificationEmailOu
 from app.models.backtest import BacktestRun
 from app.models.brief import MorningBrief
 from app.models.chat import ChatMessage, ChatSession, UserMemory
+from app.models.decision import DecisionEvent, DecisionRun
 from app.models.document import Document
 from app.models.extra import (
     CapitalFlow,
@@ -69,6 +70,8 @@ __all__ = [
     "ChatSession",
     "ChatMessage",
     "UserMemory",
+    "DecisionEvent",
+    "DecisionRun",
     "Document",
     "ResearchReport",
     "PredictionModelRun",

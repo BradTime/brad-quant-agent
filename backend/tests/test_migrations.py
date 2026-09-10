@@ -59,7 +59,8 @@ CAPITAL_FLOW_VINTAGE_REVISION = "20260909_0019"
 PREDICTION_PORTFOLIO_REVISION = "20260909_0020"
 PREDICTION_TRUST_REVISION = "20260909_0021"
 AUTHORITATIVE_ALLOCATION_REVISION = "20260910_0022"
-HEAD_REVISION = AUTHORITATIVE_ALLOCATION_REVISION
+DECISION_CHAIN_REVISION = "20260910_0023"
+HEAD_REVISION = DECISION_CHAIN_REVISION
 HNSW_INDEX = "ix_documents_embedding_hnsw"
 LEGACY_TABLES = frozenset(
     {
@@ -113,6 +114,8 @@ POST_BASELINE_TABLES = frozenset(
         "portfolio_risk_profiles",
         "regime_snapshots",
         "portfolio_allocation_decisions",
+        "decision_runs",
+        "decision_events",
     }
 )
 
@@ -482,6 +485,11 @@ def test_standard_alembic_layout_is_present() -> None:
         ALEMBIC_DIR
         / "versions"
         / f"{AUTHORITATIVE_ALLOCATION_REVISION}_authoritative_allocation.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{DECISION_CHAIN_REVISION}_decision_chain.py"
     ).is_file()
 
 

@@ -80,5 +80,19 @@ def test_prediction_portfolio_endpoints_require_auth_and_enforce_limits(
         )
         assert allocation.status_code == 200
         assert allocation.json()["data"]["codes"] == ["600000.SH"]
+        monkeypatch.setattr(
+            "app.services.decision_chain.run",
+            lambda user_id, codes, as_of: {
+                "id": "decision-1",
+                "status": "vetoed",
+                "codes": codes,
+            },
+        )
+        decision = client.post(
+            "/api/v1/decisions",
+            json={"codes": ["600000"], "asOf": "2026-09-09"},
+        )
+        assert decision.status_code == 200
+        assert decision.json()["data"]["codes"] == ["600000.SH"]
     finally:
         app.dependency_overrides.pop(get_current_user, None)
