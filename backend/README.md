@@ -310,6 +310,18 @@ M5 私人控制面位于 `/decision-room`：
 `FEISHU_WEBHOOK_URL` 只接受飞书官方 HTTPS bot 地址。投递与用户 artifact 清理都通过
 带 claim lease 的数据库 outbox 重试，控制面始终返回 `executionEnabled=false`。
 
+M6 `POST /evolution/models/{modelRunId}/enroll` 将 validated 模型登记为 Challenger。
+每日 17:30 调度先结算前一日不可变承诺，再为最新 PIT 交易日写
+`/evolution/{id}/commit`；`/evaluate` 只结算已存在且签名有效的承诺。首次晋级需要
+60 日模拟和 20 日影子，模型晋级 API 会独立重算全部观察和 HMAC 转换链，不能仅修改
+program 状态绕过。生产必须配置与 JWT/Fernet 原始密钥材料不同的
+`EVOLUTION_ATTESTATION_KEY` 和稳定 `EVOLUTION_ATTESTATION_KEY_ID`；轮换时把旧
+`id=key` 保留在 `EVOLUTION_ATTESTATION_PREVIOUS_KEYS`，直至相关计划结束。
+
+模拟持仓按次日开盘、T+1、100 股整手、信号日成交量 1%、涨跌停、10bp 滑点和历史
+佣金/印花税逐日结算。60/20 门禁或滚动质量失败自动降级；漏掉收盘承诺不可回填。
+决策室 `/behavior` 使用同一撮合规则比较人工覆盖与原策略，失败记录逐条重试/隔离。
+
 ## WebSocket 行情推送（`/ws/v1`）
 
 调度器把数据源刷新进内存缓存；一个异步推送循环每 `WS_PUSH_SECONDS`（默认 3s）把订阅主题的最新缓存推给客户端（只读缓存、不发起网络请求，故不阻塞）。

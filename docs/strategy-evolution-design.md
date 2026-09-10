@@ -1,6 +1,6 @@
 # Strategy Evolution and Adversarial Decision Design
 
-Status: milestones 1–5 complete
+Status: milestones 1–6 complete
 Protocol: `signal-v1`
 
 ## 1. Safety boundary
@@ -170,3 +170,12 @@ one-time grants, manual mode/override audit, immediate Kill Switch activation,
 and step-up-only release. Recovery codes cannot authorize trading controls;
 they only reset TOTP or delete the account. Private WebSocket and redacted
 Feishu alerts use persistent delivery state. See `decision-room-design.md`.
+
+## 9. Milestone 6 implementation
+
+Challenger operation is forward-only: a signed post-close commitment precedes
+every next-session paper settlement. Sixty simulation sessions and twenty
+equal-start shadow sessions are mandatory; promotion independently verifies
+the signed evidence and paired statistical gate. Manual overrides are replayed
+with the same execution rules for behavior attribution. See
+`evolution-operations.md`.

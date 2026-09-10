@@ -192,6 +192,9 @@ python -c "from app.services import brief; print(brief.generate(None)['title'])"
 - M5 已完成：登录后的私人策略决策室提供六阶段证据、模式切换、人工覆盖、Kill Switch、
   TOTP/一次性恢复码二次验证，以及严重分歧/风控的私有 WebSocket 和脱敏飞书通知。
   所有覆盖继续受 M3/M4 风险边界约束，`executionEnabled` 仍固定为 `false`。
+- M6 已完成：Challenger 采用“收盘承诺、次日结算”的 60 日模拟 + 20 日影子状态机，
+  承诺/观察/转换由独立 HMAC key 签名；晋级独立重算连续性、真实撮合指标和配对显著性，
+  漏承诺或质量破线自动降级。决策室同步展示人工覆盖与原策略的同口径收益归因。
 
 ## 测试与 CI
 - **后端单测**：`cd backend && python -m pytest -q`
