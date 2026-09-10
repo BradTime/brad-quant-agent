@@ -1,6 +1,6 @@
 # Strategy Evolution and Adversarial Decision Design
 
-Status: milestones 1–4 complete
+Status: milestones 1–5 complete
 Protocol: `signal-v1`
 
 ## 1. Safety boundary
@@ -162,3 +162,11 @@ PostgreSQL triggers reject mutation, deletion and tenant reassignment. A lease
 and rotating claim token allow fail-closed retry without letting a stale worker
 publish. M4 only approves research candidates and always returns
 `executionApproved=false`.
+
+## 8. Milestone 5 implementation
+
+The private strategy decision room adds replay-safe TOTP step-up, purpose-bound
+one-time grants, manual mode/override audit, immediate Kill Switch activation,
+and step-up-only release. Recovery codes cannot authorize trading controls;
+they only reset TOTP or delete the account. Private WebSocket and redacted
+Feishu alerts use persistent delivery state. See `decision-room-design.md`.

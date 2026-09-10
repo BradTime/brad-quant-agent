@@ -295,6 +295,21 @@ M4 使用 `POST /decisions` 将同一份 M3 权威证据依次送入研究员、
 幂等；中断运行由五分钟租约和 claim token 恢复。数据库触发器阻止已完成运行、事件和
 所绑定 M3 组合证据被更新、删除或转移租户。所有输出保持 `executionApproved=false`。
 
+M5 私人控制面位于 `/decision-room`：
+
+- `POST /totp/enroll` + `/totp/confirm` 启用 TOTP；恢复码仅显示一次
+- `POST /step-up` 生成五分钟、一次性、用途绑定凭证；恢复码只允许
+  `reset_totp`/`delete_account`
+- `PATCH /mode`、`POST /decisions/{id}/override` 和
+  `POST /kill-switch/release` 必须消费对应 step-up
+- `POST /kill-switch/activate` 可立即人工触发，不要求先取得二次验证
+- `/notifications` 返回持久化风险通知；私有 WS 同步 `decision.*` 事件
+
+人工覆盖只能作用于 M4 风险官已批准标的，仍检查单票、行业、杠杆和预计损失限制；
+风险否决或 Kill Switch 不可人工绕过。飞书仅发送事件级别、短消息和站内路径，
+`FEISHU_WEBHOOK_URL` 只接受飞书官方 HTTPS bot 地址。投递与用户 artifact 清理都通过
+带 claim lease 的数据库 outbox 重试，控制面始终返回 `executionEnabled=false`。
+
 ## WebSocket 行情推送（`/ws/v1`）
 
 调度器把数据源刷新进内存缓存；一个异步推送循环每 `WS_PUSH_SECONDS`（默认 3s）把订阅主题的最新缓存推给客户端（只读缓存、不发起网络请求，故不阻塞）。
