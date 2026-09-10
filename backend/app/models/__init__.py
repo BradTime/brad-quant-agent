@@ -33,6 +33,17 @@ from app.models.prediction import (
     RegimeSnapshot,
 )
 from app.models.research import ResearchReport
+from app.models.room import (
+    DecisionNotification,
+    DecisionOverride,
+    DecisionRoomAudit,
+    DecisionRoomControl,
+    StepUpGrant,
+    StepUpThrottle,
+    TotpRecoveryCode,
+    UserArtifactDeletion,
+    UserTotpFactor,
+)
 from app.models.strategy import Strategy, StrategyVersion
 from app.models.trading import SimAccount, SimOrder, SimPosition, SimTrade
 from app.models.training import (
@@ -74,6 +85,15 @@ __all__ = [
     "DecisionRun",
     "Document",
     "ResearchReport",
+    "DecisionNotification",
+    "DecisionOverride",
+    "DecisionRoomAudit",
+    "DecisionRoomControl",
+    "StepUpGrant",
+    "StepUpThrottle",
+    "TotpRecoveryCode",
+    "UserTotpFactor",
+    "UserArtifactDeletion",
     "PredictionModelRun",
     "PredictionForecast",
     "PredictionPromotionAudit",

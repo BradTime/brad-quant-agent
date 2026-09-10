@@ -5,6 +5,7 @@ import binascii
 import logging
 import re
 from functools import lru_cache
+from urllib.parse import urlparse
 
 from cryptography.fernet import Fernet
 from pydantic import model_validator
@@ -50,7 +51,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "Quant Agent Backend"
-    version: str = "1.3.0"
+    version: str = "1.6.0"
     port: int = 8000
     # 运行环境：dev / production —— 用于生产收紧安全默认（CORS、JWT 密钥校验）
     app_env: str = "dev"
@@ -111,6 +112,8 @@ class Settings(BaseSettings):
     auth_outbox_max_attempts: int = 6
     auth_outbox_retry_base_seconds: int = 60
     enable_auth_outbox_scheduler: bool = True
+    enable_decision_notification_scheduler: bool = True
+    enable_artifact_deletion_scheduler: bool = True
     smtp_host: str = ""
     smtp_port: int = 587
     smtp_user: str = ""
@@ -118,6 +121,8 @@ class Settings(BaseSettings):
     smtp_from: str = ""
     smtp_starttls: bool = True
     frontend_url: str = "http://localhost:3000"
+    feishu_webhook_url: str = ""
+    feishu_timeout_seconds: float = 5.0
 
     # 行情调度器
     enable_scheduler: bool = True
@@ -302,6 +307,21 @@ class Settings(BaseSettings):
             raise ValueError("PREDICTION_EMBARGO_SESSIONS 必须在 1 到 20")
         if self.jwt_algorithm != "HS256":
             raise ValueError("JWT_ALGORITHM 仅允许 HS256")
+        if not 1 <= self.feishu_timeout_seconds <= 15:
+            raise ValueError("FEISHU_TIMEOUT_SECONDS 必须在 1 到 15")
+        if self.feishu_webhook_url:
+            parsed = urlparse(self.feishu_webhook_url)
+            if (
+                parsed.scheme != "https"
+                or parsed.hostname != "open.feishu.cn"
+                or not parsed.path.startswith("/open-apis/bot/v2/hook/")
+                or parsed.username
+                or parsed.password
+                or parsed.port not in {None, 443}
+                or parsed.query
+                or parsed.fragment
+            ):
+                raise ValueError("FEISHU_WEBHOOK_URL 必须是飞书官方 HTTPS bot webhook")
         if self.is_production:
             secret = self.jwt_secret
             normalized = secret.strip().lower()

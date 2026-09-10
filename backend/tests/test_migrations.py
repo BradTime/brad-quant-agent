@@ -60,7 +60,8 @@ PREDICTION_PORTFOLIO_REVISION = "20260909_0020"
 PREDICTION_TRUST_REVISION = "20260909_0021"
 AUTHORITATIVE_ALLOCATION_REVISION = "20260910_0022"
 DECISION_CHAIN_REVISION = "20260910_0023"
-HEAD_REVISION = DECISION_CHAIN_REVISION
+DECISION_ROOM_REVISION = "20260910_0024"
+HEAD_REVISION = DECISION_ROOM_REVISION
 HNSW_INDEX = "ix_documents_embedding_hnsw"
 LEGACY_TABLES = frozenset(
     {
@@ -116,6 +117,15 @@ POST_BASELINE_TABLES = frozenset(
         "portfolio_allocation_decisions",
         "decision_runs",
         "decision_events",
+        "user_totp_factors",
+        "step_up_grants",
+        "step_up_throttles",
+        "totp_recovery_codes",
+        "user_artifact_deletions",
+        "decision_room_controls",
+        "decision_room_audits",
+        "decision_overrides",
+        "decision_notifications",
     }
 )
 
@@ -490,6 +500,11 @@ def test_standard_alembic_layout_is_present() -> None:
         ALEMBIC_DIR
         / "versions"
         / f"{DECISION_CHAIN_REVISION}_decision_chain.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{DECISION_ROOM_REVISION}_decision_room_controls.py"
     ).is_file()
 
 

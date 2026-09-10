@@ -46,6 +46,42 @@ def _add_training_maintenance_job(scheduler) -> None:
     )
 
 
+def _add_decision_notification_job(scheduler) -> None:
+    from app.core.config import settings
+
+    if not settings.enable_decision_notification_scheduler:
+        return
+    from app.services.decision_notifications import retry_pending
+
+    scheduler.add_job(
+        retry_pending,
+        "interval",
+        seconds=60,
+        id="retry_pending_decision_notifications",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=60,
+    )
+
+
+def _add_artifact_deletion_job(scheduler) -> None:
+    from app.core.config import settings
+
+    if not settings.enable_artifact_deletion_scheduler:
+        return
+    from app.services.artifact_deletion import process_due
+
+    scheduler.add_job(
+        process_due,
+        "interval",
+        seconds=60,
+        id="retry_user_artifact_deletions",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=60,
+    )
+
+
 def start_scheduler():
     global _scheduler
     if _scheduler is not None:
@@ -66,6 +102,8 @@ def start_scheduler():
     if not settings.enable_scheduler:
         _add_outbox_job(scheduler)
         _add_training_maintenance_job(scheduler)
+        _add_decision_notification_job(scheduler)
+        _add_artifact_deletion_job(scheduler)
         scheduler.start()
         _scheduler = scheduler
         logger.info("认证邮件 outbox 调度器已启动")
@@ -287,6 +325,8 @@ def start_scheduler():
 
     _add_outbox_job(scheduler)
     _add_training_maintenance_job(scheduler)
+    _add_decision_notification_job(scheduler)
+    _add_artifact_deletion_job(scheduler)
     scheduler.start()
     _scheduler = scheduler
     logger.info("行情调度器已启动（行情 %ss / 指数 %ss）", quote_secs, index_secs)

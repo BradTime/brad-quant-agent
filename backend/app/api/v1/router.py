@@ -12,6 +12,7 @@ from app.api.v1 import (
     backtest,
     brief,
     dashboard,
+    decision_room,
     decisions,
     market,
     portfolio,
@@ -61,6 +62,11 @@ api_router.include_router(brief.router, prefix="/brief", tags=["brief"])
 api_router.include_router(strategies.router, prefix="/strategies", tags=["strategies"])
 api_router.include_router(backtest.router, prefix="/backtest", tags=["backtest"])
 api_router.include_router(decisions.router, prefix="/decisions", tags=["decisions"])
+api_router.include_router(
+    decision_room.router,
+    prefix="/decision-room",
+    tags=["decision-room"],
+)
 api_router.include_router(sim.router, prefix="/sim", tags=["sim"])
 api_router.include_router(training.router, prefix="/training", tags=["training"])
 api_router.include_router(portfolio.router, prefix="/portfolio", tags=["portfolio"])

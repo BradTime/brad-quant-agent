@@ -113,7 +113,12 @@ async def stop_api_runtime(state: RuntimeState) -> None:
 
 def start_worker_runtime() -> RuntimeState:
     state = RuntimeState()
-    scheduling_enabled = settings.enable_scheduler or settings.enable_auth_outbox_scheduler
+    scheduling_enabled = (
+        settings.enable_scheduler
+        or settings.enable_auth_outbox_scheduler
+        or settings.enable_decision_notification_scheduler
+        or settings.enable_artifact_deletion_scheduler
+    )
     if scheduling_enabled:
         if redis_client.enabled():
             from app.services.scheduler_leader import start_scheduler_leader

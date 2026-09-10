@@ -31,6 +31,7 @@ from app.core.security import (
 from app.db.session import SessionLocal
 from app.models.user import User
 from app.schemas.auth import (
+    DeleteAccountRequest,
     LoginRequest,
     RefreshRequest,
     RegisterRequest,
@@ -151,8 +152,18 @@ def logout(response: Response, user: User = Depends(get_current_user)):
 
 
 @router.delete("/account")
-def delete_account(response: Response, user: User = Depends(get_current_user)):
-    if not auth_service.delete_account(str(user.id)):
+def delete_account(
+    body: DeleteAccountRequest,
+    response: Response,
+    user: User = Depends(get_current_user),
+):
+    try:
+        deleted = auth_service.delete_account(
+            str(user.id), step_up_token=body.stepUpToken
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not deleted:
         raise HTTPException(status_code=404, detail="账户不存在")
     clear_auth_cookies(response)
     return success({"deleted": True}, message="账户及训练数据已删除")

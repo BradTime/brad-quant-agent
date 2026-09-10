@@ -94,5 +94,20 @@ def test_prediction_portfolio_endpoints_require_auth_and_enforce_limits(
         )
         assert decision.status_code == 200
         assert decision.json()["data"]["codes"] == ["600000.SH"]
+        monkeypatch.setattr(
+            "app.services.decision_room.state",
+            lambda user_id: {
+                "mode": "research_only",
+                "killSwitchActive": False,
+                "executionEnabled": False,
+            },
+        )
+        monkeypatch.setattr(
+            "app.services.step_up.status",
+            lambda user_id: {"enabled": False, "pending": False},
+        )
+        room = client.get("/api/v1/decision-room")
+        assert room.status_code == 200
+        assert room.json()["data"]["executionEnabled"] is False
     finally:
         app.dependency_overrides.pop(get_current_user, None)

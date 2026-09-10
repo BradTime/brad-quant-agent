@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -20,6 +21,7 @@ from app.models.prediction import PortfolioAllocationDecision
 from app.services import authoritative_allocation
 
 RUN_LEASE = timedelta(minutes=5)
+logger = logging.getLogger(__name__)
 
 
 class DecisionConflictError(ValueError):
@@ -223,6 +225,28 @@ def _verified_allocation(
     return row, payload
 
 
+def _emit_notifications(user_id: str, result: dict[str, Any]) -> None:
+    try:
+        from app.services import decision_notifications
+
+        if result["severeDisagreement"]:
+            decision_notifications.emit(
+                user_id,
+                event_type="decision.severe_disagreement",
+                resource_id=result["id"],
+                message="四层决策链出现严重分歧，请在策略决策室复核。",
+            )
+        if result["events"] and result["events"][-1]["output"].get("veto"):
+            decision_notifications.emit(
+                user_id,
+                event_type="decision.risk_veto",
+                resource_id=result["id"],
+                message="确定性风险官已否决本次研究候选。",
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("决策室通知投递失败: %s", type(exc).__name__)
+
+
 def run(
     user_id: str,
     *,
@@ -236,6 +260,7 @@ def run(
         existing = get(user_id, run_id)
         if existing["status"] == "running":
             raise DecisionConflictError("相同决策请求正在运行")
+        _emit_notifications(user_id, existing)
         return existing
     assert claim_token is not None
     try:
@@ -404,7 +429,9 @@ def run(
             run_row.terminal_event_sha256 = previous
             run_row.claim_token = None
             run_row.completed_at = datetime.now(UTC)
-        return get(user_id, run_id)
+        result = get(user_id, run_id)
+        _emit_notifications(user_id, result)
+        return result
     except Exception as exc:
         _mark_failed(run_id, claim_token, exc)
         raise
