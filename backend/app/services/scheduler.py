@@ -82,6 +82,38 @@ def _add_artifact_deletion_job(scheduler) -> None:
     )
 
 
+def _add_evolution_job(scheduler) -> None:
+    from app.core.config import settings
+
+    if not settings.enable_evolution_scheduler:
+        return
+    from app.services.evolution import (
+        attribute_due_overrides,
+        process_due_programs,
+    )
+
+    scheduler.add_job(
+        process_due_programs,
+        "cron",
+        hour=17,
+        minute=30,
+        id="evaluate_challenger_programs",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+    scheduler.add_job(
+        attribute_due_overrides,
+        "cron",
+        hour=18,
+        minute=0,
+        id="attribute_decision_overrides",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
+
 def start_scheduler():
     global _scheduler
     if _scheduler is not None:
@@ -104,6 +136,7 @@ def start_scheduler():
         _add_training_maintenance_job(scheduler)
         _add_decision_notification_job(scheduler)
         _add_artifact_deletion_job(scheduler)
+        _add_evolution_job(scheduler)
         scheduler.start()
         _scheduler = scheduler
         logger.info("认证邮件 outbox 调度器已启动")
@@ -327,6 +360,7 @@ def start_scheduler():
     _add_training_maintenance_job(scheduler)
     _add_decision_notification_job(scheduler)
     _add_artifact_deletion_job(scheduler)
+    _add_evolution_job(scheduler)
     scheduler.start()
     _scheduler = scheduler
     logger.info("行情调度器已启动（行情 %ss / 指数 %ss）", quote_secs, index_secs)

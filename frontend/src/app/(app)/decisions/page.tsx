@@ -58,6 +58,10 @@ export default function DecisionRoomPage() {
     queryKey: ['decision-room', 'notifications'],
     queryFn: decisionRoomApi.notifications,
   });
+  const behavior = useQuery({
+    queryKey: ['decision-room', 'behavior'],
+    queryFn: decisionRoomApi.behavior,
+  });
   const detail = useQuery({
     queryKey: ['decision-room', 'detail', selectedId],
     queryFn: () => decisionRoomApi.detail(selectedId),
@@ -374,6 +378,34 @@ export default function DecisionRoomPage() {
               <p className="text-xs text-muted-foreground">
                 {item.severity} · {new Date(item.createdAt).toLocaleString()}
               </p>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>人工覆盖行为归因</CardTitle>
+          <CardDescription>
+            使用相同持仓、容量、涨跌停、滑点与费税，对比策略内结果和人工覆盖结果。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {behavior.data?.items.map((item) => (
+            <div
+              key={item.id}
+              className="grid gap-1 rounded-md border border-border p-3 text-sm md:grid-cols-4"
+            >
+              <span>{item.signalDate} → {item.labelDate}</span>
+              <span>策略 {(item.strategyReturn * 100).toFixed(2)}%</span>
+              <span>人工 {(item.humanReturn * 100).toFixed(2)}%</span>
+              <span
+                className={
+                  item.returnDelta >= 0 ? 'text-emerald-600' : 'text-destructive'
+                }
+              >
+                差值 {(item.returnDelta * 100).toFixed(2)}%
+              </span>
             </div>
           ))}
         </CardContent>

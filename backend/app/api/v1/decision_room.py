@@ -13,7 +13,12 @@ from app.schemas.room import (
     TotpEnrollRequest,
     TotpResetRequest,
 )
-from app.services import decision_notifications, decision_room, step_up
+from app.services import (
+    decision_notifications,
+    decision_room,
+    evolution,
+    step_up,
+)
 
 router = APIRouter()
 
@@ -165,6 +170,20 @@ def notifications(
     return success(
         {
             "items": decision_notifications.list_for_user(
+                str(user.id), limit=limit
+            )
+        }
+    )
+
+
+@router.get("/behavior")
+def behavior_attribution(
+    limit: int = Query(default=50, ge=1, le=100),
+    user: User = Depends(get_current_user),
+) -> dict:
+    return success(
+        {
+            "items": evolution.list_behavior_attributions(
                 str(user.id), limit=limit
             )
         }

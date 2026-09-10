@@ -260,6 +260,9 @@ def promote_candidate(
                 or not row.artifact_sha256
             ):
                 raise ValueError("模型候选未通过 OOS/状态覆盖门禁")
+            from app.services import evolution
+
+            evolution.verify_promotion_eligibility(session, row)
             manifest = verify_model_bundle(
                 row.artifact_path,
                 expected_manifest_sha256=row.artifact_sha256,
@@ -330,8 +333,26 @@ def infer_and_store(
     with SessionLocal() as session:
         champion = _champion(session)
         model_run_id = champion.id
-        artifact_path = champion.artifact_path
-        artifact_sha256 = champion.artifact_sha256
+    return infer_model_and_store(model_run_id, examples)
+
+
+def infer_model_and_store(
+    model_run_id: str,
+    examples: list[PredictionFeature],
+) -> list[dict[str, Any]]:
+    if not examples:
+        return []
+    with SessionLocal() as session:
+        model_run = session.get(PredictionModelRun, model_run_id)
+        if (
+            model_run is None
+            or model_run.status not in {"validated", "champion"}
+            or not model_run.artifact_path
+            or not model_run.artifact_sha256
+        ):
+            raise ValueError("模型未通过可信注册门禁")
+        artifact_path = model_run.artifact_path
+        artifact_sha256 = model_run.artifact_sha256
     model = load_model_bundle(
         artifact_path,
         expected_manifest_sha256=artifact_sha256,
@@ -366,6 +387,7 @@ def infer_and_store(
                     **prediction,
                     "modelRunId": model_run_id,
                     "featureSha256": feature_sha256,
+                    "features": example.features,
                 }
             )
         try:

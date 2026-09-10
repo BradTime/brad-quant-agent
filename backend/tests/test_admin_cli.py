@@ -30,7 +30,7 @@ def admin_db(monkeypatch: pytest.MonkeyPatch):
     with engine.begin() as connection:
         connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32))"))
         connection.execute(
-            text("INSERT INTO alembic_version VALUES ('20260910_0024')")
+            text("INSERT INTO alembic_version VALUES ('20260910_0025')")
         )
     with sessions.begin() as db:
         db.add_all(

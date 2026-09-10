@@ -47,3 +47,15 @@ export interface RoomNotification {
   roomPath: string;
   createdAt: string;
 }
+
+export interface BehaviorAttribution {
+  id: string;
+  overrideId: string;
+  signalDate: string;
+  labelDate: string;
+  strategyReturn: number;
+  humanReturn: number;
+  returnDelta: number;
+  flags: string[];
+  createdAt: string;
+}

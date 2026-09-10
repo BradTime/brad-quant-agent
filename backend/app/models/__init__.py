@@ -7,6 +7,14 @@ from app.models.brief import MorningBrief
 from app.models.chat import ChatMessage, ChatSession, UserMemory
 from app.models.decision import DecisionEvent, DecisionRun
 from app.models.document import Document
+from app.models.evolution import (
+    BehaviorAttribution,
+    BehaviorAttributionAttempt,
+    EvolutionObservation,
+    EvolutionProgram,
+    EvolutionSignalCommitment,
+    EvolutionTransition,
+)
 from app.models.extra import (
     CapitalFlow,
     CapitalFlowVintage,
@@ -84,6 +92,12 @@ __all__ = [
     "DecisionEvent",
     "DecisionRun",
     "Document",
+    "BehaviorAttribution",
+    "BehaviorAttributionAttempt",
+    "EvolutionObservation",
+    "EvolutionProgram",
+    "EvolutionSignalCommitment",
+    "EvolutionTransition",
     "ResearchReport",
     "DecisionNotification",
     "DecisionOverride",

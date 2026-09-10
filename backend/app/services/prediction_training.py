@@ -180,6 +180,31 @@ def infer_from_database(
     signal_date: date,
     codes: list[str],
 ) -> list[dict]:
+    features = build_inference_features_from_database(
+        signal_date=signal_date, codes=codes
+    )
+    return prediction_registry.infer_and_store(features)
+
+
+def infer_model_from_database(
+    *,
+    model_run_id: str,
+    signal_date: date,
+    codes: list[str],
+) -> list[dict]:
+    features = build_inference_features_from_database(
+        signal_date=signal_date, codes=codes
+    )
+    return prediction_registry.infer_model_and_store(
+        model_run_id, features
+    )
+
+
+def build_inference_features_from_database(
+    *,
+    signal_date: date,
+    codes: list[str],
+) -> list:
     if not 1 <= len(codes) <= 20:
         raise ValueError("单次预测标的数量必须在 1 到 20")
     eligible = set(universe_membership.eligible_codes(signal_date))
@@ -208,4 +233,4 @@ def infer_from_database(
     )
     if len(features) != len(codes):
         raise ValueError("部分标的缺少完整预测特征")
-    return prediction_registry.infer_and_store(features)
+    return features

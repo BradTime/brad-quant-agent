@@ -136,6 +136,42 @@ def industries_asof_in_session(
     return result
 
 
+def industry_evidence_asof_in_session(
+    session, codes: list[str], as_of: date
+) -> dict[str, dict[str, str]]:
+    cutoff = datetime.combine(
+        as_of, time.max, tzinfo=MARKET_TZ
+    ).astimezone(UTC)
+    rows = session.execute(
+        select(InstrumentIndustryVintage)
+        .where(
+            InstrumentIndustryVintage.code.in_(codes),
+            InstrumentIndustryVintage.available_at <= cutoff,
+        )
+        .order_by(
+            InstrumentIndustryVintage.code,
+            InstrumentIndustryVintage.available_at.desc(),
+            InstrumentIndustryVintage.id.desc(),
+        )
+    ).scalars().all()
+    result = {}
+    for row in rows:
+        result.setdefault(
+            row.code,
+            {
+                "industry": row.industry,
+                "vintage": row.vintage,
+                "availableAt": row.available_at.isoformat(),
+            },
+        )
+    missing = sorted(set(codes) - set(result))
+    if missing:
+        raise ValueError(
+            f"{missing[0]} 等 {len(missing)} 个标的缺少 PIT 行业分类"
+        )
+    return result
+
+
 def industries_asof(codes: list[str], as_of: date) -> dict[str, str]:
     with SessionLocal() as session:
         return industries_asof_in_session(session, codes, as_of)

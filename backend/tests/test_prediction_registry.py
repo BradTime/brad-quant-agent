@@ -190,6 +190,10 @@ def test_validated_candidate_promotes_and_persists_forecast(
             "artifactStatus": "validated_unregistered",
         },
     )
+    monkeypatch.setattr(
+        "app.services.evolution.verify_promotion_eligibility",
+        lambda session, model: None,
+    )
     promoted = prediction_registry.promote_candidate(
         result["id"], promoted_by_user_id="user-a"
     )

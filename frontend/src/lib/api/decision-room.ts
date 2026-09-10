@@ -1,5 +1,6 @@
 import type { ApiResponse } from '@/types';
 import type {
+  BehaviorAttribution,
   DecisionDetail,
   DecisionRoomMode,
   DecisionRoomState,
@@ -24,6 +25,10 @@ export const decisionRoomApi = {
   notifications: () =>
     unwrap<{ items: RoomNotification[] }>(
       apiClient.get('/decision-room/notifications'),
+    ),
+  behavior: () =>
+    unwrap<{ items: BehaviorAttribution[] }>(
+      apiClient.get('/decision-room/behavior'),
     ),
   enrollTotp: (password: string) =>
     unwrap<{ secret: string; otpauthUri: string; recoveryCodes: string[] }>(

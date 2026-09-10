@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "Quant Agent Backend"
-    version: str = "1.6.0"
+    version: str = "1.7.0"
     port: int = 8000
     # 运行环境：dev / production —— 用于生产收紧安全默认（CORS、JWT 密钥校验）
     app_env: str = "dev"
@@ -91,6 +91,9 @@ class Settings(BaseSettings):
 
     # JWT
     jwt_secret: str = "change-me-in-production"
+    evolution_attestation_key: str = "dev-evolution-attestation-key"
+    evolution_attestation_key_id: str = "dev-v1"
+    evolution_attestation_previous_keys: str = ""
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 1440
     ws_ticket_expire_seconds: int = 120
@@ -114,6 +117,7 @@ class Settings(BaseSettings):
     enable_auth_outbox_scheduler: bool = True
     enable_decision_notification_scheduler: bool = True
     enable_artifact_deletion_scheduler: bool = True
+    enable_evolution_scheduler: bool = True
     smtp_host: str = ""
     smtp_port: int = 587
     smtp_user: str = ""
@@ -336,8 +340,67 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "生产环境 JWT_SECRET 必须是 64 位 hex 或解码后至少 32 字节的高熵 base64url"
                 )
+            attestation = _decode_production_secret(
+                self.evolution_attestation_key
+            )
+            outbox_material = _decode_production_secret(
+                self.auth_outbox_encryption_key
+            )
+            if (
+                attestation is None
+                or len(set(attestation)) < 16
+                or _is_periodic(attestation)
+            ):
+                raise ValueError(
+                    "生产环境 EVOLUTION_ATTESTATION_KEY 必须是独立高熵 32 字节密钥"
+                )
+            if attestation in {decoded, outbox_material}:
+                raise ValueError(
+                    "EVOLUTION_ATTESTATION_KEY 必须与 JWT/加密密钥分离"
+                )
         elif self.jwt_secret == _DEFAULT_JWT_SECRET:
             logger.warning("开发环境正在使用默认 JWT_SECRET；不得用于生产")
+        if not re.fullmatch(
+            r"[A-Za-z0-9._-]{1,32}",
+            self.evolution_attestation_key_id,
+        ):
+            raise ValueError("EVOLUTION_ATTESTATION_KEY_ID 格式无效")
+        previous_ids = set()
+        previous_materials = set()
+        for item in filter(
+            None,
+            (
+                value.strip()
+                for value in self.evolution_attestation_previous_keys.split(
+                    ","
+                )
+            ),
+        ):
+            key_id, separator, key = item.partition("=")
+            key_material = _decode_production_secret(key)
+            if (
+                not separator
+                or not re.fullmatch(r"[A-Za-z0-9._-]{1,32}", key_id)
+                or key_id == self.evolution_attestation_key_id
+                or key_id in previous_ids
+                or (self.is_production and key_material is None)
+                or (
+                    self.is_production
+                    and key_material
+                    in {
+                        decoded,
+                        outbox_material,
+                        attestation,
+                        *previous_materials,
+                    }
+                )
+            ):
+                raise ValueError(
+                    "EVOLUTION_ATTESTATION_PREVIOUS_KEYS 格式无效"
+                )
+            previous_ids.add(key_id)
+            if key_material is not None:
+                previous_materials.add(key_material)
         if self.auth_auto_verify_registration is None:
             object.__setattr__(
                 self,

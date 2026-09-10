@@ -14,6 +14,7 @@ from app.api.v1 import (
     dashboard,
     decision_room,
     decisions,
+    evolution,
     market,
     portfolio,
     predictions,
@@ -62,6 +63,7 @@ api_router.include_router(brief.router, prefix="/brief", tags=["brief"])
 api_router.include_router(strategies.router, prefix="/strategies", tags=["strategies"])
 api_router.include_router(backtest.router, prefix="/backtest", tags=["backtest"])
 api_router.include_router(decisions.router, prefix="/decisions", tags=["decisions"])
+api_router.include_router(evolution.router, prefix="/evolution", tags=["evolution"])
 api_router.include_router(
     decision_room.router,
     prefix="/decision-room",
