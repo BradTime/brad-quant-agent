@@ -289,6 +289,12 @@ python -m app.cli ingest-industry --code 600000.SH
 `executionApproved=false`；客户端不能提交或覆盖这些风险事实，该接口不会下单。
 详见 `docs/prediction-portfolio-design.md`。
 
+M4 使用 `POST /decisions` 将同一份 M3 权威证据依次送入研究员、独立盲审反证官、
+固定两轮质询、确定性投资委员会和一票否决风险官。`GET /decisions` 与
+`GET /decisions/{id}` 可回放六阶段输出及前序/事件 Hash。相同用户、交易日和代码集合
+幂等；中断运行由五分钟租约和 claim token 恢复。数据库触发器阻止已完成运行、事件和
+所绑定 M3 组合证据被更新、删除或转移租户。所有输出保持 `executionApproved=false`。
+
 ## WebSocket 行情推送（`/ws/v1`）
 
 调度器把数据源刷新进内存缓存；一个异步推送循环每 `WS_PUSH_SECONDS`（默认 3s）把订阅主题的最新缓存推给客户端（只读缓存、不发起网络请求，故不阻塞）。

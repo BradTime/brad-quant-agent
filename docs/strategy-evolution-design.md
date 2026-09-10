@@ -1,6 +1,6 @@
 # Strategy Evolution and Adversarial Decision Design
 
-Status: milestone 1 implementation baseline
+Status: milestones 1–4 complete
 Protocol: `signal-v1`
 
 ## 1. Safety boundary
@@ -147,3 +147,18 @@ Every engine uses 10bp default slippage and limits a next-open fill to 1% of the
 signal-day volume. Missing signal-day volume rejects the fill; a volume-capped
 partial fill does not silently carry an oversized remainder. Result payloads
 surface execution and universe quality counters.
+
+## 7. Milestones 3–4 implementation
+
+M3's trusted Champion forecasts and server-authoritative allocation are the
+only inputs to M4. `decision-chain-v1` runs a researcher, a contrarian that has
+not received the researcher's claims, exactly two structured cross-examination
+rounds, a deterministic investment committee and the final deterministic risk
+officer. See `prediction-portfolio-design.md` and `decision-chain-design.md`.
+
+Each run contains six append-only events. Input/output hashes, previous-event
+hashes, terminal hash and event count make truncation or mutation detectable;
+PostgreSQL triggers reject mutation, deletion and tenant reassignment. A lease
+and rotating claim token allow fail-closed retry without letting a stale worker
+publish. M4 only approves research candidates and always returns
+`executionApproved=false`.

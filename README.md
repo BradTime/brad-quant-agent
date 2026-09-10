@@ -186,6 +186,9 @@ python -c "from app.services import brief; print(brief.generate(None)['title'])"
   概率/分位数适配、校准指标、规则市场状态、可信模型注册/唯一 Champion/每日预测和
   确定性风险预算；权威组合目标仅使用同一服务端快照内的账户、PIT 行业、Champion
   预测、基准和市场宽度。该层不批准订单，自动执行审批仍属于后续 M5。
+- M4 已完成：研究员、盲审反证官、两轮质询、确定性投资委员会与一票否决风险官形成
+  六阶段链式审计；证据 Hash、事件数量/尾 Hash、租户归属和崩溃恢复均受服务端约束，
+  严重分歧显式披露，最终仍不创建订单。
 
 ## 测试与 CI
 - **后端单测**：`cd backend && python -m pytest -q`
