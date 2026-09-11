@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from datetime import date, timedelta
+from typing import Any
 
 from sqlalchemy import select
 
@@ -112,6 +114,7 @@ def train_from_database(
     start: date,
     end: date,
     user_id: str | None = None,
+    publication_guard: Callable[[Any], bool] | None = None,
 ) -> dict:
     duration = (end - start).days
     if not 365 * 3 <= duration <= 366 * 5:
@@ -172,6 +175,7 @@ def train_from_database(
         validation_dates=63,
         embargo_dates=settings.prediction_embargo_sessions,
         max_folds=settings.prediction_cv_folds,
+        publication_guard=publication_guard,
     )
 
 

@@ -119,6 +119,7 @@ def start_worker_runtime() -> RuntimeState:
         or settings.enable_decision_notification_scheduler
         or settings.enable_artifact_deletion_scheduler
         or settings.enable_evolution_scheduler
+        or settings.prediction_ops_enabled
     )
     if scheduling_enabled:
         if redis_client.enabled():

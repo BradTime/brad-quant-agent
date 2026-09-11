@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from datetime import UTC, date, datetime, time
 from pathlib import Path
 from typing import Any
@@ -70,6 +71,7 @@ def register_candidate(
     validation_dates: int = 63,
     embargo_dates: int = 5,
     max_folds: int = 5,
+    publication_guard: Callable[[Any], bool] | None = None,
 ) -> dict[str, Any]:
     if not examples:
         raise ValueError("训练样本不能为空")
@@ -84,6 +86,8 @@ def register_candidate(
     )
     try:
         with SessionLocal.begin() as session:
+            if publication_guard and not publication_guard(session):
+                raise ValueError("预测运营作业租约已失效")
             existing = session.execute(
                 select(PredictionModelRun)
                 .where(PredictionModelRun.version == version)
@@ -132,6 +136,8 @@ def register_candidate(
     report["evidenceSha256"] = evidence_sha256
     promotion_eligible = report["promotionEligible"]
     with SessionLocal.begin() as session:
+        if publication_guard and not publication_guard(session):
+            raise ValueError("预测运营作业租约已失效")
         stored = session.execute(
             select(PredictionModelRun)
             .where(PredictionModelRun.id == run_id)
@@ -163,6 +169,8 @@ def register_candidate(
                 expected_manifest_sha256=artifact_sha256,
             )
             with SessionLocal.begin() as session:
+                if publication_guard and not publication_guard(session):
+                    raise ValueError("预测运营作业租约已失效")
                 stored = session.execute(
                     select(PredictionModelRun)
                     .where(PredictionModelRun.id == run_id)
@@ -339,6 +347,8 @@ def infer_and_store(
 def infer_model_and_store(
     model_run_id: str,
     examples: list[PredictionFeature],
+    *,
+    publication_guard: Callable[[Any], bool] | None = None,
 ) -> list[dict[str, Any]]:
     if not examples:
         return []
@@ -360,6 +370,8 @@ def infer_model_and_store(
     predictions = model.predict(examples)
     output: list[dict[str, Any]] = []
     with SessionLocal.begin() as session:
+        if publication_guard and not publication_guard(session):
+            raise ValueError("预测运营作业租约已失效")
         for example, prediction in zip(examples, predictions, strict=True):
             feature_sha256 = hashlib.sha256(
                 json.dumps(

@@ -17,6 +17,7 @@ const TITLES: Record<string, [string, string]> = {
   '/backtest': ['回测', '用历史检验你的想法'],
   '/sim': ['模拟交易', 'T+1 撮合 · 持仓与成交回报'],
   '/ai': ['AI 问答', '与你的投研助手对话'],
+  '/admin/models': ['模型运营', '训练、推理与 Challenger 观察'],
 };
 
 function titleFor(pathname: string): [string, string] {

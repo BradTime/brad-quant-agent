@@ -109,5 +109,16 @@ def test_prediction_portfolio_endpoints_require_auth_and_enforce_limits(
         room = client.get("/api/v1/decision-room")
         assert room.status_code == 200
         assert room.json()["data"]["executionEnabled"] is False
+        monkeypatch.setattr(
+            "app.services.prediction_ops.dashboard",
+            lambda: {
+                "models": [],
+                "programs": [],
+                "jobs": [],
+                "dataCompleteness": {"ready": False},
+            },
+        )
+        model_ops = client.get("/api/v1/prediction-ops")
+        assert model_ops.status_code == 200
     finally:
         app.dependency_overrides.pop(get_current_user, None)

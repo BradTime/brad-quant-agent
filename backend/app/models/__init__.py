@@ -49,6 +49,7 @@ from app.models.prediction import (
     PredictionPromotionAudit,
     RegimeSnapshot,
 )
+from app.models.prediction_ops import PredictionOpsJob
 from app.models.research import ResearchReport
 from app.models.room import (
     DecisionNotification,
@@ -127,6 +128,7 @@ __all__ = [
     "PredictionModelRun",
     "PredictionForecast",
     "PredictionPromotionAudit",
+    "PredictionOpsJob",
     "PortfolioRiskProfile",
     "RegimeSnapshot",
     "PortfolioAllocationDecision",

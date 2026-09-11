@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "Quant Agent Backend"
-    version: str = "1.8.0"
+    version: str = "1.9.0"
     port: int = 8000
     # 运行环境：dev / production —— 用于生产收紧安全默认（CORS、JWT 密钥校验）
     app_env: str = "dev"
@@ -242,6 +242,15 @@ class Settings(BaseSettings):
     prediction_rolling_years: int = 3
     prediction_cv_folds: int = 5
     prediction_embargo_sessions: int = 5
+    prediction_ops_enabled: bool = False
+    prediction_ops_codes: str = ""
+    prediction_ops_provider: str = "lightgbm"
+    prediction_training_weekday: str = "sat"
+    prediction_training_hour: int = 9
+    prediction_training_minute: int = 0
+    prediction_inference_hour: int = 17
+    prediction_inference_minute: int = 0
+    prediction_ops_job_lease_seconds: int = 7200
 
     # 可观测（Sentry）：仅当 sentry_dsn 非空时启用；默认关、零开销、不外联
     sentry_dsn: str = ""
@@ -318,6 +327,38 @@ class Settings(BaseSettings):
             raise ValueError("PREDICTION_CV_FOLDS 必须在 2 到 10")
         if not 1 <= self.prediction_embargo_sessions <= 20:
             raise ValueError("PREDICTION_EMBARGO_SESSIONS 必须在 1 到 20")
+        if self.prediction_ops_provider not in {"lightgbm", "xgboost"}:
+            raise ValueError("PREDICTION_OPS_PROVIDER 仅允许 lightgbm/xgboost")
+        if self.prediction_training_weekday not in {
+            "mon",
+            "tue",
+            "wed",
+            "thu",
+            "fri",
+            "sat",
+            "sun",
+        }:
+            raise ValueError("PREDICTION_TRAINING_WEEKDAY 无效")
+        for value, name in (
+            (self.prediction_training_hour, "PREDICTION_TRAINING_HOUR"),
+            (self.prediction_inference_hour, "PREDICTION_INFERENCE_HOUR"),
+        ):
+            if not 0 <= value <= 23:
+                raise ValueError(f"{name} 必须在 0 到 23")
+        for value, name in (
+            (
+                self.prediction_training_minute,
+                "PREDICTION_TRAINING_MINUTE",
+            ),
+            (
+                self.prediction_inference_minute,
+                "PREDICTION_INFERENCE_MINUTE",
+            ),
+        ):
+            if not 0 <= value <= 59:
+                raise ValueError(f"{name} 必须在 0 到 59")
+        if self.prediction_ops_job_lease_seconds < 300:
+            raise ValueError("PREDICTION_OPS_JOB_LEASE_SECONDS 必须至少为 300")
         if self.jwt_algorithm != "HS256":
             raise ValueError("JWT_ALGORITHM 仅允许 HS256")
         if not 1 <= self.feishu_timeout_seconds <= 15:

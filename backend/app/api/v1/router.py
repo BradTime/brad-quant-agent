@@ -18,6 +18,7 @@ from app.api.v1 import (
     evolution,
     market,
     portfolio,
+    prediction_ops,
     predictions,
     sim,
     strategies,
@@ -70,6 +71,11 @@ api_router.include_router(
     decision_room.router,
     prefix="/decision-room",
     tags=["decision-room"],
+)
+api_router.include_router(
+    prediction_ops.router,
+    prefix="/prediction-ops",
+    tags=["prediction-ops"],
 )
 api_router.include_router(sim.router, prefix="/sim", tags=["sim"])
 api_router.include_router(training.router, prefix="/training", tags=["training"])

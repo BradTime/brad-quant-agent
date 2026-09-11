@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   Activity,
+  BrainCircuit,
   Database,
   FlaskConical,
   LayoutDashboard,
@@ -35,6 +36,13 @@ const NAV: NavItem[] = [
   { href: '/strategies', label: '策略', en: 'Strategies', icon: Layers },
   { href: '/backtest', label: '回测', en: 'Backtest', icon: FlaskConical },
   { href: '/ai', label: 'AI 问答', en: 'Copilot', icon: Sparkles },
+  {
+    href: '/admin/models',
+    label: '模型运营',
+    en: 'Model Ops',
+    icon: BrainCircuit,
+    adminOnly: true,
+  },
   {
     href: '/admin/training',
     label: '训练数据',
