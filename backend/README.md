@@ -334,6 +334,16 @@ bridge 仅同步资金、持仓、委托和成交；`POST /broker/rehearsal-orde
 短语、账户 ID 和报备文件只作为附加控制，不能替代官方可验证账户类型。详见
 `docs/emt-simulation-readiness.md`。
 
+预测运营 API 为管理员专用 `/prediction-ops`。手动 `POST /jobs` 只做幂等入队；
+worker 每 30 秒认领。设置 `PREDICTION_OPS_ENABLED=true` 与明确的
+`PREDICTION_OPS_CODES` 后，调度器在指定星期入队 3–5 年滚动训练，并在工作日收盘后入队
+每日推理。执行过程同时持有 session advisory lock 和可续租 job lease；模型/forecast
+写事务锁定 job 与 Champion 行，旧 worker 不能发布。
+
+`GET /prediction-ops` 返回模型注册表、M6 进度、作业历史和训练完整率。完整率覆盖训练窗口
+前 134 天 warmup，检查每日 PIT 清单、OHLC 顺序、成交量/金额、后复权因子、沪深 300 和
+ingestion audit；结果缓存五分钟。
+
 ## WebSocket 行情推送（`/ws/v1`）
 
 调度器把数据源刷新进内存缓存；一个异步推送循环每 `WS_PUSH_SECONDS`（默认 3s）把订阅主题的最新缓存推给客户端（只读缓存、不发起网络请求，故不阻塞）。

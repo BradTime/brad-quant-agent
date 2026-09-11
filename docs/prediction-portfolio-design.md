@@ -64,5 +64,6 @@ Agents and clients may not submit those facts. The output explicitly keeps
 
 ## Operational follow-up
 
-1. Add weekly, lease-protected retraining and inference jobs.
-2. Add an admin model-run/OOS/calibration dashboard.
+1. [x] Weekly, lease-protected retraining and daily inference jobs.
+2. [x] Admin model-run/OOS/calibration/M6 progress dashboard.
+3. [ ] Collect the forward 60+20-session operating evidence.

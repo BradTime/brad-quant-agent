@@ -198,6 +198,9 @@ python -c "from app.services import brief; print(brief.generate(None)['title'])"
 - M7 基础已完成但未验收：已实现官方 `gm.api` bridge 契约、加密绑定、幂等 outbox、
   流控、断线不重发、完整对账和报备指纹。由于官方接口未暴露可机器验证的仿真账户类型，
   bridge 固定只读，所有演练委托均阻断；需在东财终端完成官方仿真证明后才能开放发送。
+- 模型运营已接通：管理员可查看 OOS/Champion/M6 进度和 3–5 年 PIT 完整率，并手动入队
+  训练/推理；自动每周训练和每日推理默认关闭，启用后由租约、advisory execution lock 与
+  发布事务 fencing 防止重复训练和旧 worker 落库。
 
 ## 测试与 CI
 - **后端单测**：`cd backend && python -m pytest -q`

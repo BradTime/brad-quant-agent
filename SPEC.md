@@ -337,6 +337,15 @@ brad-quant-agent/
    可验证的仿真账户类型证据并完成真实断线/幂等/对账演练后才能勾选本项
 8. [ ] **小资金实盘**：仅在券商/监管确认、二次验证和前述门禁全部通过后启用，20 日达标后方可扩容
 
+#### 模型运营与观察期
+
+- [x] 每周训练与每日推理使用持久化幂等作业、claim token、可续租 lease 和
+  PostgreSQL session advisory execution lock；旧 worker 不能重复训练或发布模型/预测
+- [x] 自动任务默认关闭，仅在配置 provider、1–20 个代码和启用开关后入队；训练前验证
+  3–5 年窗口、134 日特征/基准 warmup、PIT 股票池、有效 OHLC、后复权因子与 ingestion audit
+- [x] 管理员模型运营页展示注册表/OOS 证据、Champion、M6 60+20 进度、失败原因、作业重试和
+  数据完整率；昂贵完整率查询后端缓存五分钟
+
 ### 工程化与 Phase 3 预备（增量）
 - [x] **WS 私有定向推送通道**：连接按 `user_id` 建反向索引，`send_to_user`/`notify_user`(async)+`notify_user_threadsafe`(同步撮合/调度器用)，私有事件信封；Phase 3 成交回报/持仓变动复用（私有数据绝不走广播）
 - [x] **自主深度研究持久化**：`research_reports` 表落库（问题/计划/分步轨迹/正文/状态），`GET /ai/research`(列表)+`/ai/research/{id}`(详情)，前端「研究历史」可回看；为 Phase 3 AI 复盘复用
