@@ -179,3 +179,11 @@ equal-start shadow sessions are mandatory; promotion independently verifies
 the signed evidence and paired statistical gate. Manual overrides are replayed
 with the same execution rules for behavior attribution. See
 `evolution-operations.md`.
+
+## 10. Milestone 7 preparation
+
+The official Eastmoney `gm.api` bridge, encrypted filing/binding records,
+idempotent outbox, lease/rate controls and reconciliation evidence are
+implemented. M7 remains incomplete because the documented SDK does not expose
+a trustworthy simulation-vs-live account type. The bridge is therefore
+read-only and cannot submit orders. See `emt-simulation-readiness.md`.
