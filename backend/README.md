@@ -322,6 +322,18 @@ program 状态绕过。生产必须配置与 JWT/Fernet 原始密钥材料不同
 佣金/印花税逐日结算。60/20 门禁或滚动质量失败自动降级；漏掉收盘承诺不可回填。
 决策室 `/behavior` 使用同一撮合规则比较人工覆盖与原策略，失败记录逐条重试/隔离。
 
+M7 提供基于东财官方文档的 `gm.api` adapter 与终端入口
+`python -m app.broker.emt_bridge`。账户/策略 ID 加密保存并与环境配置双向核对；委托意图
+采用用户幂等键、一次性 `submit_broker_simulation` step-up、数据库每秒流控和 at-most-once
+发送状态，连接中断后进入 `uncertain` 并通过委托/成交回报对账，绝不盲目重发。
+
+当前安全边界是**只读准备态**：官方 `MODE_LIVE` 同时用于仿真与实盘，公开 SDK 没有
+账户类型字段，因此 `OfficialEmtAdapter.simulation_account_verified` 固定为 `false`，
+bridge 仅同步资金、持仓、委托和成交；`POST /broker/rehearsal-orders` 只生成
+`blocked_account_type` 记录，不调用 `order_volume`，演练也不可能标记通过。配置中的确认
+短语、账户 ID 和报备文件只作为附加控制，不能替代官方可验证账户类型。详见
+`docs/emt-simulation-readiness.md`。
+
 ## WebSocket 行情推送（`/ws/v1`）
 
 调度器把数据源刷新进内存缓存；一个异步推送循环每 `WS_PUSH_SECONDS`（默认 3s）把订阅主题的最新缓存推给客户端（只读缓存、不发起网络请求，故不阻塞）。

@@ -184,6 +184,12 @@ def activate_kill_switch(user_id: str, *, reason: str) -> dict[str, Any]:
         )
         result = {**after, "auditId": audit_id}
     try:
+        from app.services import broker_gateway
+
+        broker_gateway.revoke_for_kill_switch(user_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Kill Switch 券商队列撤销失败: %s", type(exc).__name__)
+    try:
         from app.services import decision_notifications
 
         decision_notifications.emit(

@@ -62,7 +62,8 @@ AUTHORITATIVE_ALLOCATION_REVISION = "20260910_0022"
 DECISION_CHAIN_REVISION = "20260910_0023"
 DECISION_ROOM_REVISION = "20260910_0024"
 EVOLUTION_PROGRAMS_REVISION = "20260910_0025"
-HEAD_REVISION = EVOLUTION_PROGRAMS_REVISION
+EMT_SIMULATION_REVISION = "20260911_0026"
+HEAD_REVISION = EMT_SIMULATION_REVISION
 HNSW_INDEX = "ix_documents_embedding_hnsw"
 LEGACY_TABLES = frozenset(
     {
@@ -129,6 +130,13 @@ POST_BASELINE_TABLES = frozenset(
         "evolution_transitions",
         "behavior_attributions",
         "behavior_attribution_attempts",
+        "broker_filing_profiles",
+        "broker_bindings",
+        "broker_rate_windows",
+        "broker_orders",
+        "broker_events",
+        "broker_reconciliations",
+        "broker_rehearsal_runs",
         "decision_room_controls",
         "decision_room_audits",
         "decision_overrides",
@@ -517,6 +525,11 @@ def test_standard_alembic_layout_is_present() -> None:
         ALEMBIC_DIR
         / "versions"
         / f"{EVOLUTION_PROGRAMS_REVISION}_evolution_programs.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{EMT_SIMULATION_REVISION}_emt_simulation.py"
     ).is_file()
 
 

@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "Quant Agent Backend"
-    version: str = "1.7.0"
+    version: str = "1.8.0"
     port: int = 8000
     # 运行环境：dev / production —— 用于生产收紧安全默认（CORS、JWT 密钥校验）
     app_env: str = "dev"
@@ -127,6 +127,15 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:3000"
     feishu_webhook_url: str = ""
     feishu_timeout_seconds: float = 5.0
+    emt_enabled: bool = False
+    emt_environment: str = "simulation"
+    emt_strategy_id: str = ""
+    emt_account_id: str = ""
+    emt_token: str = ""
+    emt_serv_addr: str = "127.0.0.1:7001"
+    emt_max_orders_per_second: int = 5
+    emt_bridge_lease_seconds: int = 30
+    emt_simulation_confirmation: str = ""
 
     # 行情调度器
     enable_scheduler: bool = True
@@ -326,6 +335,21 @@ class Settings(BaseSettings):
                 or parsed.fragment
             ):
                 raise ValueError("FEISHU_WEBHOOK_URL 必须是飞书官方 HTTPS bot webhook")
+        if self.emt_environment != "simulation":
+            raise ValueError("M7 仅允许 EMT simulation 环境")
+        if not 1 <= self.emt_max_orders_per_second <= 10:
+            raise ValueError("EMT_MAX_ORDERS_PER_SECOND 必须在 1 到 10")
+        if self.emt_bridge_lease_seconds < 15:
+            raise ValueError("EMT_BRIDGE_LEASE_SECONDS 必须至少为 15")
+        if self.emt_enabled and not (
+            self.emt_strategy_id.strip()
+            and self.emt_account_id.strip()
+            and self.emt_token.strip()
+            and self.emt_serv_addr.startswith(("127.0.0.1:", "localhost:"))
+            and self.emt_simulation_confirmation
+            == "I_HAVE_SELECTED_EASTMONEY_SIMULATION_ACCOUNT"
+        ):
+            raise ValueError("启用 EMT 必须配置官方终端策略/仿真账户/token/本地地址")
         if self.is_production:
             secret = self.jwt_secret
             normalized = secret.strip().lower()

@@ -45,7 +45,8 @@ export const decisionRoomApi = {
       | 'change_decision_mode'
       | 'override_decision'
       | 'release_kill_switch'
-      | 'reset_totp',
+      | 'reset_totp'
+      | 'submit_broker_simulation',
   ) =>
     unwrap<{ token: string }>(
       apiClient.post('/decision-room/step-up', {

@@ -29,6 +29,7 @@ class StepUpRequest(BaseModel):
         "override_decision",
         "release_kill_switch",
         "reset_totp",
+        "submit_broker_simulation",
     ]
 
     @model_validator(mode="after")

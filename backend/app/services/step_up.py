@@ -33,6 +33,7 @@ PURPOSES = {
     "override_decision",
     "release_kill_switch",
     "reset_totp",
+    "submit_broker_simulation",
 }
 
 

@@ -4,6 +4,15 @@ from app.models.admin import AdminPrivilegeAudit
 from app.models.auth import AuthThrottle, EmailVerification, VerificationEmailOutbox
 from app.models.backtest import BacktestRun
 from app.models.brief import MorningBrief
+from app.models.broker import (
+    BrokerBinding,
+    BrokerEvent,
+    BrokerFilingProfile,
+    BrokerOrder,
+    BrokerRateWindow,
+    BrokerReconciliation,
+    BrokerRehearsalRun,
+)
 from app.models.chat import ChatMessage, ChatSession, UserMemory
 from app.models.decision import DecisionEvent, DecisionRun
 from app.models.document import Document
@@ -86,6 +95,13 @@ __all__ = [
     "IngestionRun",
     "WatchlistItem",
     "MorningBrief",
+    "BrokerBinding",
+    "BrokerEvent",
+    "BrokerFilingProfile",
+    "BrokerOrder",
+    "BrokerReconciliation",
+    "BrokerRehearsalRun",
+    "BrokerRateWindow",
     "ChatSession",
     "ChatMessage",
     "UserMemory",
