@@ -10,8 +10,11 @@ label is the immediately following XSHG session's open-to-close return. Missing
 or suspended sessions are never bridged to a later bar. Every example stores
 both `signal_date` and `label_date`.
 
-Feature schema `daily-pit-v1` contains only current/prior HFQ price, range,
-volatility, amount and volume transformations. Universe filtering uses only the
+Feature schema `daily-pit-v2` adds fixed-order trend, candlestick, volatility,
+amount/volume, observation-pool rank, CSI300 trend, market breadth and rule
+regime fields. Every stock/benchmark window must contain consecutive XSHG
+sessions. Cross-sectional ranks are computed from signal rows before labels are
+checked and inference always uses the model-pinned pool. Universe filtering uses only the
 signal date; consulting label-date membership would leak future suspension/ST/
 delisting state. The next bar must nevertheless be the immediately adjacent
 XSHG session or the example is dropped.
@@ -32,7 +35,13 @@ Out-of-sample promotion gates are balanced accuracy at least 53%, expected
 calibration error at most 10%, and 80% interval coverage between 75% and 85%.
 Evaluation requires at least 100 samples. Promotion requires at least three
 Purged OOS folds and at least 100 OOS samples in each of bull, bear, range and
-risk-off, with every fold/regime report passing.
+risk-off, with at least 20 independent dates in each regime and every
+fold/regime report passing. Date-cluster bootstrap also requires the one-sided
+95% lower balanced-accuracy bound to exceed 50%.
+
+The predeclared v2 closed evaluation did not pass: LightGBM balanced accuracy
+was 49.57% (clustered lower bound 47.53%) and XGBoost 50.73% (48.61%). Both
+remain rejected; the feature gate was not tuned after observing these results.
 
 Artifacts are internal candidate files under `PREDICTION_ARTIFACT_DIR`.
 LightGBM/XGBoost native model files, calibrator JSON and manifest have separate

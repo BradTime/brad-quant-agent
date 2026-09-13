@@ -349,6 +349,10 @@ brad-quant-agent/
   每日 immutable manifest 冻结已认证内容；独立 `suspend_d` 日级证据解释缺 K 线，
   历史名称区间补齐/去重，PIT 股票池按 `rules_version` 共存。当前运营库已物化 1,307 个交易日，
   10 标的五年完整率 100%；LightGBM/XGBoost/v3 候选均未达 53%，保持 rejected
+- [x] `daily-pit-v2` 固定加入连续交易日技术/K 线/量能、固定池截面排名和沪深300/宽度/regime
+  特征；artifact 显式绑定特征名称顺序并兼容 v1，排名先于标签可用性计算，晋级增加按交易日
+  聚类的单侧 95% 准确率下界。封闭评估 LightGBM 49.57%（下界 47.53%）、XGBoost 50.73%
+  （下界 48.61%），均保持 rejected，不做结果导向调参
 
 ### 工程化与 Phase 3 预备（增量）
 - [x] **WS 私有定向推送通道**：连接按 `user_id` 建反向索引，`send_to_user`/`notify_user`(async)+`notify_user_threadsafe`(同步撮合/调度器用)，私有事件信封；Phase 3 成交回报/持仓变动复用（私有数据绝不走广播）

@@ -204,6 +204,9 @@ python -c "from app.services import brief; print(brief.generate(None)['title'])"
 - 数据引导支持 Tushare 按交易日全市场分页回填、独立停牌日证据、内容 Hash manifest 和
   多规则版本 PIT 股票池。当前观察池五年数据门禁已通过；模型未达统计门槛时保持 rejected，
   不会为了启动观察期而降低 53% 要求。
+- `daily-pit-v2` 已完成一次预声明封闭评估：固定技术、截面和市场状态特征与 artifact 顺序，
+  增加交易日聚类置信下界。LightGBM/XGBoost 仍未显示稳定优势，因此保持 rejected，
+  系统不会生成无统计依据的 Champion。
 
 ## 测试与 CI
 - **后端单测**：`cd backend && python -m pytest -q`
