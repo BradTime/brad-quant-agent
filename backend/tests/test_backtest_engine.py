@@ -30,6 +30,7 @@ def _cfg(**kw) -> BacktestConfig:
     base = dict(
         strategy_type="dual_ma", params={}, codes=["X"],
         start="2024-01-01", end="2024-12-31", initial_capital=100000.0,
+        slippage=0.0,
     )
     base.update(kw)
     return BacktestConfig(**base)

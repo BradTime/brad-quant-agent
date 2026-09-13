@@ -17,6 +17,7 @@ from sqlalchemy import (
     Column,
     Date,
     DateTime,
+    ForeignKeyConstraint,
     MetaData,
     Numeric,
     String,
@@ -36,7 +37,7 @@ from app.db.base import Base
 from app.models.market import Instrument
 from app.models.user import User
 from app.providers.base import FinancialSummaryDTO
-from app.services import ingest
+from app.services import ingest, strategy
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 ALEMBIC_CONFIG = BACKEND_ROOT / "alembic.ini"
@@ -49,7 +50,24 @@ BACKTEST_JOBS_REVISION = "20260717_0010"
 STATUS_HISTORY_REVISION = "20260831_0011"
 TRAINING_DATA_REVISION = "20260901_0012"
 ADMIN_AUDIT_REVISION = "20260902_0013"
-HEAD_REVISION = ADMIN_AUDIT_REVISION
+STRATEGY_VERSION_REVISION = "20260908_0014"
+BACKTEST_STRATEGY_REVISION = "20260908_0015"
+UNIVERSE_MEMBERSHIP_REVISION = "20260908_0016"
+FULL_A_JOB_GUARDS_REVISION = "20260908_0017"
+UNIVERSE_SNAPSHOT_REVISION = "20260908_0018"
+CAPITAL_FLOW_VINTAGE_REVISION = "20260909_0019"
+PREDICTION_PORTFOLIO_REVISION = "20260909_0020"
+PREDICTION_TRUST_REVISION = "20260909_0021"
+AUTHORITATIVE_ALLOCATION_REVISION = "20260910_0022"
+DECISION_CHAIN_REVISION = "20260910_0023"
+DECISION_ROOM_REVISION = "20260910_0024"
+EVOLUTION_PROGRAMS_REVISION = "20260910_0025"
+EMT_SIMULATION_REVISION = "20260911_0026"
+PREDICTION_OPS_REVISION = "20260911_0027"
+UNIVERSE_VERSION_PK_REVISION = "20260911_0028"
+SUSPENSION_DAILY_REVISION = "20260911_0029"
+TUSHARE_MANIFEST_REVISION = "20260911_0030"
+HEAD_REVISION = TUSHARE_MANIFEST_REVISION
 HNSW_INDEX = "ix_documents_embedding_hnsw"
 LEGACY_TABLES = frozenset(
     {
@@ -92,6 +110,44 @@ POST_BASELINE_TABLES = frozenset(
         "training_datasets",
         "training_dataset_items",
         "admin_privilege_audits",
+        "strategy_versions",
+        "universe_membership_daily",
+        "universe_snapshot_daily",
+        "capital_flow_vintages",
+        "prediction_model_runs",
+        "prediction_forecasts",
+        "prediction_promotion_audits",
+        "instrument_industry_vintages",
+        "portfolio_risk_profiles",
+        "regime_snapshots",
+        "portfolio_allocation_decisions",
+        "decision_runs",
+        "decision_events",
+        "user_totp_factors",
+        "step_up_grants",
+        "step_up_throttles",
+        "totp_recovery_codes",
+        "user_artifact_deletions",
+        "evolution_programs",
+        "evolution_signal_commitments",
+        "evolution_observations",
+        "evolution_transitions",
+        "behavior_attributions",
+        "behavior_attribution_attempts",
+        "broker_filing_profiles",
+        "broker_bindings",
+        "broker_rate_windows",
+        "broker_orders",
+        "broker_events",
+        "broker_reconciliations",
+        "broker_rehearsal_runs",
+        "prediction_ops_jobs",
+        "instrument_suspension_daily",
+        "tushare_bootstrap_daily_manifests",
+        "decision_room_controls",
+        "decision_room_audits",
+        "decision_overrides",
+        "decision_notifications",
     }
 )
 
@@ -99,6 +155,24 @@ POST_BASELINE_TABLES = frozenset(
 _POST_BASELINE_COLUMNS: dict[str, frozenset[str]] = {
     "users": frozenset({"token_version", "email_verified_at"}),
     "sim_orders": frozenset({"tif", "trade_date"}),
+    "strategies": frozenset(
+        {
+            "definition_type",
+            "current_version",
+            "protocol_version",
+            "definition_sha256",
+            "deleted_at",
+        }
+    ),
+    "backtest_runs": frozenset(
+        {
+            "strategy_id",
+            "strategy_version_id",
+            "strategy_version",
+            "definition_sha256",
+            "job_id",
+        }
+    ),
 }
 
 # baseline 冻结为 TEXT；当前 ORM 为 JSONB，造预迁移库时降回 TEXT
@@ -221,11 +295,27 @@ def _create_pre_alembic_schema(
         if table_name == "financial_summaries":
             continue
         Base.metadata.tables[table_name].to_metadata(schema_metadata)
+    for table in schema_metadata.tables.values():
+        for constraint in list(table.constraints):
+            if isinstance(constraint, ForeignKeyConstraint) and any(
+                element.target_fullname.split(".", 1)[0]
+                not in schema_metadata.tables
+                for element in constraint.elements
+            ):
+                for element in constraint.elements:
+                    table.foreign_keys.discard(element)
+                    element.parent.foreign_keys.discard(element)
+                table.constraints.remove(constraint)
     users_table = schema_metadata.tables.get("users")
     if users_table is not None:
         for constraint in list(users_table.constraints):
             if constraint.name == "ck_users_role_allowed":
                 users_table.constraints.remove(constraint)
+    daily_bars_table = schema_metadata.tables.get("daily_bars")
+    if daily_bars_table is not None:
+        for index in list(daily_bars_table.indexes):
+            if index.name == "ix_daily_bars_trade_date":
+                daily_bars_table.indexes.remove(index)
     Table(
         "financial_summaries",
         schema_metadata,
@@ -361,6 +451,16 @@ def test_standard_alembic_layout_is_present() -> None:
         / f"{FINANCIAL_PIT_REVISION}_financial_summary_pit.py"
     ).is_file()
     assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{TUSHARE_MANIFEST_REVISION}_tushare_bootstrap_manifests.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{SUSPENSION_DAILY_REVISION}_suspension_daily.py"
+    ).is_file()
+    assert (
         ALEMBIC_DIR / "versions" / f"{AUTH_THROTTLE_REVISION}_auth_throttles.py"
     ).is_file()
     assert (
@@ -382,6 +482,81 @@ def test_standard_alembic_layout_is_present() -> None:
         ALEMBIC_DIR
         / "versions"
         / f"{ADMIN_AUDIT_REVISION}_admin_privilege_audit.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{STRATEGY_VERSION_REVISION}_strategy_versions.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{BACKTEST_STRATEGY_REVISION}_backtest_strategy_binding.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{UNIVERSE_MEMBERSHIP_REVISION}_universe_membership.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{FULL_A_JOB_GUARDS_REVISION}_full_a_job_guards.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{UNIVERSE_SNAPSHOT_REVISION}_universe_snapshots.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{CAPITAL_FLOW_VINTAGE_REVISION}_capital_flow_vintages.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{PREDICTION_PORTFOLIO_REVISION}_prediction_portfolio.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{PREDICTION_TRUST_REVISION}_prediction_trust.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{AUTHORITATIVE_ALLOCATION_REVISION}_authoritative_allocation.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{DECISION_CHAIN_REVISION}_decision_chain.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{DECISION_ROOM_REVISION}_decision_room_controls.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{EVOLUTION_PROGRAMS_REVISION}_evolution_programs.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{EMT_SIMULATION_REVISION}_emt_simulation.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{PREDICTION_OPS_REVISION}_prediction_ops_jobs.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{UNIVERSE_VERSION_PK_REVISION}_universe_membership_version_pk.py"
     ).is_file()
 
 
@@ -440,6 +615,106 @@ def test_sqlite_upgrade_remains_compatible_without_postgresql_lock(tmp_path: Pat
     _run_alembic(database_url, "upgrade", "head")
 
     assert _revision_rows(database_url) == [HEAD_REVISION]
+
+
+def test_strategy_version_migration_backfills_existing_definitions(
+    temporary_database: Callable[[], URL],
+) -> None:
+    database_url = temporary_database()
+    _run_alembic(database_url, "upgrade", ADMIN_AUDIT_REVISION)
+    engine = create_engine(database_url, pool_pre_ping=True)
+    try:
+        metadata = MetaData()
+        strategies = Table("strategies", metadata, autoload_with=engine)
+        with engine.begin() as connection:
+            connection.execute(
+                strategies.insert().values(
+                    id="legacy-strategy",
+                    user_id="legacy-user",
+                    name="Legacy",
+                    description="",
+                    category="trend_following",
+                    builtin_type="dual_ma",
+                    params_json={
+                        "schemaVersion": 1,
+                        "payload": {"fast": 5, "slow": 20, "target": 0.9},
+                    },
+                    status="draft",
+                )
+            )
+    finally:
+        engine.dispose()
+
+    _run_alembic(database_url, "upgrade", "head")
+    engine = create_engine(database_url, pool_pre_ping=True)
+    try:
+        with engine.connect() as connection:
+            head = connection.execute(
+                text(
+                    "SELECT definition_type, current_version, protocol_version, "
+                    "definition_sha256 FROM strategies WHERE id='legacy-strategy'"
+                )
+            ).one()
+            version = connection.execute(
+                text(
+                    "SELECT version, definition_sha256, implementation_version "
+                    "FROM strategy_versions "
+                    "WHERE strategy_id='legacy-strategy'"
+                )
+            ).one()
+        assert head.definition_type == "builtin"
+        assert head.current_version == 1
+        assert head.protocol_version == "signal-v1"
+        assert len(head.definition_sha256) == 64
+        assert version.version == 1
+        assert version.definition_sha256 == head.definition_sha256
+        assert version.implementation_version == "builtin-v1"
+        expected = strategy.validate_definition(
+            "builtin",
+            "dual_ma",
+            {"fast": 5, "slow": 20, "target": 0.9},
+            None,
+        )[4]
+        assert head.definition_sha256 == expected
+    finally:
+        engine.dispose()
+
+
+def test_capital_flow_vintage_migration_preserves_first_observed_row(
+    temporary_database: Callable[[], URL],
+) -> None:
+    database_url = temporary_database()
+    _run_alembic(database_url, "upgrade", UNIVERSE_SNAPSHOT_REVISION)
+    engine = create_engine(database_url, pool_pre_ping=True)
+    observed_at = datetime(2026, 9, 1, 8, tzinfo=UTC)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO capital_flows "
+                    "(code, trade_date, main_net, main_net_ratio, source, fetched_at) "
+                    "VALUES ('600000.SH', '2026-08-31', 100000000, 5, "
+                    "'legacy', :observed_at)"
+                ),
+                {"observed_at": observed_at},
+            )
+    finally:
+        engine.dispose()
+
+    _run_alembic(database_url, "upgrade", "head")
+    engine = create_engine(database_url, pool_pre_ping=True)
+    try:
+        with engine.connect() as connection:
+            row = connection.execute(
+                text(
+                    "SELECT available_at, fetched_at, vintage "
+                    "FROM capital_flow_vintages WHERE code='600000.SH'"
+                )
+            ).one()
+        assert row.available_at == row.fetched_at
+        assert len(row.vintage) == 64
+    finally:
+        engine.dispose()
 
 
 def test_email_verification_migration_marks_legacy_users_verified(tmp_path: Path) -> None:

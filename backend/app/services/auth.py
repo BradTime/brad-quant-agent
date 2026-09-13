@@ -8,6 +8,7 @@ User data is scoped by a stable ``id`` (uuid4) so everything downstream can be
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -22,6 +23,7 @@ from app.models.auth import EmailVerification, VerificationEmailOutbox
 from app.models.user import User
 from app.services.verification_outbox import encrypt_token, requeue_failed_outbox
 
+logger = logging.getLogger(__name__)
 AUTH_FAILURE_MESSAGE = "无法完成认证"
 REGISTRATION_ACCEPTED_MESSAGE = "如果可以创建账户，注册请求已受理"
 REGISTRATION_ACCEPTED = {
@@ -211,28 +213,48 @@ def get_user_by_id(user_id: str) -> User | None:
         ).scalar_one_or_none()
 
 
-def delete_account(user_id: str) -> bool:
+def delete_account(user_id: str, *, step_up_token: str) -> bool:
     """Delete training artifacts first, then remove the account record."""
     from app.models.backtest import BacktestRun
     from app.models.brief import MorningBrief
     from app.models.chat import ChatSession, UserMemory
     from app.models.job import BacktestJob
     from app.models.research import ResearchReport
-    from app.models.strategy import Strategy
+    from app.models.strategy import Strategy, StrategyVersion
     from app.models.trading import SimAccount, SimOrder, SimPosition, SimTrade
     from app.models.watchlist import WatchlistItem
-    from app.services.training_data import erase_user_data
+    from app.services import artifact_deletion, step_up, training_data
 
-    erase_user_data(user_id)
+    artifact_removal_queue: list[str] = []
+    deletion_ids: list[str] = []
     with SessionLocal.begin() as session:
-        user = session.get(User, user_id)
+        user = session.execute(
+            select(User).where(User.id == user_id).with_for_update()
+        ).scalar_one_or_none()
         if user is None:
             return False
+        step_up.consume(
+            session,
+            user=user,
+            token=step_up_token,
+            purpose="delete_account",
+        )
+        training_data.erase_user_data(
+            user_id,
+            session=session,
+            artifact_removal_queue=artifact_removal_queue,
+        )
+        deletion_ids = artifact_deletion.enqueue(
+            session,
+            user_id=user_id,
+            paths=artifact_removal_queue,
+        )
         for model in (
             BacktestJob,
             BacktestRun,
             MorningBrief,
             ResearchReport,
+            StrategyVersion,
             Strategy,
             WatchlistItem,
             UserMemory,
@@ -252,6 +274,14 @@ def delete_account(user_id: str) -> bool:
             delete(EmailVerification).where(EmailVerification.email == user.email)
         )
         session.delete(user)
+    for deletion_id in deletion_ids:
+        try:
+            artifact_deletion.process(deletion_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "账户已删除，artifact outbox 将重试清理: %s",
+                type(exc).__name__,
+            )
     return True
 
 

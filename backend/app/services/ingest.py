@@ -31,7 +31,12 @@ from app.core.numeric import to_decimal, to_int
 from app.core.ohlc import validate_ohlc
 from app.core.tz import MARKET_TZ
 from app.db.session import SessionLocal
-from app.models.extra import CapitalFlow, DragonTiger, FinancialSummary, NewsItem
+from app.models.extra import (
+    CapitalFlowVintage,
+    DragonTiger,
+    FinancialSummary,
+    NewsItem,
+)
 from app.models.ingestion import IngestionRun
 from app.models.market import (
     AdjustFactor,
@@ -140,6 +145,35 @@ def _financial_vintage(metrics: dict[str, object]) -> str:
         separators=(",", ":"),
     ).encode()
     return hashlib.sha256(encoded).hexdigest()
+
+
+_CAPITAL_FLOW_FIELDS = (
+    "main_net",
+    "main_net_ratio",
+    "super_large_net",
+    "large_net",
+    "medium_net",
+    "small_net",
+)
+
+
+def _capital_flow_vintage(metrics: dict[str, Decimal | None]) -> str:
+    payload = {
+        field: (
+            format(value.normalize(), "f")
+            if value is not None
+            else None
+        )
+        for field, value in metrics.items()
+    }
+    return hashlib.sha256(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
 
 
 def _normalize_financial_metrics(
@@ -740,32 +774,42 @@ def fetch_quotes(
 def ingest_capital_flow(code: str, provider_name: str | None = None) -> int:
     provider = _resolve(provider_name, "capital_flow")
     items = provider.get_capital_flow(code)
-    now = _now()
-    rows = [
-        {
-            "code": r.code,
-            "trade_date": r.trade_date,
-            "main_net": to_decimal(r.main_net),
-            "main_net_ratio": to_decimal(r.main_net_ratio),
-            "super_large_net": to_decimal(r.super_large_net),
-            "large_net": to_decimal(r.large_net),
-            "medium_net": to_decimal(r.medium_net),
-            "small_net": to_decimal(r.small_net),
-            "source": provider.name,
-            "fetched_at": now,
+    observed_at = _utc_datetime(_now())
+    rows = []
+    for item in items:
+        metrics = {
+            field: to_decimal(getattr(item, field))
+            for field in _CAPITAL_FLOW_FIELDS
         }
-        for r in items
-    ]
-    with SessionLocal() as session:
-        n = _upsert(
-            session,
-            CapitalFlow,
-            rows,
-            ["code", "trade_date"],
-            ["main_net", "main_net_ratio", "super_large_net", "large_net", "medium_net", "small_net", "source", "fetched_at"],
+        rows.append(
+            {
+                "id": str(uuid4()),
+                "code": item.code,
+                "trade_date": item.trade_date,
+                "available_at": observed_at,
+                "vintage": _capital_flow_vintage(metrics),
+                **metrics,
+                "source": provider.name,
+                "fetched_at": observed_at,
+                "last_seen_at": observed_at,
+            }
         )
+    with SessionLocal() as session:
+        inserted = 0
+        dialect_name = session.get_bind().dialect.name
+        insert = sqlite_insert if dialect_name == "sqlite" else pg_insert
+        for row in rows:
+            result = session.execute(
+                insert(CapitalFlowVintage).values(**row).on_conflict_do_update(
+                    index_elements=["code", "trade_date", "vintage"],
+                    set_={
+                        "last_seen_at": observed_at,
+                    },
+                )
+            )
+            inserted += max(int(result.rowcount or 0), 0)
         session.commit()
-    return n
+    return inserted
 
 
 def ingest_financials(code: str, provider_name: str | None = None) -> int:
@@ -897,10 +941,10 @@ def _dataset_actual_range(
         )
     elif dataset == "capital_flow":
         model, range_column, code_column, fetched_column = (
-            CapitalFlow,
-            CapitalFlow.trade_date,
-            CapitalFlow.code,
-            CapitalFlow.fetched_at,
+            CapitalFlowVintage,
+            CapitalFlowVintage.trade_date,
+            CapitalFlowVintage.code,
+            CapitalFlowVintage.last_seen_at,
         )
     elif dataset == "financials":
         model = FinancialSummary

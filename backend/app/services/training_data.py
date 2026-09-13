@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import shutil
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -28,6 +30,8 @@ from app.services.training_redaction import (
     redact_payload,
     redact_text,
 )
+
+logger = logging.getLogger(__name__)
 
 ISSUE_LABELS = {
     "incorrect",
@@ -119,6 +123,13 @@ def _remove_artifact(path_value: str | None) -> None:
     dataset_dir = target.parent
     if dataset_dir.parent == root:
         shutil.rmtree(dataset_dir, ignore_errors=True)
+
+
+def remove_artifact_after_commit(path_value: str) -> bool:
+    _remove_artifact(path_value)
+    root = Path(settings.training_artifact_dir).resolve()
+    target = Path(path_value).resolve()
+    return root in target.parents and not target.parent.exists()
 
 
 def set_consent(user_id: str, session_id: str, enabled: bool) -> dict[str, Any]:
@@ -590,10 +601,16 @@ def export_user_data(user_id: str) -> dict[str, Any]:
         }
 
 
-def erase_user_data(user_id: str) -> dict[str, int]:
+def erase_user_data(
+    user_id: str,
+    *,
+    session=None,
+    artifact_removal_queue: list[str] | None = None,
+) -> dict[str, int]:
     removed = {"consents": 0, "traces": 0, "feedback": 0, "candidates": 0}
     now = _now()
-    with SessionLocal.begin() as db:
+    context = nullcontext(session) if session is not None else SessionLocal.begin()
+    with context as db:
         _lock_dataset_lifecycle(db)
         traces = db.execute(
             select(AIGenerationTrace).where(AIGenerationTrace.user_id == user_id)
@@ -624,7 +641,13 @@ def erase_user_data(user_id: str) -> dict[str, int]:
                 if dataset is not None:
                     dataset.status = "deprecated"
                     dataset.deprecated_at = now
-                    _remove_artifact(dataset.artifact_path)
+                    if (
+                        artifact_removal_queue is not None
+                        and dataset.artifact_path
+                    ):
+                        artifact_removal_queue.append(dataset.artifact_path)
+                    else:
+                        _remove_artifact(dataset.artifact_path)
                     dataset.artifact_path = None
             for item in items:
                 item.candidate_id = None
@@ -647,6 +670,30 @@ def erase_user_data(user_id: str) -> dict[str, int]:
                 "candidates": len(candidates),
             }
         )
+    return removed
+
+
+def erase_user_data_durable(user_id: str) -> dict[str, int]:
+    from app.services import artifact_deletion
+
+    paths: list[str] = []
+    with SessionLocal.begin() as db:
+        removed = erase_user_data(
+            user_id,
+            session=db,
+            artifact_removal_queue=paths,
+        )
+        deletion_ids = artifact_deletion.enqueue(
+            db, user_id=user_id, paths=paths
+        )
+    for deletion_id in deletion_ids:
+        try:
+            artifact_deletion.process(deletion_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "训练数据已删除，artifact outbox 将重试清理: %s",
+                type(exc).__name__,
+            )
     return removed
 
 

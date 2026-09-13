@@ -136,7 +136,7 @@ export default function StrategyDetailPage() {
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
             <div>
-              <p className="text-xs text-muted-foreground">内置策略</p>
+              <p className="text-xs text-muted-foreground">策略实现</p>
               <p className="mt-1 font-medium">{item.builtinType}</p>
             </div>
             <div>

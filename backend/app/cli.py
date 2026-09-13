@@ -67,6 +67,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_status_batch.add_argument("--provider", default=None)
 
+    p_universe = sub.add_parser(
+        "build-pit-universe",
+        help="按指定交易日物化全 A 股 PIT 股票池",
+    )
+    p_universe.add_argument("--date")
+    p_universe.add_argument("--start")
+    p_universe.add_argument("--end")
+
     p_q = sub.add_parser("quotes", help="拉取实时快照（不落库，用于连通性验证）")
     p_q.add_argument("--codes", required=True, help="逗号分隔，如 600000.SH,000001.SZ")
     p_q.add_argument("--provider", default=None)
@@ -78,6 +86,11 @@ def main(argv: list[str] | None = None) -> int:
     p_fin = sub.add_parser("ingest-financials", help="拉取并落库财务摘要")
     p_fin.add_argument("--code", required=True)
     p_fin.add_argument("--provider", default=None)
+
+    p_industry = sub.add_parser(
+        "ingest-industry", help="首次观测并追加行业分类 Vintage"
+    )
+    p_industry.add_argument("--code", required=True)
 
     p_lhb = sub.add_parser("ingest-dragon-tiger", help="拉取并落库龙虎榜")
     p_lhb.add_argument("--start", required=True)
@@ -99,6 +112,35 @@ def main(argv: list[str] | None = None) -> int:
     p_training_build.add_argument("--version", required=True)
     p_training_export = training_sub.add_parser("export", help="验证并显示数据集位置")
     p_training_export.add_argument("--version", required=True)
+
+    p_prediction = sub.add_parser(
+        "prediction", help="M3 预测模型训练与注册"
+    )
+    prediction_sub = p_prediction.add_subparsers(
+        dest="prediction_cmd", required=True
+    )
+    p_prediction_train = prediction_sub.add_parser(
+        "train", help="运行 Purged OOS 门禁并注册候选"
+    )
+    p_prediction_train.add_argument("--version", required=True)
+    p_prediction_train.add_argument(
+        "--provider",
+        choices=["lightgbm", "xgboost"],
+        default="lightgbm",
+    )
+    p_prediction_train.add_argument("--codes", required=True)
+    p_prediction_train.add_argument("--start", required=True)
+    p_prediction_train.add_argument("--end", required=True)
+    p_prediction_train.add_argument("--user-id", default=None)
+    p_prediction_infer = prediction_sub.add_parser(
+        "infer", help="使用 Champion 生成并落库每日预测"
+    )
+    p_prediction_infer.add_argument("--date", required=True)
+    p_prediction_infer.add_argument("--codes", required=True)
+    p_prediction_recover = prediction_sub.add_parser(
+        "recover", help="恢复或失败关闭中断的模型注册"
+    )
+    p_prediction_recover.add_argument("--version", required=True)
 
     p_admin = sub.add_parser("admin", help="管理员引导与审计")
     admin_sub = p_admin.add_subparsers(dest="admin_cmd", required=True)
@@ -172,6 +214,31 @@ def main(argv: list[str] | None = None) -> int:
         prefix = "✅" if not errors else "❌"
         print(f"{prefix} 历史 ST 回填：{rows} 个区间；失败 {errors}")
         return 1 if errors else 0
+
+    if args.cmd == "build-pit-universe":
+        import json
+        from datetime import date
+
+        from app.services import universe_membership
+
+        try:
+            if args.date and not (args.start or args.end):
+                result = universe_membership.build_for_date(
+                    date.fromisoformat(args.date)
+                )
+            elif not args.date and args.start and args.end:
+                result = universe_membership.build_range(
+                    date.fromisoformat(args.start),
+                    date.fromisoformat(args.end),
+                )
+            else:
+                print("必须提供 --date，或同时提供 --start/--end")
+                return 1
+        except ValueError as exc:
+            print(f"股票池参数无效：{exc}")
+            return 1
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
 
     if args.cmd == "backfill":
         from datetime import date, timedelta
@@ -263,6 +330,58 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result.get("ok", result.get("checksumOk", True)) else 1
 
+    if args.cmd == "prediction":
+        import json
+        from datetime import date
+
+        from app.providers.symbols import normalize_a_share_codes
+        from app.services import prediction_training
+
+        try:
+            if args.prediction_cmd == "train":
+                codes = normalize_a_share_codes(
+                    [
+                        code.strip()
+                        for code in args.codes.split(",")
+                        if code.strip()
+                    ]
+                )
+                result = prediction_training.train_from_database(
+                    version=args.version,
+                    provider=args.provider,
+                    codes=codes,
+                    start=date.fromisoformat(args.start),
+                    end=date.fromisoformat(args.end),
+                    user_id=args.user_id,
+                )
+            elif args.prediction_cmd == "infer":
+                codes = normalize_a_share_codes(
+                    [
+                        code.strip()
+                        for code in args.codes.split(",")
+                        if code.strip()
+                    ]
+                )
+                result = prediction_training.infer_from_database(
+                    signal_date=date.fromisoformat(args.date),
+                    codes=codes,
+                )
+            else:
+                from app.services import prediction_registry
+
+                result = prediction_registry.recover_registration(
+                    args.version
+                )
+        except ValueError as exc:
+            print(f"预测训练拒绝：{exc}")
+            return 1
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        if args.prediction_cmd == "train":
+            return 0 if result["status"] == "validated" else 1
+        if args.prediction_cmd == "recover":
+            return 0 if result["status"] == "validated" else 1
+        return 0
+
     if args.cmd == "admin":
         import json
 
@@ -332,6 +451,13 @@ def main(argv: list[str] | None = None) -> int:
     elif args.cmd == "ingest-financials":
         n = ingest.ingest_financials(args.code, args.provider)
         print(f"✅ {args.code} 财务摘要落库 {n} 条")
+    elif args.cmd == "ingest-industry":
+        import json
+
+        from app.services import industry_history
+
+        result = industry_history.refresh(args.code)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
     elif args.cmd == "ingest-dragon-tiger":
         n = ingest.ingest_dragon_tiger(args.start, args.end, args.provider)
         print(f"✅ 龙虎榜落库 {n} 条")

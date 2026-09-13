@@ -1,4 +1,4 @@
-"""Persisted built-in strategy CRUD endpoints."""
+"""Persisted strategy heads and immutable version endpoints."""
 
 from __future__ import annotations
 
@@ -7,7 +7,11 @@ from fastapi import APIRouter, Depends, Query
 from app.api.deps import get_current_user
 from app.core.response import error, success
 from app.models.user import User
-from app.schemas.strategy import StrategyCreateRequest, StrategyUpdateRequest
+from app.schemas.strategy import (
+    StrategyCreateRequest,
+    StrategySignalRequest,
+    StrategyUpdateRequest,
+)
 from app.services import strategy
 
 router = APIRouter()
@@ -60,9 +64,55 @@ def create_strategy(
             description=body.description,
             builtin_type=body.builtin_type,
             params=body.params,
+            definition_type=body.definition_type,
+            source_code=body.source_code,
         )
     except ValueError as exc:
         return error(str(exc), code=400, http_status=400)
+    return success(result)
+
+
+@router.get("/{strategy_id}/versions")
+def list_strategy_versions(
+    strategy_id: str, user: User = Depends(get_current_user)
+):
+    result = strategy.list_versions(str(user.id), strategy_id)
+    if result is None:
+        return error("策略不存在", code=404, http_status=404)
+    return success(result)
+
+
+@router.get("/{strategy_id}/versions/{version}")
+def get_strategy_version(
+    strategy_id: str,
+    version: int,
+    user: User = Depends(get_current_user),
+):
+    result = strategy.get_version(str(user.id), strategy_id, version)
+    if result is None:
+        return error("策略版本不存在", code=404, http_status=404)
+    return success(result)
+
+
+@router.post("/{strategy_id}/versions/{version}/signals")
+def run_strategy_version_signals(
+    strategy_id: str,
+    version: int,
+    body: StrategySignalRequest,
+    user: User = Depends(get_current_user),
+):
+    try:
+        result = strategy.run_version_signals(
+            str(user.id),
+            strategy_id,
+            version,
+            context=body.context,
+            bars=body.bars,
+        )
+    except ValueError as exc:
+        return error(str(exc), code=400, http_status=400)
+    if result is None:
+        return error("策略版本不存在", code=404, http_status=404)
     return success(result)
 
 
@@ -78,6 +128,8 @@ def update_strategy(
             strategy_id,
             body.model_dump(exclude_unset=True),
         )
+    except strategy.StrategyConflictError as exc:
+        return error(str(exc), code=409, http_status=409)
     except ValueError as exc:
         return error(str(exc), code=400, http_status=400)
     if result is None:

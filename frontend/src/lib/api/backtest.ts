@@ -35,13 +35,41 @@ export interface StrategyCatalogItem {
 export interface BacktestRunRequest {
   strategyType: BacktestStrategyType;
   params: Record<string, number>;
+  strategyId?: string;
+  strategyVersion?: number;
   codes: string[];
   start: string;
   end: string;
   initialCapital: number;
   slippage: number;
+  maxParticipation?: number;
+  universeMode?: 'manual' | 'pit_filtered';
   engine: BacktestEngine;
   frequency: BacktestFrequency;
+}
+
+export interface FullABacktestRequest {
+  strategyType: 'xs_momentum' | 'composite_mf';
+  params: Record<string, number>;
+  strategyId?: string;
+  strategyVersion?: number;
+  start: string;
+  end: string;
+  initialCapital: number;
+  slippage: number;
+  maxParticipation: number;
+}
+
+export interface FullABacktestRequest {
+  strategyType: 'xs_momentum' | 'composite_mf';
+  params: Record<string, number>;
+  strategyId?: string;
+  strategyVersion?: number;
+  start: string;
+  end: string;
+  initialCapital: number;
+  slippage: number;
+  maxParticipation: number;
 }
 
 export interface EquityPointWithBenchmark extends EquityPoint {
@@ -57,6 +85,10 @@ export interface BacktestMetricsExt extends Partial<BacktestMetrics> {
 export interface BacktestRunResult {
   id: string;
   strategyType: BacktestStrategyType;
+  strategyId?: string | null;
+  strategyVersionId?: string | null;
+  strategyVersion?: number | null;
+  definitionSha256?: string | null;
   status: 'completed' | 'failed';
   engine: string;
   error?: string | null;
@@ -163,6 +195,8 @@ export const backtestApi = {
     unwrap<{ items: StrategyCatalogItem[] }>(apiClient.get('/backtest/strategies')),
   run: (req: BacktestRunRequest) =>
     unwrap<BacktestRunResult>(apiClient.post('/backtest/run', req)),
+  runFullA: (req: FullABacktestRequest) =>
+    unwrap<BacktestJob>(apiClient.post('/backtest/full-a', req)),
   list: () =>
     unwrap<{ items: BacktestRunResult[]; total: number }>(apiClient.get('/backtest')),
   get: (id: string) => unwrap<BacktestRunResult>(apiClient.get(`/backtest/${id}`)),

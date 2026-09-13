@@ -1,8 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { placeSimOrder } from '@/lib/api/sim';
-import { getApiErrorMessage } from '@/lib/api/errors';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 
 export interface ApplyToSimDraft {
@@ -16,32 +15,11 @@ export interface ApplyToSimDraft {
  */
 export function ApplyToSimButton({ draft }: { draft: ApplyToSimDraft | null }) {
   const [open, setOpen] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
 
   if (!draft?.code) return null;
 
   const qty = draft.qty && draft.qty >= 100 ? Math.floor(draft.qty / 100) * 100 : 100;
   const sideLabel = draft.side === 'buy' ? '买入' : '卖出';
-
-  const submit = async () => {
-    setSubmitting(true);
-    setMessage(null);
-    try {
-      const order = await placeSimOrder({
-        code: draft.code,
-        side: draft.side,
-        type: 'market',
-        qty,
-      });
-      setMessage(`已提交模拟市价单：${order.code} ${sideLabel} ${order.qty} 股（${order.status}）`);
-      setOpen(false);
-    } catch (err) {
-      setMessage(getApiErrorMessage(err, '模拟下单失败'));
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   return (
     <div className="space-y-2" data-testid="apply-to-sim">
@@ -55,11 +33,15 @@ export function ApplyToSimButton({ draft }: { draft: ApplyToSimDraft | null }) {
             <span className="font-mono">{draft.code}</span> × {qty} 股。
           </p>
           <p className="text-xs text-muted-foreground">
-            仅 play-money 模拟盘，不构成投资建议；请确认后再提交。
+            回测结果不会直接下单，也尚未形成权威风险审批。请前往模拟页重新核对并手工填写。
           </p>
           <div className="flex gap-2">
-            <Button type="button" size="sm" disabled={submitting} onClick={() => void submit()}>
-              {submitting ? '提交中…' : '确认下单'}
+            <Button asChild type="button" size="sm">
+              <Link
+                href={`/sim?code=${encodeURIComponent(draft.code)}`}
+              >
+                前往模拟页复核
+              </Link>
             </Button>
             <Button type="button" size="sm" variant="ghost" onClick={() => setOpen(false)}>
               取消
@@ -67,7 +49,6 @@ export function ApplyToSimButton({ draft }: { draft: ApplyToSimDraft | null }) {
           </div>
         </div>
       )}
-      {message && <p className="text-xs text-muted-foreground">{message}</p>}
     </div>
   );
 }

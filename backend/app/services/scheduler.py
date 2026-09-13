@@ -46,6 +46,117 @@ def _add_training_maintenance_job(scheduler) -> None:
     )
 
 
+def _add_decision_notification_job(scheduler) -> None:
+    from app.core.config import settings
+
+    if not settings.enable_decision_notification_scheduler:
+        return
+    from app.services.decision_notifications import retry_pending
+
+    scheduler.add_job(
+        retry_pending,
+        "interval",
+        seconds=60,
+        id="retry_pending_decision_notifications",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=60,
+    )
+
+
+def _add_artifact_deletion_job(scheduler) -> None:
+    from app.core.config import settings
+
+    if not settings.enable_artifact_deletion_scheduler:
+        return
+    from app.services.artifact_deletion import process_due
+
+    scheduler.add_job(
+        process_due,
+        "interval",
+        seconds=60,
+        id="retry_user_artifact_deletions",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=60,
+    )
+
+
+def _add_evolution_job(scheduler) -> None:
+    from app.core.config import settings
+
+    if not settings.enable_evolution_scheduler:
+        return
+    from app.services.evolution import (
+        attribute_due_overrides,
+        process_due_programs,
+    )
+
+    scheduler.add_job(
+        process_due_programs,
+        "cron",
+        hour=17,
+        minute=30,
+        id="evaluate_challenger_programs",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+    scheduler.add_job(
+        attribute_due_overrides,
+        "cron",
+        hour=18,
+        minute=0,
+        id="attribute_decision_overrides",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
+
+def _add_prediction_ops_jobs(scheduler) -> None:
+    from app.core.config import settings
+    from app.services.prediction_ops import (
+        enqueue_scheduled_inference,
+        enqueue_scheduled_training,
+        process_next,
+    )
+
+    scheduler.add_job(
+        process_next,
+        "interval",
+        seconds=30,
+        id="process_prediction_ops_jobs",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=60,
+    )
+    if not settings.prediction_ops_enabled:
+        return
+    scheduler.add_job(
+        enqueue_scheduled_training,
+        "cron",
+        day_of_week=settings.prediction_training_weekday,
+        hour=settings.prediction_training_hour,
+        minute=settings.prediction_training_minute,
+        id="enqueue_weekly_prediction_training",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+    scheduler.add_job(
+        enqueue_scheduled_inference,
+        "cron",
+        day_of_week="mon-fri",
+        hour=settings.prediction_inference_hour,
+        minute=settings.prediction_inference_minute,
+        id="enqueue_daily_prediction_inference",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
+
 def start_scheduler():
     global _scheduler
     if _scheduler is not None:
@@ -66,6 +177,10 @@ def start_scheduler():
     if not settings.enable_scheduler:
         _add_outbox_job(scheduler)
         _add_training_maintenance_job(scheduler)
+        _add_decision_notification_job(scheduler)
+        _add_artifact_deletion_job(scheduler)
+        _add_evolution_job(scheduler)
+        _add_prediction_ops_jobs(scheduler)
         scheduler.start()
         _scheduler = scheduler
         logger.info("认证邮件 outbox 调度器已启动")
@@ -287,6 +402,10 @@ def start_scheduler():
 
     _add_outbox_job(scheduler)
     _add_training_maintenance_job(scheduler)
+    _add_decision_notification_job(scheduler)
+    _add_artifact_deletion_job(scheduler)
+    _add_evolution_job(scheduler)
+    _add_prediction_ops_jobs(scheduler)
     scheduler.start()
     _scheduler = scheduler
     logger.info("行情调度器已启动（行情 %ss / 指数 %ss）", quote_secs, index_secs)

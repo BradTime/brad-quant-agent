@@ -5,6 +5,7 @@ import binascii
 import logging
 import re
 from functools import lru_cache
+from urllib.parse import urlparse
 
 from cryptography.fernet import Fernet
 from pydantic import model_validator
@@ -50,7 +51,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "Quant Agent Backend"
-    version: str = "1.1.0"
+    version: str = "1.11.0"
     port: int = 8000
     # 运行环境：dev / production —— 用于生产收紧安全默认（CORS、JWT 密钥校验）
     app_env: str = "dev"
@@ -90,6 +91,9 @@ class Settings(BaseSettings):
 
     # JWT
     jwt_secret: str = "change-me-in-production"
+    evolution_attestation_key: str = "dev-evolution-attestation-key"
+    evolution_attestation_key_id: str = "dev-v1"
+    evolution_attestation_previous_keys: str = ""
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 1440
     ws_ticket_expire_seconds: int = 120
@@ -111,6 +115,9 @@ class Settings(BaseSettings):
     auth_outbox_max_attempts: int = 6
     auth_outbox_retry_base_seconds: int = 60
     enable_auth_outbox_scheduler: bool = True
+    enable_decision_notification_scheduler: bool = True
+    enable_artifact_deletion_scheduler: bool = True
+    enable_evolution_scheduler: bool = True
     smtp_host: str = ""
     smtp_port: int = 587
     smtp_user: str = ""
@@ -118,6 +125,17 @@ class Settings(BaseSettings):
     smtp_from: str = ""
     smtp_starttls: bool = True
     frontend_url: str = "http://localhost:3000"
+    feishu_webhook_url: str = ""
+    feishu_timeout_seconds: float = 5.0
+    emt_enabled: bool = False
+    emt_environment: str = "simulation"
+    emt_strategy_id: str = ""
+    emt_account_id: str = ""
+    emt_token: str = ""
+    emt_serv_addr: str = "127.0.0.1:7001"
+    emt_max_orders_per_second: int = 5
+    emt_bridge_lease_seconds: int = 30
+    emt_simulation_confirmation: str = ""
 
     # 行情调度器
     enable_scheduler: bool = True
@@ -213,6 +231,27 @@ class Settings(BaseSettings):
     training_readiness_min_per_task: int = 50
     training_readiness_min_validation: int = 100
 
+    # Custom strategy signal sandbox. AST restrictions are mandatory; process
+    # limits are defense-in-depth.
+    strategy_sandbox_timeout_seconds: float = 2.0
+    strategy_sandbox_memory_mb: int = 128
+    strategy_sandbox_max_concurrency: int = 2
+    full_a_backtest_chunk_sessions: int = 20
+    backtest_job_lease_seconds: int = 300
+    prediction_artifact_dir: str = "./var/prediction"
+    prediction_rolling_years: int = 3
+    prediction_cv_folds: int = 5
+    prediction_embargo_sessions: int = 5
+    prediction_ops_enabled: bool = False
+    prediction_ops_codes: str = ""
+    prediction_ops_provider: str = "lightgbm"
+    prediction_training_weekday: str = "sat"
+    prediction_training_hour: int = 9
+    prediction_training_minute: int = 0
+    prediction_inference_hour: int = 17
+    prediction_inference_minute: int = 0
+    prediction_ops_job_lease_seconds: int = 7200
+
     # 可观测（Sentry）：仅当 sentry_dsn 非空时启用；默认关、零开销、不外联
     sentry_dsn: str = ""
     sentry_traces_sample_rate: float = 0.0
@@ -272,8 +311,86 @@ class Settings(BaseSettings):
             raise ValueError("PROCESS_ROLE=api/worker 时必须配置 REDIS_URL")
         if self.redis_scheduler_lease_seconds < self.redis_scheduler_renew_seconds * 3:
             raise ValueError("REDIS_SCHEDULER_LEASE_SECONDS 必须至少为续租间隔的 3 倍")
+        if self.strategy_sandbox_timeout_seconds <= 0:
+            raise ValueError("STRATEGY_SANDBOX_TIMEOUT_SECONDS 必须大于 0")
+        if self.strategy_sandbox_memory_mb < 64:
+            raise ValueError("STRATEGY_SANDBOX_MEMORY_MB 必须至少为 64")
+        if not 1 <= self.strategy_sandbox_max_concurrency <= 16:
+            raise ValueError("STRATEGY_SANDBOX_MAX_CONCURRENCY 必须在 1 到 16")
+        if not 1 <= self.full_a_backtest_chunk_sessions <= 60:
+            raise ValueError("FULL_A_BACKTEST_CHUNK_SESSIONS 必须在 1 到 60")
+        if self.backtest_job_lease_seconds < 60:
+            raise ValueError("BACKTEST_JOB_LEASE_SECONDS 必须至少为 60")
+        if not 3 <= self.prediction_rolling_years <= 5:
+            raise ValueError("PREDICTION_ROLLING_YEARS 必须在 3 到 5")
+        if not 2 <= self.prediction_cv_folds <= 10:
+            raise ValueError("PREDICTION_CV_FOLDS 必须在 2 到 10")
+        if not 1 <= self.prediction_embargo_sessions <= 20:
+            raise ValueError("PREDICTION_EMBARGO_SESSIONS 必须在 1 到 20")
+        if self.prediction_ops_provider not in {"lightgbm", "xgboost"}:
+            raise ValueError("PREDICTION_OPS_PROVIDER 仅允许 lightgbm/xgboost")
+        if self.prediction_training_weekday not in {
+            "mon",
+            "tue",
+            "wed",
+            "thu",
+            "fri",
+            "sat",
+            "sun",
+        }:
+            raise ValueError("PREDICTION_TRAINING_WEEKDAY 无效")
+        for value, name in (
+            (self.prediction_training_hour, "PREDICTION_TRAINING_HOUR"),
+            (self.prediction_inference_hour, "PREDICTION_INFERENCE_HOUR"),
+        ):
+            if not 0 <= value <= 23:
+                raise ValueError(f"{name} 必须在 0 到 23")
+        for value, name in (
+            (
+                self.prediction_training_minute,
+                "PREDICTION_TRAINING_MINUTE",
+            ),
+            (
+                self.prediction_inference_minute,
+                "PREDICTION_INFERENCE_MINUTE",
+            ),
+        ):
+            if not 0 <= value <= 59:
+                raise ValueError(f"{name} 必须在 0 到 59")
+        if self.prediction_ops_job_lease_seconds < 300:
+            raise ValueError("PREDICTION_OPS_JOB_LEASE_SECONDS 必须至少为 300")
         if self.jwt_algorithm != "HS256":
             raise ValueError("JWT_ALGORITHM 仅允许 HS256")
+        if not 1 <= self.feishu_timeout_seconds <= 15:
+            raise ValueError("FEISHU_TIMEOUT_SECONDS 必须在 1 到 15")
+        if self.feishu_webhook_url:
+            parsed = urlparse(self.feishu_webhook_url)
+            if (
+                parsed.scheme != "https"
+                or parsed.hostname != "open.feishu.cn"
+                or not parsed.path.startswith("/open-apis/bot/v2/hook/")
+                or parsed.username
+                or parsed.password
+                or parsed.port not in {None, 443}
+                or parsed.query
+                or parsed.fragment
+            ):
+                raise ValueError("FEISHU_WEBHOOK_URL 必须是飞书官方 HTTPS bot webhook")
+        if self.emt_environment != "simulation":
+            raise ValueError("M7 仅允许 EMT simulation 环境")
+        if not 1 <= self.emt_max_orders_per_second <= 10:
+            raise ValueError("EMT_MAX_ORDERS_PER_SECOND 必须在 1 到 10")
+        if self.emt_bridge_lease_seconds < 15:
+            raise ValueError("EMT_BRIDGE_LEASE_SECONDS 必须至少为 15")
+        if self.emt_enabled and not (
+            self.emt_strategy_id.strip()
+            and self.emt_account_id.strip()
+            and self.emt_token.strip()
+            and self.emt_serv_addr.startswith(("127.0.0.1:", "localhost:"))
+            and self.emt_simulation_confirmation
+            == "I_HAVE_SELECTED_EASTMONEY_SIMULATION_ACCOUNT"
+        ):
+            raise ValueError("启用 EMT 必须配置官方终端策略/仿真账户/token/本地地址")
         if self.is_production:
             secret = self.jwt_secret
             normalized = secret.strip().lower()
@@ -288,8 +405,67 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "生产环境 JWT_SECRET 必须是 64 位 hex 或解码后至少 32 字节的高熵 base64url"
                 )
+            attestation = _decode_production_secret(
+                self.evolution_attestation_key
+            )
+            outbox_material = _decode_production_secret(
+                self.auth_outbox_encryption_key
+            )
+            if (
+                attestation is None
+                or len(set(attestation)) < 16
+                or _is_periodic(attestation)
+            ):
+                raise ValueError(
+                    "生产环境 EVOLUTION_ATTESTATION_KEY 必须是独立高熵 32 字节密钥"
+                )
+            if attestation in {decoded, outbox_material}:
+                raise ValueError(
+                    "EVOLUTION_ATTESTATION_KEY 必须与 JWT/加密密钥分离"
+                )
         elif self.jwt_secret == _DEFAULT_JWT_SECRET:
             logger.warning("开发环境正在使用默认 JWT_SECRET；不得用于生产")
+        if not re.fullmatch(
+            r"[A-Za-z0-9._-]{1,32}",
+            self.evolution_attestation_key_id,
+        ):
+            raise ValueError("EVOLUTION_ATTESTATION_KEY_ID 格式无效")
+        previous_ids = set()
+        previous_materials = set()
+        for item in filter(
+            None,
+            (
+                value.strip()
+                for value in self.evolution_attestation_previous_keys.split(
+                    ","
+                )
+            ),
+        ):
+            key_id, separator, key = item.partition("=")
+            key_material = _decode_production_secret(key)
+            if (
+                not separator
+                or not re.fullmatch(r"[A-Za-z0-9._-]{1,32}", key_id)
+                or key_id == self.evolution_attestation_key_id
+                or key_id in previous_ids
+                or (self.is_production and key_material is None)
+                or (
+                    self.is_production
+                    and key_material
+                    in {
+                        decoded,
+                        outbox_material,
+                        attestation,
+                        *previous_materials,
+                    }
+                )
+            ):
+                raise ValueError(
+                    "EVOLUTION_ATTESTATION_PREVIOUS_KEYS 格式无效"
+                )
+            previous_ids.add(key_id)
+            if key_material is not None:
+                previous_materials.add(key_material)
         if self.auth_auto_verify_registration is None:
             object.__setattr__(
                 self,

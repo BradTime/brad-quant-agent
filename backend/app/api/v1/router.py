@@ -11,8 +11,15 @@ from app.api.v1 import (
     auth,
     backtest,
     brief,
+    broker,
     dashboard,
+    decision_room,
+    decisions,
+    evolution,
     market,
+    portfolio,
+    prediction_ops,
+    predictions,
     sim,
     strategies,
     training,
@@ -41,6 +48,8 @@ def api_root() -> dict:
                 "backtest",
                 "sim",
                 "training",
+                "portfolio",
+                "predictions",
             ],
         },
         message="API v1 root",
@@ -55,5 +64,22 @@ api_router.include_router(ai.router, prefix="/ai", tags=["ai"])
 api_router.include_router(brief.router, prefix="/brief", tags=["brief"])
 api_router.include_router(strategies.router, prefix="/strategies", tags=["strategies"])
 api_router.include_router(backtest.router, prefix="/backtest", tags=["backtest"])
+api_router.include_router(broker.router, prefix="/broker", tags=["broker"])
+api_router.include_router(decisions.router, prefix="/decisions", tags=["decisions"])
+api_router.include_router(evolution.router, prefix="/evolution", tags=["evolution"])
+api_router.include_router(
+    decision_room.router,
+    prefix="/decision-room",
+    tags=["decision-room"],
+)
+api_router.include_router(
+    prediction_ops.router,
+    prefix="/prediction-ops",
+    tags=["prediction-ops"],
+)
 api_router.include_router(sim.router, prefix="/sim", tags=["sim"])
 api_router.include_router(training.router, prefix="/training", tags=["training"])
+api_router.include_router(portfolio.router, prefix="/portfolio", tags=["portfolio"])
+api_router.include_router(
+    predictions.router, prefix="/predictions", tags=["predictions"]
+)

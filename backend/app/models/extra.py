@@ -35,6 +35,49 @@ class CapitalFlow(Base):
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class CapitalFlowVintage(Base):
+    """Append-only first-observed PIT versions of daily capital flow."""
+
+    __tablename__ = "capital_flow_vintages"
+    __table_args__ = (
+        UniqueConstraint(
+            "code",
+            "trade_date",
+            "vintage",
+            name="uq_capital_flow_vintages_code_date_vintage",
+        ),
+        Index(
+            "ix_capital_flow_vintages_code_date_available",
+            "code",
+            "trade_date",
+            "available_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    code: Mapped[str] = mapped_column(String(16), nullable=False)
+    trade_date: Mapped[date] = mapped_column(Date, nullable=False)
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    vintage: Mapped[str] = mapped_column(String(64), nullable=False)
+    main_net: Mapped[Decimal | None] = mapped_column(_AMOUNT)
+    main_net_ratio: Mapped[Decimal | None] = mapped_column(_RATIO)
+    super_large_net: Mapped[Decimal | None] = mapped_column(_AMOUNT)
+    large_net: Mapped[Decimal | None] = mapped_column(_AMOUNT)
+    medium_net: Mapped[Decimal | None] = mapped_column(_AMOUNT)
+    small_net: Mapped[Decimal | None] = mapped_column(_AMOUNT)
+    source: Mapped[str] = mapped_column(String(16), default="")
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class FinancialSummary(Base):
     """财务摘要的追加式 PIT 版本（按报告期和可用时点）。"""
 

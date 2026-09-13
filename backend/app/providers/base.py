@@ -133,7 +133,14 @@ class InstrumentStatusDTO(BaseModel):
     start_date: date
     end_date: date | None = None
     name: str = ""
-    status_type: Literal["normal", "st", "star_st"] = "normal"
+    status_type: Literal[
+        "normal",
+        "st",
+        "star_st",
+        "suspended",
+        "delisting",
+        "delisted",
+    ] = "normal"
     change_reason: str | None = None
     announced_date: date | None = None
 

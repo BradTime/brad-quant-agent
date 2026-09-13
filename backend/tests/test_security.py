@@ -8,6 +8,9 @@ from pydantic import ValidationError
 from app.core.config import Settings
 
 _PROD_OUTBOX_KEY = "ZJN11AF-N3EN-1YNbmjiPQPLUSORpzWElFTdmo_f9sU="
+_EVOLUTION_KEY = (
+    "1029384756abcdef00112233445566778899aabbccddeeff0123456789abcdef"
+)
 
 
 def test_production_rejects_default_jwt_secret():
@@ -25,6 +28,7 @@ def test_production_allows_strong_jwt_secret():
         smtp_from="noreply@example.com",
         frontend_url="https://example.com",
         auth_outbox_encryption_key=_PROD_OUTBOX_KEY,
+        evolution_attestation_key=_EVOLUTION_KEY,
     )
     assert s.is_production is True
 
@@ -46,6 +50,7 @@ def test_lan_cors_disabled_in_production():
         smtp_from="noreply@example.com",
         frontend_url="https://example.com",
         auth_outbox_encryption_key=_PROD_OUTBOX_KEY,
+        evolution_attestation_key=_EVOLUTION_KEY,
         cors_allow_private_lan=True,
     )
     # 生产即使开启 cors_allow_private_lan，局域网来源也不应放行

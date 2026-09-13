@@ -4,20 +4,66 @@ from app.models.admin import AdminPrivilegeAudit
 from app.models.auth import AuthThrottle, EmailVerification, VerificationEmailOutbox
 from app.models.backtest import BacktestRun
 from app.models.brief import MorningBrief
+from app.models.broker import (
+    BrokerBinding,
+    BrokerEvent,
+    BrokerFilingProfile,
+    BrokerOrder,
+    BrokerRateWindow,
+    BrokerReconciliation,
+    BrokerRehearsalRun,
+)
 from app.models.chat import ChatMessage, ChatSession, UserMemory
+from app.models.decision import DecisionEvent, DecisionRun
 from app.models.document import Document
-from app.models.extra import CapitalFlow, DragonTiger, FinancialSummary, NewsItem
-from app.models.ingestion import IngestionRun
+from app.models.evolution import (
+    BehaviorAttribution,
+    BehaviorAttributionAttempt,
+    EvolutionObservation,
+    EvolutionProgram,
+    EvolutionSignalCommitment,
+    EvolutionTransition,
+)
+from app.models.extra import (
+    CapitalFlow,
+    CapitalFlowVintage,
+    DragonTiger,
+    FinancialSummary,
+    NewsItem,
+)
+from app.models.ingestion import IngestionRun, TushareBootstrapDailyManifest
 from app.models.job import BacktestJob
 from app.models.market import (
     AdjustFactor,
     DailyBar,
     Instrument,
+    InstrumentIndustryVintage,
     InstrumentStatusHistory,
+    InstrumentSuspensionDaily,
     MinuteBar,
 )
+from app.models.prediction import (
+    PortfolioAllocationDecision,
+    PortfolioRiskProfile,
+    PredictionForecast,
+    PredictionModelRun,
+    PredictionPromotionAudit,
+    RegimeSnapshot,
+)
+from app.models.prediction_ops import PredictionOpsJob
 from app.models.research import ResearchReport
-from app.models.strategy import Strategy
+from app.models.room import (
+    DecisionNotification,
+    DecisionOverride,
+    DecisionRoomAudit,
+    DecisionRoomControl,
+    StepUpGrant,
+    StepUpThrottle,
+    TotpRecoveryCode,
+    UserArtifactDeletion,
+    UserTotpFactor,
+)
+from app.models.strategy import Strategy, StrategyVersion
 from app.models.trading import SimAccount, SimOrder, SimPosition, SimTrade
 from app.models.training import (
     AIGenerationTrace,
@@ -27,6 +73,7 @@ from app.models.training import (
     TrainingDataset,
     TrainingDatasetItem,
 )
+from app.models.universe import UniverseMembershipDaily, UniverseSnapshotDaily
 from app.models.user import User
 from app.models.watchlist import WatchlistItem
 
@@ -37,25 +84,61 @@ __all__ = [
     "EmailVerification",
     "VerificationEmailOutbox",
     "Instrument",
+    "InstrumentIndustryVintage",
+    "InstrumentSuspensionDaily",
     "InstrumentStatusHistory",
     "DailyBar",
     "MinuteBar",
     "AdjustFactor",
     "CapitalFlow",
+    "CapitalFlowVintage",
     "FinancialSummary",
     "DragonTiger",
     "NewsItem",
     "IngestionRun",
+    "TushareBootstrapDailyManifest",
     "WatchlistItem",
     "MorningBrief",
+    "BrokerBinding",
+    "BrokerEvent",
+    "BrokerFilingProfile",
+    "BrokerOrder",
+    "BrokerReconciliation",
+    "BrokerRehearsalRun",
+    "BrokerRateWindow",
     "ChatSession",
     "ChatMessage",
     "UserMemory",
+    "DecisionEvent",
+    "DecisionRun",
     "Document",
+    "BehaviorAttribution",
+    "BehaviorAttributionAttempt",
+    "EvolutionObservation",
+    "EvolutionProgram",
+    "EvolutionSignalCommitment",
+    "EvolutionTransition",
     "ResearchReport",
+    "DecisionNotification",
+    "DecisionOverride",
+    "DecisionRoomAudit",
+    "DecisionRoomControl",
+    "StepUpGrant",
+    "StepUpThrottle",
+    "TotpRecoveryCode",
+    "UserTotpFactor",
+    "UserArtifactDeletion",
+    "PredictionModelRun",
+    "PredictionForecast",
+    "PredictionPromotionAudit",
+    "PredictionOpsJob",
+    "PortfolioRiskProfile",
+    "RegimeSnapshot",
+    "PortfolioAllocationDecision",
     "BacktestRun",
     "BacktestJob",
     "Strategy",
+    "StrategyVersion",
     "SimAccount",
     "SimOrder",
     "SimPosition",
@@ -66,4 +149,6 @@ __all__ = [
     "TrainingCandidate",
     "TrainingDataset",
     "TrainingDatasetItem",
+    "UniverseMembershipDaily",
+    "UniverseSnapshotDaily",
 ]

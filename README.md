@@ -168,6 +168,46 @@ python -c "from app.services import brief; print(brief.generate(None)['title'])"
 - **回测** `/backtest`：native + Backtrader 双引擎；日/分钟 K；参数网格（同步或异步入队）；策略库 CRUD；AI 回测点评（SSE）。
 - **接口**：`/api/v1/backtest`（run / grid / jobs / strategies / review）。
 
+## 策略进化与多 Agent 决策
+- 设计基线见 `docs/strategy-evolution-design.md`；按策略协议/沙箱、全 A 回测、预测组合、
+  四层决策链、决策室、模拟晋级、东财仿真、小资金实盘八个里程碑推进。
+- 策略定义采用不可变版本：参数或源码变化会生成新的 `StrategyVersion` 与 SHA-256，
+  名称/描述变化不影响执行版本；`GET /api/v1/strategies/{id}/versions` 可审计历史。
+- 内置策略和受限自定义 Python 统一输出 `signal-v1`，信号只表达方向、置信度和理由，
+  不直接决定订单、杠杆或绕过风险官。
+- 自定义源码仅支持无 import/属性/I/O 的小型 Python 子集，并在独立受限进程执行；
+  生产接收第三方代码前仍须叠加 rootless container/microVM、只读文件系统、无网络和 seccomp。
+- M2 已完成：10 个日线策略覆盖趋势、动量、反转、价格量能多因子、PIT 资金流事件和
+  PIT 价值质量；保存版本可固定到回测。支持单日/区间全 A PIT 股票池
+  物化、最多 20 标的动态 PIT 过滤、10bp 默认滑点与 1% 信号日成交容量门禁。
+  历史全 A 截面回测已支持完整性清单、分块加载、运行中取消、worker 租约回收和
+  输入 Hash 审计；资金流和财务策略仅使用当时已可见的追加式 Vintage。
+- M3 已完成：相邻交易日标签、Purged Walk-Forward、LightGBM/XGBoost
+  概率/分位数适配、校准指标、规则市场状态、可信模型注册/唯一 Champion/每日预测和
+  确定性风险预算；权威组合目标仅使用同一服务端快照内的账户、PIT 行业、Champion
+  预测、基准和市场宽度。该层不批准订单，自动执行审批仍属于后续 M5。
+- M4 已完成：研究员、盲审反证官、两轮质询、确定性投资委员会与一票否决风险官形成
+  六阶段链式审计；证据 Hash、事件数量/尾 Hash、租户归属和崩溃恢复均受服务端约束，
+  严重分歧显式披露，最终仍不创建订单。
+- M5 已完成：登录后的私人策略决策室提供六阶段证据、模式切换、人工覆盖、Kill Switch、
+  TOTP/一次性恢复码二次验证，以及严重分歧/风控的私有 WebSocket 和脱敏飞书通知。
+  所有覆盖继续受 M3/M4 风险边界约束，`executionEnabled` 仍固定为 `false`。
+- M6 已完成：Challenger 采用“收盘承诺、次日结算”的 60 日模拟 + 20 日影子状态机，
+  承诺/观察/转换由独立 HMAC key 签名；晋级独立重算连续性、真实撮合指标和配对显著性，
+  漏承诺或质量破线自动降级。决策室同步展示人工覆盖与原策略的同口径收益归因。
+- M7 基础已完成但未验收：已实现官方 `gm.api` bridge 契约、加密绑定、幂等 outbox、
+  流控、断线不重发、完整对账和报备指纹。由于官方接口未暴露可机器验证的仿真账户类型，
+  bridge 固定只读，所有演练委托均阻断；需在东财终端完成官方仿真证明后才能开放发送。
+- 模型运营已接通：管理员可查看 OOS/Champion/M6 进度和 3–5 年 PIT 完整率，并手动入队
+  训练/推理；自动每周训练和每日推理默认关闭，启用后由租约、advisory execution lock 与
+  发布事务 fencing 防止重复训练和旧 worker 落库。
+- 数据引导支持 Tushare 按交易日全市场分页回填、独立停牌日证据、内容 Hash manifest 和
+  多规则版本 PIT 股票池。当前观察池五年数据门禁已通过；模型未达统计门槛时保持 rejected，
+  不会为了启动观察期而降低 53% 要求。
+- `daily-pit-v2` 已完成一次预声明封闭评估：固定技术、截面和市场状态特征与 artifact 顺序，
+  增加交易日聚类置信下界。LightGBM/XGBoost 仍未显示稳定优势，因此保持 rejected，
+  系统不会生成无统计依据的 Champion。
+
 ## 测试与 CI
 - **后端单测**：`cd backend && python -m pytest -q`
 - **前端单测（Vitest）**：`cd frontend && npm test`

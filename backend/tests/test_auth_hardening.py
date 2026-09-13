@@ -21,6 +21,9 @@ from app.schemas.auth import LoginRequest, RegisterRequest
 STRONG_PASSWORD = "ValidPass1!"
 # 必须与 config._DEFAULT_OUTBOX_KEY 不同，否则生产校验会拒绝
 _PROD_OUTBOX_KEY = "ZJN11AF-N3EN-1YNbmjiPQPLUSORpzWElFTdmo_f9sU="
+_EVOLUTION_KEY = (
+    "1029384756abcdef00112233445566778899aabbccddeeff0123456789abcdef"
+)
 
 
 def test_auth_schemas_normalize_and_forbid_extra_fields() -> None:
@@ -118,6 +121,7 @@ def test_production_accepts_strong_hs256_secret() -> None:
             smtp_from="noreply@example.com",
             frontend_url="https://example.com",
             auth_outbox_encryption_key=_PROD_OUTBOX_KEY,
+            evolution_attestation_key=_EVOLUTION_KEY,
         )
         assert settings.jwt_algorithm == "HS256"
 
@@ -160,6 +164,7 @@ def test_production_requires_smtp_and_disables_auto_verification() -> None:
         smtp_from="noreply@example.com",
         frontend_url="https://example.com",
         auth_outbox_encryption_key=_PROD_OUTBOX_KEY,
+        evolution_attestation_key=_EVOLUTION_KEY,
         auth_auto_verify_registration=False,
     )
     assert configured.auth_auto_verify_registration is False
