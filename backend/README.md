@@ -344,6 +344,24 @@ worker 每 30 秒认领。设置 `PREDICTION_OPS_ENABLED=true` 与明确的
 前 134 天 warmup，检查每日 PIT 清单、OHLC 顺序、成交量/金额、后复权因子、沪深 300 和
 ingestion audit；结果缓存五分钟。
 
+全市场历史数据可断点引导：
+
+```bash
+python -m scripts.bootstrap_prediction_market \
+  --start 2021-04-25 --end 2026-09-11 --phase market
+python -m scripts.bootstrap_prediction_market \
+  --start 2021-04-25 --end 2026-09-11 --phase benchmark
+python -m scripts.bootstrap_prediction_market \
+  --start 2021-04-25 --end 2026-09-11 --phase status
+python -m app.cli build-pit-universe \
+  --start 2021-04-25 --end 2026-09-11
+```
+
+`market` 对 `daily`/`adj_factor` 分页，每个交易日在一个事务内比较 API 响应与持久行的
+规范化 Hash，再写不可变 manifest；manifest 存在后数据库禁止修改对应股票日线/因子。
+`status` 分别维护无重叠名称/ST 区间和独立 `suspend_d` 日证据。审计阶段只接受 Tushare
+停牌证据解释缺失 K 线。详见 `docs/prediction-data-bootstrap.md`。
+
 ## WebSocket 行情推送（`/ws/v1`）
 
 调度器把数据源刷新进内存缓存；一个异步推送循环每 `WS_PUSH_SECONDS`（默认 3s）把订阅主题的最新缓存推给客户端（只读缓存、不发起网络请求，故不阻塞）。

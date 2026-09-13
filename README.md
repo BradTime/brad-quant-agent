@@ -201,6 +201,9 @@ python -c "from app.services import brief; print(brief.generate(None)['title'])"
 - 模型运营已接通：管理员可查看 OOS/Champion/M6 进度和 3–5 年 PIT 完整率，并手动入队
   训练/推理；自动每周训练和每日推理默认关闭，启用后由租约、advisory execution lock 与
   发布事务 fencing 防止重复训练和旧 worker 落库。
+- 数据引导支持 Tushare 按交易日全市场分页回填、独立停牌日证据、内容 Hash manifest 和
+  多规则版本 PIT 股票池。当前观察池五年数据门禁已通过；模型未达统计门槛时保持 rejected，
+  不会为了启动观察期而降低 53% 要求。
 
 ## 测试与 CI
 - **后端单测**：`cd backend && python -m pytest -q`

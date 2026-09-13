@@ -345,6 +345,10 @@ brad-quant-agent/
   3–5 年窗口、134 日特征/基准 warmup、PIT 股票池、有效 OHLC、后复权因子与 ingestion audit
 - [x] 管理员模型运营页展示注册表/OOS 证据、Champion、M6 60+20 进度、失败原因、作业重试和
   数据完整率；昂贵完整率查询后端缓存五分钟
+- [x] Tushare 全市场按交易日断点回填：分页拉取日线/复权，响应与持久行同事务规范化 Hash，
+  每日 immutable manifest 冻结已认证内容；独立 `suspend_d` 日级证据解释缺 K 线，
+  历史名称区间补齐/去重，PIT 股票池按 `rules_version` 共存。当前运营库已物化 1,307 个交易日，
+  10 标的五年完整率 100%；LightGBM/XGBoost/v3 候选均未达 53%，保持 rejected
 
 ### 工程化与 Phase 3 预备（增量）
 - [x] **WS 私有定向推送通道**：连接按 `user_id` 建反向索引，`send_to_user`/`notify_user`(async)+`notify_user_threadsafe`(同步撮合/调度器用)，私有事件信封；Phase 3 成交回报/持仓变动复用（私有数据绝不走广播）
