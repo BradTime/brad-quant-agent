@@ -159,7 +159,7 @@ def test_enrolled_challenger_uses_server_daily_evidence(monkeypatch):
     monkeypatch.setattr(
         evolution.prediction_training,
         "build_inference_features_from_database",
-        lambda signal_date, codes: [
+        lambda signal_date, codes, **kwargs: [
             SimpleNamespace(
                 code="600000.SH",
                 features={"return_1": 0.01},

@@ -32,7 +32,7 @@ from app.services import (
 )
 
 MAX_ATTEMPTS = 3
-OPS_IMPLEMENTATION_VERSION = "ops-v3-pit-v4"
+OPS_IMPLEMENTATION_VERSION = "ops-v4-daily-pit-v2"
 _LOCAL_EXECUTION_LOCKS: dict[str, threading.Lock] = {}
 _LOCAL_EXECUTION_LOCKS_GUARD = threading.Lock()
 _COMPLETENESS_CACHE_LOCK = threading.Lock()
@@ -414,6 +414,26 @@ def _execute(
     if row.job_type == "daily_infer":
         with SessionLocal() as session:
             champion = prediction_registry._champion(session)
+            champion_metrics = load_envelope(
+                champion.metrics_json, expect="dict"
+            )
+            rank_universe_codes = champion_metrics.get(
+                "featureUniverseCodes"
+            )
+            if not isinstance(rank_universe_codes, list):
+                rank_universe_codes = (
+                    codes
+                    if champion.feature_schema_version
+                    == "daily-pit-v1"
+                    else []
+                )
+            if (
+                not rank_universe_codes
+                or set(rank_universe_codes) != set(codes)
+            ):
+                raise ValueError(
+                    "自动推理代码与 Champion 固定特征股票池不一致"
+                )
             existing_codes = set(
                 session.execute(
                     select(PredictionForecast.code).where(
@@ -434,6 +454,7 @@ def _execute(
                 prediction_training.build_inference_features_from_database(
                     signal_date=row.scheduled_for,
                     codes=missing_codes,
+                    rank_universe_codes=rank_universe_codes,
                 )
             )
             job_guard = _job_guard(row.id, claim_token)
@@ -462,7 +483,7 @@ def _execute(
     provider = payload["provider"]
     version_base = (
         f"weekly-{row.scheduled_for.isoformat()}-{provider}-"
-        f"{payload['rollingYears']}y-v3-"
+        f"{payload['rollingYears']}y-v4-"
         f"{hashlib.sha256(','.join(codes).encode()).hexdigest()[:8]}"
     )
     for attempt in range(1, row.attempts + 1):

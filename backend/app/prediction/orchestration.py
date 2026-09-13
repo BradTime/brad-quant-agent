@@ -52,6 +52,7 @@ def evaluate_walk_forward(
             returns=[row.next_return for row in rows],
             lower=[prediction["returnP10"] for prediction in predictions],
             upper=[prediction["returnP90"] for prediction in predictions],
+            cluster_dates=[row.signal_date for row in rows],
         )
         fold_reports.append(
             {
@@ -72,6 +73,7 @@ def evaluate_walk_forward(
         returns=[row.next_return for row in all_rows],
         lower=[prediction["returnP10"] for prediction in all_predictions],
         upper=[prediction["returnP90"] for prediction in all_predictions],
+        cluster_dates=[row.signal_date for row in all_rows],
     )
     by_regime: dict[str, list[int]] = defaultdict(list)
     for index, row in enumerate(all_rows):
@@ -110,6 +112,9 @@ def evaluate_walk_forward(
             ],
             upper=[
                 all_predictions[index]["returnP90"] for index in indexes
+            ],
+            cluster_dates=[
+                all_rows[index].signal_date for index in indexes
             ],
             ),
             "dates": len(regime_dates),

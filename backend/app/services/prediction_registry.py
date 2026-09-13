@@ -72,11 +72,18 @@ def register_candidate(
     embargo_dates: int = 5,
     max_folds: int = 5,
     publication_guard: Callable[[Any], bool] | None = None,
+    feature_universe_codes: list[str] | None = None,
 ) -> dict[str, Any]:
     if not examples:
         raise ValueError("训练样本不能为空")
     if len(evidence_sha256) != 64:
         raise ValueError("训练证据 checksum 无效")
+    if feature_universe_codes is not None and (
+        not 1 <= len(feature_universe_codes) <= 20
+        or not {example.code for example in examples}
+        <= set(feature_universe_codes)
+    ):
+        raise ValueError("固定特征股票池无效或未覆盖训练样本")
     data_sha256 = _data_sha256(examples, evidence_sha256)
     run_id = str(uuid4())
     expected_artifact_path = str(
@@ -134,6 +141,12 @@ def register_candidate(
         max_folds=max_folds,
     )
     report["evidenceSha256"] = evidence_sha256
+    report["featureUniverseCodes"] = sorted(
+        set(feature_universe_codes)
+        if feature_universe_codes is not None
+        else {example.code for example in examples}
+    )
+    report["featureSchemaVersion"] = FEATURE_SCHEMA_VERSION
     promotion_eligible = report["promotionEligible"]
     with SessionLocal.begin() as session:
         if publication_guard and not publication_guard(session):

@@ -8,20 +8,13 @@ from typing import Any, Literal
 import numpy as np
 from sklearn.isotonic import IsotonicRegression
 
-from app.prediction.features import PredictionExample, PredictionFeature
-
-ModelProvider = Literal["lightgbm", "xgboost"]
-FEATURE_ORDER = (
-    "return1",
-    "return5",
-    "return20",
-    "volatility20",
-    "range1",
-    "amountZ20",
-    "volumeZ20",
+from app.prediction.features import (
+    FEATURE_ORDER,
+    PredictionExample,
+    PredictionFeature,
 )
 
-
+ModelProvider = Literal["lightgbm", "xgboost"]
 @dataclass
 class IsotonicCalibrator:
     x: list[float]
@@ -34,12 +27,13 @@ class IsotonicCalibrator:
 @dataclass
 class TrainedPredictionModel:
     provider: ModelProvider
+    feature_order: tuple[str, ...]
     classifier: Any
     calibrator: IsotonicCalibrator
     quantile_models: tuple[Any, Any, Any]
 
     def predict(self, examples: list[PredictionFeature]) -> list[dict[str, float]]:
-        matrix = _matrix(examples)
+        matrix = _matrix(examples, self.feature_order)
         if hasattr(self.classifier, "predict_proba"):
             raw_probability = self.classifier.predict_proba(matrix)[:, 1]
         else:
@@ -62,12 +56,15 @@ class TrainedPredictionModel:
         return results
 
 
-def _matrix(examples: list[PredictionFeature]) -> np.ndarray:
+def _matrix(
+    examples: list[PredictionFeature],
+    feature_order: tuple[str, ...] = FEATURE_ORDER,
+) -> np.ndarray:
     if not examples:
         raise ValueError("模型输入不能为空")
     return np.asarray(
         [
-            [row.features[field] for field in FEATURE_ORDER]
+            [row.features[field] for field in feature_order]
             for row in examples
         ],
         dtype=np.float64,
@@ -157,6 +154,7 @@ def train_prediction_model(
         model.fit(_matrix(training), targets)
     return TrainedPredictionModel(
         provider=provider,
+        feature_order=FEATURE_ORDER,
         classifier=classifier,
         calibrator=portable_calibrator,
         quantile_models=quantile_models,

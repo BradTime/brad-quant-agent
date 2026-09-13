@@ -15,7 +15,11 @@ from typing import Any
 from uuid import uuid4
 
 from app.core.config import settings
-from app.prediction.features import FEATURE_SCHEMA_VERSION
+from app.prediction.features import (
+    FEATURE_ORDER,
+    FEATURE_ORDERS,
+    FEATURE_SCHEMA_VERSION,
+)
 from app.prediction.modeling import (
     IsotonicCalibrator,
     TrainedPredictionModel,
@@ -74,6 +78,8 @@ def save_model_bundle(
 ) -> dict[str, Any]:
     if _VERSION_RE.fullmatch(version) is None:
         raise ValueError("模型版本只能包含字母、数字、点、下划线和连字符")
+    if model.feature_order != FEATURE_ORDER:
+        raise ValueError("模型特征顺序与当前 schema 不一致")
     root = Path(settings.prediction_artifact_dir).resolve()
     target_dir = root / version
     if target_dir.exists():
@@ -104,6 +110,7 @@ def save_model_bundle(
             "version": version,
             "provider": model.provider,
             "featureSchemaVersion": FEATURE_SCHEMA_VERSION,
+            "featureOrder": list(model.feature_order),
             "dataSha256": data_sha256,
             "files": files,
             "metrics": metrics,
@@ -165,9 +172,20 @@ def _verified_bundle(
         manifest = json.loads(manifest_bytes)
     except json.JSONDecodeError as exc:
         raise ValueError("模型 manifest 不可读") from exc
+    feature_schema = manifest.get("featureSchemaVersion")
+    expected_feature_order = FEATURE_ORDERS.get(feature_schema)
+    manifest_feature_order = manifest.get("featureOrder")
     if (
         manifest.get("schemaVersion") != 2
-        or manifest.get("featureSchemaVersion") != FEATURE_SCHEMA_VERSION
+        or expected_feature_order is None
+        or (
+            manifest_feature_order is not None
+            and tuple(manifest_feature_order) != expected_feature_order
+        )
+        or (
+            feature_schema != "daily-pit-v1"
+            and manifest_feature_order is None
+        )
         or manifest.get("provider") not in {"lightgbm", "xgboost"}
         or not isinstance(manifest.get("files"), dict)
     ):
@@ -240,6 +258,9 @@ def load_model_bundle(
             quantiles = tuple(quantile_models)
     return TrainedPredictionModel(
         provider=provider,
+        feature_order=FEATURE_ORDERS[
+            manifest["featureSchemaVersion"]
+        ],
         classifier=classifier,
         calibrator=portable_calibrator,
         quantile_models=quantiles,

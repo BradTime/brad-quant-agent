@@ -3,6 +3,7 @@ from datetime import date, timedelta
 import pytest
 
 from app.backtest.data import Bar
+from app.backtest.universe import expected_session_dates
 from app.prediction.artifacts import (
     load_model_bundle,
     save_model_bundle,
@@ -23,10 +24,16 @@ from app.prediction.temporal import purged_walk_forward
 
 def _bars(count: int = 420) -> list[Bar]:
     start = date(2024, 1, 1)
+    sessions = [
+        date.fromisoformat(value)
+        for value in expected_session_dates(
+            start, start + timedelta(days=count * 2)
+        )[:count]
+    ]
     return [
         Bar(
             code="600000.SH",
-            date=start + timedelta(days=index),
+            date=sessions[index],
             open=10 + index * 0.01,
             high=10.2 + index * 0.01,
             low=9.8 + index * 0.01,
@@ -80,6 +87,39 @@ def test_training_selection_never_uses_future_label_date_membership():
         eligible_by_date=eligible,
     )
     assert any(row.signal_date == target.signal_date for row in filtered)
+
+
+def test_cross_sectional_rank_does_not_use_peer_label_availability():
+    first = _bars(35)
+    second = [
+        Bar(**{**bar.__dict__, "code": "000001.SZ"})
+        for bar in first
+    ]
+    second[20] = Bar(
+        **{
+            **second[20].__dict__,
+            "close": second[20].close + 0.05,
+        }
+    )
+    signal_date = first[20].date
+    baseline = build_daily_examples(
+        {"600000.SH": first, "000001.SZ": second}
+    )
+    missing_label = second[:21] + second[22:]
+    filtered = build_daily_examples(
+        {"600000.SH": first, "000001.SZ": missing_label}
+    )
+    baseline_rank = next(
+        row.features["crossRank_return1"]
+        for row in baseline
+        if row.code == "600000.SH" and row.signal_date == signal_date
+    )
+    filtered_rank = next(
+        row.features["crossRank_return1"]
+        for row in filtered
+        if row.code == "600000.SH" and row.signal_date == signal_date
+    )
+    assert baseline_rank == filtered_rank == -0.5
 
 
 def test_latest_inference_features_do_not_require_future_label():

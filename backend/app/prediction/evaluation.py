@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import random
+from collections import defaultdict
+from datetime import date
 from typing import Any
 
 
@@ -78,6 +81,40 @@ def interval_coverage(
     ) / len(actual)
 
 
+def clustered_accuracy_lower95(
+    labels: list[int],
+    probabilities: list[float],
+    cluster_dates: list[date],
+) -> float:
+    _same_length(labels, probabilities, cluster_dates)
+    groups: dict[date, list[int]] = defaultdict(list)
+    for index, day in enumerate(cluster_dates):
+        groups[day].append(index)
+    days = sorted(groups)
+    if len(days) < 20:
+        return 0.0
+    rng = random.Random(42)
+    estimates = []
+    for _ in range(500):
+        sampled = [rng.choice(days) for _ in days]
+        indexes = [
+            index for day in sampled for index in groups[day]
+        ]
+        sampled_labels = [labels[index] for index in indexes]
+        if len(set(sampled_labels)) < 2:
+            continue
+        estimates.append(
+            balanced_accuracy(
+                sampled_labels,
+                [probabilities[index] for index in indexes],
+            )
+        )
+    if not estimates:
+        return 0.0
+    estimates.sort()
+    return estimates[max(0, int(len(estimates) * 0.05) - 1)]
+
+
 def evaluate_predictions(
     *,
     labels: list[int],
@@ -85,6 +122,7 @@ def evaluate_predictions(
     returns: list[float],
     lower: list[float],
     upper: list[float],
+    cluster_dates: list[date] | None = None,
 ) -> dict[str, Any]:
     _same_length(labels, probabilities, returns, lower, upper)
     metrics = {
@@ -96,11 +134,26 @@ def evaluate_predictions(
         "intervalCoverage": interval_coverage(returns, lower, upper),
         "samples": len(labels),
     }
+    if cluster_dates is not None:
+        _same_length(labels, cluster_dates)
+        metrics["clusterDates"] = len(set(cluster_dates))
+        metrics["balancedAccuracyLower95"] = (
+            clustered_accuracy_lower95(
+                labels, probabilities, cluster_dates
+            )
+        )
     reasons: list[str] = []
     if metrics["samples"] < 100:
         reasons.append("samples_below_100")
     if metrics["balancedAccuracy"] < 0.53:
         reasons.append("balanced_accuracy_below_53pct")
+    if (
+        cluster_dates is not None
+        and metrics["balancedAccuracyLower95"] <= 0.5
+    ):
+        reasons.append(
+            "clustered_balanced_accuracy_lower95_not_above_50pct"
+        )
     if metrics["expectedCalibrationError"] > 0.1:
         reasons.append("calibration_error_above_10pct")
     if not 0.75 <= metrics["intervalCoverage"] <= 0.85:
