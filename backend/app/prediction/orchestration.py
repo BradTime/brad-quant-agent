@@ -81,14 +81,24 @@ def evaluate_walk_forward(
     regime_reports: dict[str, dict[str, Any]] = {}
     for regime in sorted(REQUIRED_REGIMES):
         indexes = by_regime.get(regime, [])
-        if len(indexes) < 100:
+        regime_dates = {
+            all_rows[index].signal_date for index in indexes
+        }
+        if len(indexes) < 100 or len(regime_dates) < 20:
+            reasons = []
+            if len(indexes) < 100:
+                reasons.append("regime_samples_below_100")
+            if len(regime_dates) < 20:
+                reasons.append("regime_dates_below_20")
             regime_reports[regime] = {
                 "passed": False,
                 "samples": len(indexes),
-                "reasons": ["regime_samples_below_100"],
+                "dates": len(regime_dates),
+                "reasons": reasons,
             }
             continue
-        regime_reports[regime] = evaluate_predictions(
+        regime_reports[regime] = {
+            **evaluate_predictions(
             labels=[all_rows[index].next_up for index in indexes],
             probabilities=[
                 all_predictions[index]["probabilityUp"]
@@ -101,7 +111,9 @@ def evaluate_walk_forward(
             upper=[
                 all_predictions[index]["returnP90"] for index in indexes
             ],
-        )
+            ),
+            "dates": len(regime_dates),
+        }
     promotion_eligible = bool(
         aggregate["passed"]
         and all(report["passed"] for report in fold_reports)

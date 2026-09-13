@@ -6,7 +6,12 @@ from sqlalchemy.pool import StaticPool
 
 from app.backtest import full_a
 from app.db.base import Base
-from app.models.market import DailyBar, Instrument, InstrumentStatusHistory
+from app.models.market import (
+    DailyBar,
+    Instrument,
+    InstrumentStatusHistory,
+    InstrumentSuspensionDaily,
+)
 from app.models.universe import UniverseMembershipDaily, UniverseSnapshotDaily
 from app.services import universe_membership
 
@@ -23,6 +28,7 @@ def test_materialized_full_a_universe_is_pit_filtered_and_queryable(monkeypatch)
             Instrument.__table__,
             DailyBar.__table__,
             InstrumentStatusHistory.__table__,
+            InstrumentSuspensionDaily.__table__,
             UniverseMembershipDaily.__table__,
             UniverseSnapshotDaily.__table__,
         ],

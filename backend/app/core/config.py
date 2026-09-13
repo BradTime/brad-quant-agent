@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "Quant Agent Backend"
-    version: str = "1.9.0"
+    version: str = "1.10.0"
     port: int = 8000
     # 运行环境：dev / production —— 用于生产收紧安全默认（CORS、JWT 密钥校验）
     app_env: str = "dev"

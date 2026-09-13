@@ -60,4 +60,12 @@ def purged_walk_forward(
                 )
             )
         test_start += validation_dates
-    return folds[-max_folds:]
+    if len(folds) <= max_folds:
+        return folds
+    if max_folds == 1:
+        return [folds[-1]]
+    indices = [
+        round(index * (len(folds) - 1) / (max_folds - 1))
+        for index in range(max_folds)
+    ]
+    return [folds[index] for index in indices]

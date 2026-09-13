@@ -111,6 +111,26 @@ def test_purged_walk_forward_has_embargo_and_no_date_overlap():
         assert (fold.validation_start - fold.train_end).days >= 2
 
 
+def test_walk_forward_fold_cap_spans_full_oos_period():
+    examples = build_daily_examples({"600000.SH": _bars()})
+    all_folds = purged_walk_forward(
+        examples,
+        minimum_train_dates=100,
+        validation_dates=10,
+        embargo_dates=2,
+        max_folds=100,
+    )
+    selected = purged_walk_forward(
+        examples,
+        minimum_train_dates=100,
+        validation_dates=10,
+        embargo_dates=2,
+        max_folds=3,
+    )
+    assert selected[0].validation_start == all_folds[0].validation_start
+    assert selected[-1].validation_end == all_folds[-1].validation_end
+
+
 def test_prediction_release_metrics_require_calibration_and_80pct_coverage():
     labels = [0, 1] * 50
     probabilities = [0.0, 1.0] * 50

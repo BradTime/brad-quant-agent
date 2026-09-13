@@ -64,7 +64,10 @@ DECISION_ROOM_REVISION = "20260910_0024"
 EVOLUTION_PROGRAMS_REVISION = "20260910_0025"
 EMT_SIMULATION_REVISION = "20260911_0026"
 PREDICTION_OPS_REVISION = "20260911_0027"
-HEAD_REVISION = PREDICTION_OPS_REVISION
+UNIVERSE_VERSION_PK_REVISION = "20260911_0028"
+SUSPENSION_DAILY_REVISION = "20260911_0029"
+TUSHARE_MANIFEST_REVISION = "20260911_0030"
+HEAD_REVISION = TUSHARE_MANIFEST_REVISION
 HNSW_INDEX = "ix_documents_embedding_hnsw"
 LEGACY_TABLES = frozenset(
     {
@@ -139,6 +142,8 @@ POST_BASELINE_TABLES = frozenset(
         "broker_reconciliations",
         "broker_rehearsal_runs",
         "prediction_ops_jobs",
+        "instrument_suspension_daily",
+        "tushare_bootstrap_daily_manifests",
         "decision_room_controls",
         "decision_room_audits",
         "decision_overrides",
@@ -446,6 +451,16 @@ def test_standard_alembic_layout_is_present() -> None:
         / f"{FINANCIAL_PIT_REVISION}_financial_summary_pit.py"
     ).is_file()
     assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{TUSHARE_MANIFEST_REVISION}_tushare_bootstrap_manifests.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{SUSPENSION_DAILY_REVISION}_suspension_daily.py"
+    ).is_file()
+    assert (
         ALEMBIC_DIR / "versions" / f"{AUTH_THROTTLE_REVISION}_auth_throttles.py"
     ).is_file()
     assert (
@@ -537,6 +552,11 @@ def test_standard_alembic_layout_is_present() -> None:
         ALEMBIC_DIR
         / "versions"
         / f"{PREDICTION_OPS_REVISION}_prediction_ops_jobs.py"
+    ).is_file()
+    assert (
+        ALEMBIC_DIR
+        / "versions"
+        / f"{UNIVERSE_VERSION_PK_REVISION}_universe_membership_version_pk.py"
     ).is_file()
 
 

@@ -301,12 +301,23 @@ def _audit_watermark_matches(
         return False
     expected_floor = _as_timestamp(audit.get("fetchedAtFloor"))
     expected_watermark = _as_timestamp(audit.get("fetchedAtWatermark"))
+    requested = audit.get("requested")
+    audit_start = (
+        _as_date(requested.get("start"))
+        if isinstance(requested, dict)
+        else None
+    ) or request_start
+    audit_end = (
+        _as_date(requested.get("end"))
+        if isinstance(requested, dict)
+        else None
+    ) or request_end
     actual_floor, actual_watermark = _dataset_fetched_bounds(
         session,
         code,
         dataset,
-        request_start,
-        request_end,
+        audit_start,
+        audit_end,
     )
     rows = int(audit.get("rows") or 0)
     if dataset == "adjust":

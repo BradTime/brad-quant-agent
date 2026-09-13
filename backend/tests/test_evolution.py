@@ -117,7 +117,7 @@ def test_enrolled_challenger_uses_server_daily_evidence(monkeypatch):
         session.add(
             UniverseSnapshotDaily(
                 trade_date=signal,
-                rules_version="pit-universe-v3",
+                rules_version="pit-universe-v4",
                 member_count=1,
                 eligible_count=1,
                 advancing_count=1,
@@ -208,7 +208,7 @@ def test_enrolled_challenger_uses_server_daily_evidence(monkeypatch):
         session.add(
             UniverseSnapshotDaily(
                 trade_date=label,
-                rules_version="pit-universe-v3",
+                rules_version="pit-universe-v4",
                 member_count=1,
                 eligible_count=1,
                 advancing_count=1,

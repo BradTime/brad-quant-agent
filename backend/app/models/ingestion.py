@@ -4,7 +4,16 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import CheckConstraint, Date, DateTime, Index, String, Text, func
+from sqlalchemy import (
+    CheckConstraint,
+    Date,
+    DateTime,
+    Index,
+    Integer,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -37,3 +46,16 @@ class IngestionRun(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class TushareBootstrapDailyManifest(Base):
+    __tablename__ = "tushare_bootstrap_daily_manifests"
+
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    daily_count: Mapped[int] = mapped_column(Integer)
+    factor_count: Mapped[int] = mapped_column(Integer)
+    daily_sha256: Mapped[str] = mapped_column(String(64))
+    factor_sha256: Mapped[str] = mapped_column(String(64))
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

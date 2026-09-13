@@ -63,7 +63,7 @@ def test_authoritative_preview_uses_only_server_owned_inputs(monkeypatch):
         session.add(
             UniverseSnapshotDaily(
                 trade_date=as_of,
-                rules_version="pit-universe-v3",
+                rules_version="pit-universe-v4",
                 member_count=100,
                 eligible_count=80,
                 advancing_count=60,

@@ -16,10 +16,15 @@ from app.backtest.data import Bar
 from app.backtest.universe import PITUniverseFilters, eligible_asof
 from app.core.json_payload import dump_envelope, load_envelope
 from app.db.session import SessionLocal
-from app.models.market import DailyBar, Instrument, InstrumentStatusHistory
+from app.models.market import (
+    DailyBar,
+    Instrument,
+    InstrumentStatusHistory,
+    InstrumentSuspensionDaily,
+)
 from app.models.universe import UniverseMembershipDaily, UniverseSnapshotDaily
 
-RULES_VERSION = "pit-universe-v3"
+RULES_VERSION = "pit-universe-v4"
 DEFAULT_FILTERS = PITUniverseFilters()
 FILTERS_SHA256 = hashlib.sha256(
     json.dumps(
@@ -130,7 +135,18 @@ def build_for_date(
             ).scalars().all()
         else:
             statuses = []
+        suspended_codes = set(
+            session.execute(
+                select(InstrumentSuspensionDaily.code).where(
+                    InstrumentSuspensionDaily.code.in_(codes),
+                    InstrumentSuspensionDaily.trade_date == as_of,
+                )
+            ).scalars()
+        ) if codes else set()
         status_by_code = {row.code: row.status_type for row in statuses}
+        status_by_code.update(
+            {code: "suspended" for code in suspended_codes}
+        )
         reason_counts: dict[str, int] = defaultdict(int)
         eligible_count = 0
         advancing_count = 0
@@ -328,6 +344,18 @@ def build_range(
                     InstrumentStatusHistory.start_date,
                 )
             ).scalars().all()
+            suspension_keys = set(
+                session.execute(
+                    select(
+                        InstrumentSuspensionDaily.code,
+                        InstrumentSuspensionDaily.trade_date,
+                    ).where(
+                        InstrumentSuspensionDaily.trade_date.in_(
+                            date_chunk
+                        )
+                    )
+                ).all()
+            )
             rows_by_code: dict[str, list[DailyBar]] = defaultdict(list)
             row_dates_by_code: dict[str, list[date]] = defaultdict(list)
             for row in daily_rows:
@@ -379,6 +407,11 @@ def build_range(
                             or trade_date <= candidate.end_date
                         ):
                             status = candidate.status_type
+                    if (
+                        instrument.code,
+                        trade_date,
+                    ) in suspension_keys:
+                        status = "suspended"
                     bars = [
                         Bar(
                             code=row.code,

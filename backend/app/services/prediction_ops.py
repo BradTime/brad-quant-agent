@@ -32,6 +32,7 @@ from app.services import (
 )
 
 MAX_ATTEMPTS = 3
+OPS_IMPLEMENTATION_VERSION = "ops-v3-pit-v4"
 _LOCAL_EXECUTION_LOCKS: dict[str, threading.Lock] = {}
 _LOCAL_EXECUTION_LOCKS_GUARD = threading.Lock()
 _COMPLETENESS_CACHE_LOCK = threading.Lock()
@@ -111,12 +112,14 @@ def _idempotency_key(
     scheduled_for: date,
     provider: str,
     codes: list[str],
+    rolling_years: int,
 ) -> str:
     code_hash = hashlib.sha256(
         ",".join(sorted(codes)).encode()
     ).hexdigest()[:16]
     return (
-        f"{job_type}:{scheduled_for.isoformat()}:{provider}:{code_hash}"
+        f"{job_type}:{scheduled_for.isoformat()}:{provider}:"
+        f"{rolling_years}y:{OPS_IMPLEMENTATION_VERSION}:{code_hash}"
     )
 
 
@@ -136,7 +139,11 @@ def enqueue(
     if provider not in {"lightgbm", "xgboost"}:
         raise ValueError("预测模型 provider 无效")
     key = _idempotency_key(
-        job_type, scheduled_for, provider, codes
+        job_type,
+        scheduled_for,
+        provider,
+        codes,
+        settings.prediction_rolling_years,
     )
     job_id = str(uuid4())
     now = _now()
@@ -146,6 +153,7 @@ def enqueue(
         "codes": sorted(codes),
         "provider": provider,
         "rollingYears": settings.prediction_rolling_years,
+        "implementationVersion": OPS_IMPLEMENTATION_VERSION,
     }
     try:
         with SessionLocal.begin() as session:
@@ -454,6 +462,7 @@ def _execute(
     provider = payload["provider"]
     version_base = (
         f"weekly-{row.scheduled_for.isoformat()}-{provider}-"
+        f"{payload['rollingYears']}y-v3-"
         f"{hashlib.sha256(','.join(codes).encode()).hexdigest()[:8]}"
     )
     for attempt in range(1, row.attempts + 1):
@@ -600,11 +609,64 @@ def data_completeness() -> dict[str, Any]:
             if codes
             else 0
         )
+        eligible_cells = (
+            session.scalar(
+                select(func.count()).select_from(
+                    UniverseMembershipDaily
+                ).where(
+                    UniverseMembershipDaily.trade_date.in_(sessions),
+                    UniverseMembershipDaily.code.in_(codes),
+                    UniverseMembershipDaily.rules_version
+                    == universe_membership.RULES_VERSION,
+                    UniverseMembershipDaily.eligible.is_(True),
+                )
+            )
+            if codes
+            else 0
+        )
+        eligible_by_code = (
+            dict(
+                session.execute(
+                    select(
+                        UniverseMembershipDaily.code,
+                        func.count(),
+                    )
+                    .where(
+                        UniverseMembershipDaily.trade_date.in_(
+                            sessions
+                        ),
+                        UniverseMembershipDaily.code.in_(codes),
+                        UniverseMembershipDaily.rules_version
+                        == universe_membership.RULES_VERSION,
+                        UniverseMembershipDaily.eligible.is_(True),
+                    )
+                    .group_by(UniverseMembershipDaily.code)
+                ).all()
+            )
+            if codes
+            else {}
+        )
         bar_count = (
             session.scalar(
-                select(func.count()).select_from(DailyBar).where(
-                    DailyBar.trade_date.in_(sessions),
-                    DailyBar.code.in_(codes),
+                select(func.count())
+                .select_from(UniverseMembershipDaily)
+                .join(
+                    DailyBar,
+                    (
+                        DailyBar.code
+                        == UniverseMembershipDaily.code
+                    )
+                    & (
+                        DailyBar.trade_date
+                        == UniverseMembershipDaily.trade_date
+                    ),
+                )
+                .where(
+                    UniverseMembershipDaily.trade_date.in_(sessions),
+                    UniverseMembershipDaily.code.in_(codes),
+                    UniverseMembershipDaily.rules_version
+                    == universe_membership.RULES_VERSION,
+                    UniverseMembershipDaily.eligible.is_(True),
                     DailyBar.open.is_not(None),
                     DailyBar.high.is_not(None),
                     DailyBar.low.is_not(None),
@@ -631,6 +693,34 @@ def data_completeness() -> dict[str, Any]:
                 select(func.count(func.distinct(AdjustFactor.code))).where(
                     AdjustFactor.code.in_(codes),
                     AdjustFactor.ex_date <= latest,
+                    AdjustFactor.back_adjust_factor.is_not(None),
+                    AdjustFactor.back_adjust_factor > 0,
+                )
+            )
+            if codes
+            else 0
+        )
+        factor_cells = (
+            session.scalar(
+                select(func.count())
+                .select_from(UniverseMembershipDaily)
+                .join(
+                    AdjustFactor,
+                    (
+                        AdjustFactor.code
+                        == UniverseMembershipDaily.code
+                    )
+                    & (
+                        AdjustFactor.ex_date
+                        == UniverseMembershipDaily.trade_date
+                    ),
+                )
+                .where(
+                    UniverseMembershipDaily.trade_date.in_(sessions),
+                    UniverseMembershipDaily.code.in_(codes),
+                    UniverseMembershipDaily.rules_version
+                    == universe_membership.RULES_VERSION,
+                    UniverseMembershipDaily.eligible.is_(True),
                     AdjustFactor.back_adjust_factor.is_not(None),
                     AdjustFactor.back_adjust_factor > 0,
                 )
@@ -711,10 +801,18 @@ def data_completeness() -> dict[str, Any]:
             else 0
         ),
         "barCoverage": (
-            bar_count / expected_cells if expected_cells else 0
+            bar_count / eligible_cells if eligible_cells else 0
         ),
+        "eligibleBarCells": eligible_cells,
+        "eligibleSessionsByCode": eligible_by_code,
+        "minimumEligibleSessionsPerCode": 252,
         "adjustFactorCodeCoverage": (
             factor_codes / len(codes) if codes else 0
+        ),
+        "adjustFactorCoverage": (
+            min(1.0, factor_cells / eligible_cells)
+            if eligible_cells
+            else 0
         ),
         "auditedIngestionCodeCoverage": (
             audited_codes / len(codes) if codes else 0
@@ -730,8 +828,12 @@ def data_completeness() -> dict[str, Any]:
             codes
             and snapshot_count == len(sessions)
             and membership_count == expected_cells
-            and bar_count == expected_cells
+            and eligible_cells > 0
+            and set(eligible_by_code) == set(codes)
+            and min(eligible_by_code.values()) >= 252
+            and bar_count == eligible_cells
             and factor_codes == len(codes)
+            and factor_cells >= eligible_cells
             and audited_codes == len(codes)
             and benchmark_bar_count == len(sessions)
             and bool(benchmark_factor)

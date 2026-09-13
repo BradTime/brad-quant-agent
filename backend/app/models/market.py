@@ -18,6 +18,7 @@ from sqlalchemy import (
     Boolean,
     Date,
     DateTime,
+    ForeignKey,
     Index,
     Numeric,
     String,
@@ -111,6 +112,29 @@ class InstrumentIndustryVintage(Base):
     )
     last_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
+    )
+
+
+class InstrumentSuspensionDaily(Base):
+    __tablename__ = "instrument_suspension_daily"
+    __table_args__ = (
+        Index(
+            "ix_instrument_suspension_daily_date",
+            "trade_date",
+        ),
+    )
+
+    code: Mapped[str] = mapped_column(
+        String(16),
+        ForeignKey("instruments.code", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    reason: Mapped[str | None] = mapped_column(String(128))
+    announced_date: Mapped[date | None] = mapped_column(Date)
+    source: Mapped[str] = mapped_column(String(32))
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
 

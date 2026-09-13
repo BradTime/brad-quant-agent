@@ -31,7 +31,7 @@ from app.models.extra import (
     FinancialSummary,
     NewsItem,
 )
-from app.models.ingestion import IngestionRun
+from app.models.ingestion import IngestionRun, TushareBootstrapDailyManifest
 from app.models.job import BacktestJob
 from app.models.market import (
     AdjustFactor,
@@ -39,6 +39,7 @@ from app.models.market import (
     Instrument,
     InstrumentIndustryVintage,
     InstrumentStatusHistory,
+    InstrumentSuspensionDaily,
     MinuteBar,
 )
 from app.models.prediction import (
@@ -84,6 +85,7 @@ __all__ = [
     "VerificationEmailOutbox",
     "Instrument",
     "InstrumentIndustryVintage",
+    "InstrumentSuspensionDaily",
     "InstrumentStatusHistory",
     "DailyBar",
     "MinuteBar",
@@ -94,6 +96,7 @@ __all__ = [
     "DragonTiger",
     "NewsItem",
     "IngestionRun",
+    "TushareBootstrapDailyManifest",
     "WatchlistItem",
     "MorningBrief",
     "BrokerBinding",
