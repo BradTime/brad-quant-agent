@@ -257,19 +257,19 @@ python -m app.cli build-pit-universe --start 2021-01-01 --end 2026-01-01
 每日股票池完整性清单、过滤器、排除原因、调整后日线和最终运行均有 SHA-256 证据。
 任一合格标的缺后复权因子、任一交易日缺沪深 300 基准都会拒绝整个全 A 回测。
 
-M3 预测基础使用 `daily-pit-v4` 特征与相邻 XSHG 交易日的次日开盘→收盘标签，
+M3 预测基础使用 `daily-pit-v5` 特征与相邻 XSHG 交易日的次日开盘→收盘标签，
 禁止跨停牌/缺失日期拼接标签。LightGBM/XGBoost 候选经 Purged Walk-Forward、
 isotonic 概率校准和 P10/P50/P90 分位数评测。候选 artifact 与 manifest 分别校验
 SHA-256；模型版本先在数据库占位，原生文件只有绑定独立可信 manifest checksum 后
 才能加载。Champion 晋级需要四类市场状态和全部 OOS 折通过，并写入管理员不可变审计。
-v4 保持完整 v3 顺序并追加行业超额收益、相对波动、宽度和同业覆盖；旧 v1/v2/v3
+v5 保持完整 v4 顺序并追加资金流净额/大单强度、连续性和 5→20 日加速度；旧 v1–v4
 Champion 可继续加载。模型 manifest、运营推理和 Challenger 承诺均绑定训练时的不可变行业
-快照 ID。截面排名使用模型注册时
+及资金流快照 ID。截面排名使用模型注册时
 固定的股票池且先于标签检查，市场/个股窗口均要求连续 XSHG 日期；评测还要求按日期聚类的
 准确率 95% 下界大于 50%。
 
-固定 20 标的封闭评估结果为 LightGBM 51.64%（下界 49.64%）和 XGBoost
-51.44%（下界 49.40%），均未晋级。组合权威层继续使用 first-observed 行业 Vintage；
+固定 20 标的封闭评估结果为 LightGBM 51.77%（下界 49.86%）和 XGBoost
+51.84%（下界 49.79%），均未晋级。组合权威层继续使用 first-observed 行业 Vintage；
 预测特征只使用另行固定的 SW2021 有效期快照，两类证据不得互相替代。
 
 ```bash
@@ -364,6 +364,9 @@ python -m scripts.bootstrap_prediction_market \
   --start 2021-04-25 --end 2026-09-11 --phase status
 python -m scripts.bootstrap_prediction_market \
   --start 2021-12-13 --end 2026-09-11 --phase industry
+python -m scripts.bootstrap_prediction_market \
+  --start 2021-11-01 --end 2026-09-11 --phase moneyflow \
+  --moneyflow-codes 600036.SH,000001.SZ
 python -m app.cli build-pit-universe \
   --start 2021-04-25 --end 2026-09-11
 ```
@@ -373,6 +376,8 @@ python -m app.cli build-pit-universe \
 `industry` 使用 SW2021 一级分类及 `index_member_all` 纳入/剔除日期，先合并同一行业的
 连续区间、拒绝跨行业重叠，再写入内容 Hash 固定的不可变快照。SW2021 特征可用日期不得早于
 2021-12-13；API 返回的更早纳入日期仅作为来源审计值保存。
+`moneyflow` 按固定代码池抓取主动买卖单历史，将万元精确转换为元，并保守设置为上海交易日
+17:00 可用；固定范围、代码 Hash、内容 Hash 和可用时点策略共同组成不可变快照。
 `status` 分别维护无重叠名称/ST 区间和独立 `suspend_d` 日证据。审计阶段只接受 Tushare
 停牌证据解释缺失 K 线。详见 `docs/prediction-data-bootstrap.md`。
 

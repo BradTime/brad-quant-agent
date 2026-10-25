@@ -366,6 +366,10 @@ brad-quant-agent/
   训练、推理、运营作业与 Challenger Commitment 全部绑定同一不可变行业快照 ID。固定 20
   标的封闭评估 LightGBM 51.64%（下界 49.64%）、XGBoost 51.44%（下界 49.40%），较 v3
   有改善但仍未同时达到 53% 与聚类下界门槛，保持 rejected 且不做结果导向调参
+- [x] `daily-pit-v5` 加入固定池 Tushare 主动买卖资金流：24,124 条历史记录从万元规范到元，
+  保守到交易日 17:00 可用并由不可变快照固定；连续 20 个实际 bar 缺任一天即丢弃样本。
+  净流入/大单强度、5 日均值、20 日正流入比例和 5→20 日加速度贯通模型与 Challenger 证据链。
+  封闭评估 LightGBM 51.77%（下界 49.86%）、XGBoost 51.84%（下界 49.79%），继续 rejected
 
 ### 工程化与 Phase 3 预备（增量）
 - [x] **WS 私有定向推送通道**：连接按 `user_id` 建反向索引，`send_to_user`/`notify_user`(async)+`notify_user_threadsafe`(同步撮合/调度器用)，私有事件信封；Phase 3 成交回报/持仓变动复用（私有数据绝不走广播）

@@ -216,6 +216,9 @@ python -c "from app.services import brief; print(brief.generate(None)['title'])"
 - `daily-pit-v4` 已将行业超额收益、相对波动、宽度和同业覆盖接入固定快照证据链。固定 20
   标的封闭评估为 LightGBM 51.64%（95% 下界 49.64%）、XGBoost 51.44%（49.40%）；
   虽较 v3 改善，仍未达到晋级门槛，因此没有生成 Champion。
+- `daily-pit-v5` 再加入交易日 17:00 后可用、快照固定的主动买卖资金流强度与连续性。
+  LightGBM 51.77%（下界 49.86%）、XGBoost 51.84%（49.79%），仍未达到 53% 和置信
+  下界双门槛，因此继续拒绝晋级。
 
 ## 测试与 CI
 - **后端单测**：`cd backend && python -m pytest -q`
