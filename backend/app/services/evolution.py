@@ -356,7 +356,8 @@ def _forecast_rows(
     ):
         raise ValueError("Challenger 缺少固定行业快照")
     if (
-        model_run.feature_schema_version == "daily-pit-v5"
+        model_run.feature_schema_version
+        in {"daily-pit-v5", "daily-pit-v6"}
         and (
             not isinstance(industry_snapshot_id, str)
             or not isinstance(moneyflow_snapshot_id, str)
@@ -782,7 +783,8 @@ def commit_signal(
         ):
             raise ValueError("Challenger 缺少固定行业快照")
         if (
-            model.feature_schema_version == "daily-pit-v5"
+            model.feature_schema_version
+            in {"daily-pit-v5", "daily-pit-v6"}
             and (
                 not isinstance(industry_snapshot_id, str)
                 or not isinstance(moneyflow_snapshot_id, str)
@@ -1064,7 +1066,8 @@ def evaluate_day(program_id: str, *, signal_date: date) -> dict[str, Any]:
             raise ValueError("Commitment 缺少固定行业快照")
         if (
             committed_model is not None
-            and committed_model.feature_schema_version == "daily-pit-v5"
+            and committed_model.feature_schema_version
+            in {"daily-pit-v5", "daily-pit-v6"}
             and (
                 not isinstance(industry_snapshot_id, str)
                 or not isinstance(moneyflow_snapshot_id, str)

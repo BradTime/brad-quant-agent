@@ -17,7 +17,7 @@ from app.models.extra import TushareMoneyflowDaily
 from app.models.ingestion import MoneyflowHistorySnapshot
 from app.models.market import Instrument
 
-AVAILABILITY_POLICY = "trade-date-17:00-asia-shanghai"
+AVAILABILITY_POLICY = "trade-date-19:00-asia-shanghai"
 SOURCE = "tushare:moneyflow"
 _TEN_THOUSAND = Decimal("10000")
 
@@ -70,7 +70,7 @@ def normalize_rows(
             "code": code,
             "trade_date": trade_date,
             "available_at": datetime.combine(
-                trade_date, time(17, 0), tzinfo=MARKET_TZ
+                trade_date, time(19, 0), tzinfo=MARKET_TZ
             ).astimezone(UTC),
             "net_amount": _yuan(
                 raw.get("net_mf_amount"), field="net_mf_amount"
@@ -158,6 +158,8 @@ def persist_snapshot(
                 MoneyflowHistorySnapshot.start_date == start,
                 MoneyflowHistorySnapshot.end_date == end,
                 MoneyflowHistorySnapshot.codes_sha256 == codes_sha256,
+                MoneyflowHistorySnapshot.availability_policy
+                == AVAILABILITY_POLICY,
             )
         )
         if existing is not None:
@@ -217,6 +219,8 @@ def latest_snapshot_id(
             MoneyflowHistorySnapshot.codes_sha256 == codes_sha256,
             MoneyflowHistorySnapshot.start_date <= start,
             MoneyflowHistorySnapshot.end_date >= end,
+            MoneyflowHistorySnapshot.availability_policy
+            == AVAILABILITY_POLICY,
         )
         .order_by(
             MoneyflowHistorySnapshot.fetched_at.desc(),

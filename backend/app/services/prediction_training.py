@@ -356,7 +356,8 @@ def infer_from_database(
     ):
         raise ValueError("Champion 缺少固定行业快照")
     if (
-        champion.feature_schema_version == "daily-pit-v5"
+        champion.feature_schema_version
+        in {"daily-pit-v5", "daily-pit-v6"}
         and (
             not isinstance(industry_snapshot_id, str)
             or not isinstance(moneyflow_snapshot_id, str)
@@ -415,7 +416,8 @@ def infer_model_from_database(
     ):
         raise ValueError("模型缺少固定行业快照")
     if (
-        model.feature_schema_version == "daily-pit-v5"
+        model.feature_schema_version
+        in {"daily-pit-v5", "daily-pit-v6"}
         and (
             not isinstance(industry_snapshot_id, str)
             or not isinstance(moneyflow_snapshot_id, str)

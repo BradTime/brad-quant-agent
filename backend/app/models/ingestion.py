@@ -100,6 +100,7 @@ class MoneyflowHistorySnapshot(Base):
             "start_date",
             "end_date",
             "codes_sha256",
+            "availability_policy",
             name="uq_moneyflow_history_snapshot_scope",
         ),
     )

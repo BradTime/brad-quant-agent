@@ -32,7 +32,7 @@ from app.services import (
 )
 
 MAX_ATTEMPTS = 3
-OPS_IMPLEMENTATION_VERSION = "ops-v7-daily-pit-v5"
+OPS_IMPLEMENTATION_VERSION = "ops-v8-daily-pit-v6"
 _LOCAL_EXECUTION_LOCKS: dict[str, threading.Lock] = {}
 _LOCAL_EXECUTION_LOCKS_GUARD = threading.Lock()
 _COMPLETENESS_CACHE_LOCK = threading.Lock()
@@ -446,7 +446,8 @@ def _execute(
             ):
                 raise ValueError("Champion 缺少固定行业快照")
             if (
-                champion.feature_schema_version == "daily-pit-v5"
+                champion.feature_schema_version
+                in {"daily-pit-v5", "daily-pit-v6"}
                 and (
                     not isinstance(industry_snapshot_id, str)
                     or not isinstance(moneyflow_snapshot_id, str)

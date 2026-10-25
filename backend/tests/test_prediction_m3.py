@@ -16,6 +16,7 @@ from app.prediction.features import (
     FEATURE_ORDER_V3,
     FEATURE_ORDER_V4,
     FEATURE_ORDER_V5,
+    FEATURE_ORDER_V6,
     PredictionExample,
     build_daily_examples,
     build_latest_features,
@@ -208,6 +209,10 @@ def test_daily_pit_v5_only_appends_to_v4_artifact_order():
     )
 
 
+def test_daily_pit_v6_keeps_v5_order_but_corrects_availability():
+    assert FEATURE_ORDER_V6 == FEATURE_ORDER_V5
+
+
 def test_moneyflow_features_require_twenty_aligned_signal_bars():
     bars = _bars(30)
     signal_date = bars[-1].date
@@ -216,7 +221,11 @@ def test_moneyflow_features_require_twenty_aligned_signal_bars():
             "netAmount": float(bar.amount) * 0.1,
             "largeNetAmount": float(bar.amount) * 0.05,
         }
-        for bar in bars[-20:]
+        for bar in bars[-21:-1]
+    }
+    flow[signal_date] = {
+        "netAmount": float(bars[-1].amount) * 100,
+        "largeNetAmount": float(bars[-1].amount) * 100,
     }
     market = {
         "marketReturn1": 0.001,

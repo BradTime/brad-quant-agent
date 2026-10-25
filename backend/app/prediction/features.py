@@ -10,7 +10,7 @@ from datetime import date
 from app.backtest.data import Bar
 from app.backtest.universe import expected_session_dates
 
-FEATURE_SCHEMA_VERSION = "daily-pit-v5"
+FEATURE_SCHEMA_VERSION = "daily-pit-v6"
 MIN_HISTORY = 21
 FEATURE_ORDER_V1 = (
     "return1",
@@ -90,12 +90,14 @@ FEATURE_ORDER_V5 = (
     "flowPositiveShare20",
     "flowAcceleration5To20",
 )
+FEATURE_ORDER_V6 = FEATURE_ORDER_V5
 FEATURE_ORDERS = {
     "daily-pit-v1": FEATURE_ORDER_V1,
     "daily-pit-v2": FEATURE_ORDER_V2,
     "daily-pit-v3": FEATURE_ORDER_V3,
     "daily-pit-v4": FEATURE_ORDER_V4,
     "daily-pit-v5": FEATURE_ORDER_V5,
+    "daily-pit-v6": FEATURE_ORDER_V6,
 }
 FEATURE_ORDER = FEATURE_ORDERS[FEATURE_SCHEMA_VERSION]
 
@@ -267,9 +269,12 @@ def _features_at(
         "volumeRatio5To20": _mean(volumes[-5:]) / _mean(volumes) - 1,
     }
     if moneyflow_by_date is not None:
+        # Tushare documents moneyflow as a 19:00 publication. Commitments are
+        # generated at 17:30, so signal-day flow is unavailable and forbidden.
+        flow_bars = window[:-1]
         flow_rows = [
             moneyflow_by_date.get(_bar_day(bar))
-            for bar in window[-20:]
+            for bar in flow_bars
         ]
         if any(row is None for row in flow_rows):
             return None
@@ -278,7 +283,7 @@ def _features_at(
                 float(row["netAmount"]), float(bar.amount)
             )
             for row, bar in zip(
-                flow_rows, window[-20:], strict=True
+                flow_rows, flow_bars, strict=True
             )
         ]
         large_intensity = [
@@ -286,7 +291,7 @@ def _features_at(
                 float(row["largeNetAmount"]), float(bar.amount)
             )
             for row, bar in zip(
-                flow_rows, window[-20:], strict=True
+                flow_rows, flow_bars, strict=True
             )
         ]
         features.update(

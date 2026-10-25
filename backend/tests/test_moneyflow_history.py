@@ -59,7 +59,7 @@ def test_moneyflow_normalization_converts_ten_thousand_yuan_and_time():
     assert row["large_net_amount"] == Decimal("50000.0000")
     assert row["extra_large_net_amount"] == Decimal("50000.0000")
     assert row["available_at"] == datetime(
-        2026, 10, 23, 9, 0, tzinfo=UTC
+        2026, 10, 23, 11, 0, tzinfo=UTC
     )
 
 
