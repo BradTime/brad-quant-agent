@@ -361,12 +361,17 @@ python -m scripts.bootstrap_prediction_market \
   --start 2021-04-25 --end 2026-09-11 --phase benchmark
 python -m scripts.bootstrap_prediction_market \
   --start 2021-04-25 --end 2026-09-11 --phase status
+python -m scripts.bootstrap_prediction_market \
+  --start 2021-12-13 --end 2026-09-11 --phase industry
 python -m app.cli build-pit-universe \
   --start 2021-04-25 --end 2026-09-11
 ```
 
 `market` 对 `daily`/`adj_factor` 分页，每个交易日在一个事务内比较 API 响应与持久行的
 规范化 Hash，再写不可变 manifest；manifest 存在后数据库禁止修改对应股票日线/因子。
+`industry` 使用 SW2021 一级分类及 `index_member_all` 纳入/剔除日期，先合并同一行业的
+连续区间、拒绝跨行业重叠，再写入内容 Hash 固定的不可变快照。SW2021 特征可用日期不得早于
+2021-12-13；API 返回的更早纳入日期仅作为来源审计值保存。
 `status` 分别维护无重叠名称/ST 区间和独立 `suspend_d` 日证据。审计阶段只接受 Tushare
 停牌证据解释缺失 K 线。详见 `docs/prediction-data-bootstrap.md`。
 
