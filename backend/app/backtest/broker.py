@@ -25,25 +25,42 @@ class Position:
 
 
 class Broker:
-    def __init__(self, initial_cash: float, slippage: float = 0.0) -> None:
+    def __init__(
+        self,
+        initial_cash: float,
+        slippage: float = 0.0,
+        max_participation: float = 1.0,
+    ) -> None:
         self.initial_cash = initial_cash
         self.cash = initial_cash
         self.positions: dict[str, Position] = {}
         self.slippage = max(slippage, 0.0)
+        self.max_participation = min(max(max_participation, 0.0), 1.0)
         self.fills: list[Fill] = []
-        self._pending: list[tuple[str, str, float]] = []  # (kind, code, value)
+        self._pending: list[tuple[str, str, float, int | None]] = []
+        self._signal_volume: dict[str, int | None] = {}
         self._prev_close: dict[str, float] = {}
         self._last_settlement_day: date | None = None
         self._market_day: date | None = None
         self._current_day_close: dict[str, float] = {}
         self._last_price: dict[str, float] = {}
+        self.volume_capped_fills = 0
+        self.volume_missing_rejections = 0
 
     # ---- 策略下单意图（下一根 bar 开盘成交） ----
     def submit_shares(self, code: str, delta_shares: int) -> None:
-        self._pending.append(("shares", code, float(int(delta_shares))))
+        self._pending.append(
+            ("shares", code, float(int(delta_shares)), self._signal_volume.get(code))
+        )
 
     def submit_target_percent(self, code: str, pct: float) -> None:
-        self._pending.append(("target", code, float(pct)))
+        self._pending.append(
+            ("target", code, float(pct), self._signal_volume.get(code))
+        )
+
+    def set_signal_bars(self, bars: dict[str, Bar]) -> None:
+        """Capture signal-day volume for next-open participation limits."""
+        self._signal_volume = {code: bar.volume for code, bar in bars.items()}
 
     def seed_previous_close(self, code: str, close: float) -> None:
         """Seed the pre-window close used for first-day price-limit checks."""
@@ -94,12 +111,12 @@ class Broker:
         open_px = {c: b.open for c, b in bars_today.items()}
         self._last_price.update(open_px)
         total = self._value(open_px)
-        orders: list[tuple[str, int, float, float | None]] = []
-        pending: list[tuple[str, str, float]] = []
-        for kind, code, val in self._pending:
+        orders: list[tuple[str, int, float, float | None, int | None]] = []
+        pending: list[tuple[str, str, float, int | None]] = []
+        for kind, code, val, reference_volume in self._pending:
             bar = bars_today.get(code)
             if bar is None or bar.open <= 0:
-                pending.append((kind, code, val))
+                pending.append((kind, code, val, reference_volume))
                 continue  # 等待该标的自己的下一根 bar
             px = bar.open
             if kind == "target":
@@ -109,10 +126,17 @@ class Broker:
             else:
                 delta = rules.round_lot(int(val)) if val >= 0 else -rules.round_lot(int(-val))
             if delta != 0:
-                orders.append((code, delta, px, bar.limit_ratio))
+                orders.append((code, delta, px, bar.limit_ratio, reference_volume))
         orders.sort(key=lambda o: o[1])  # 负(卖)在前
-        for code, delta, px, limit_ratio in orders:
-            self._fill(code, delta, px, trade_date, limit_ratio)
+        for code, delta, px, limit_ratio, reference_volume in orders:
+            self._fill(
+                code,
+                delta,
+                px,
+                trade_date,
+                limit_ratio,
+                reference_volume,
+            )
         self._pending = pending
         for c, b in bars_today.items():
             self._current_day_close[c] = b.close
@@ -144,13 +168,34 @@ class Broker:
         px: float,
         trade_date: date | datetime,
         limit_ratio: float | None = None,
+        reference_volume: int | None = None,
     ) -> None:
         side = "buy" if delta > 0 else "sell"
         if self._limit_blocked(code, side, px, limit_ratio):
             return
         fill_px = round(px * (1 + self.slippage), 4) if side == "buy" else round(px * (1 - self.slippage), 4)
+        previous_close = self._prev_close.get(code)
+        if (
+            previous_close is not None
+            and previous_close > 0
+            and limit_ratio is not None
+            and limit_ratio > 0
+        ):
+            lower = round(previous_close * (1 - limit_ratio), 2)
+            upper = round(previous_close * (1 + limit_ratio), 2)
+            fill_px = min(fill_px, upper) if side == "buy" else max(fill_px, lower)
         pos = self.positions.setdefault(code, Position())
         qty = abs(delta)
+        if self.max_participation < 1.0:
+            if reference_volume is None or reference_volume <= 0:
+                self.volume_missing_rejections += 1
+                return
+            capacity = rules.round_lot(
+                int(reference_volume * self.max_participation)
+            )
+            if capacity < qty:
+                self.volume_capped_fills += 1
+            qty = min(qty, capacity)
         if side == "buy":
             qty = rules.round_lot(qty)
             if qty <= 0:

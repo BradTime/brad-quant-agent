@@ -20,8 +20,8 @@ function dispatchMessage(
     onUpdate({ topic: msg.topic, payload: msg.payload });
     return;
   }
-  if (msg.type === 'trade.fill') {
-    onPrivate({ type: 'trade.fill', payload: msg.payload });
+  if (msg.type === 'trade.fill' || msg.type.startsWith('decision.')) {
+    onPrivate({ type: msg.type, payload: msg.payload });
   }
 }
 
@@ -62,6 +62,24 @@ describe('ws private trade.fill protocol', () => {
     expect(onUpdate).toHaveBeenCalledWith({
       topic: 'market.quote.600000.SH',
       payload: { price: 10 },
+    });
+  });
+
+  it('routes decision risk events to private handlers', () => {
+    const onUpdate = vi.fn();
+    const onPrivate = vi.fn();
+    dispatchMessage(
+      JSON.stringify({
+        type: 'decision.risk_veto',
+        payload: { notificationId: 'notice-1' },
+      }),
+      onUpdate,
+      onPrivate,
+    );
+    expect(onUpdate).not.toHaveBeenCalled();
+    expect(onPrivate).toHaveBeenCalledWith({
+      type: 'decision.risk_veto',
+      payload: { notificationId: 'notice-1' },
     });
   });
 });

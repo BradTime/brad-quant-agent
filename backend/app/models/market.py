@@ -13,7 +13,18 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, Index, Numeric, String, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Numeric,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -60,8 +71,8 @@ class InstrumentStatusHistory(Base):
     start_date: Mapped[date] = mapped_column(Date, primary_key=True)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     name: Mapped[str] = mapped_column(String(64), default="")
-    # normal / st / star_st. Boards such as ChiNext still apply their board
-    # limit; this status is consumed by trading_rules after board detection.
+    # normal / st / star_st / suspended / delisting / delisted. Boards such as
+    # ChiNext still apply their board limit; trading_rules consumes ST states.
     status_type: Mapped[str] = mapped_column(String(16), default="normal", index=True)
     change_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
     announced_date: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -71,8 +82,67 @@ class InstrumentStatusHistory(Base):
     )
 
 
+class InstrumentIndustryVintage(Base):
+    """First-observed, append-only industry classification."""
+
+    __tablename__ = "instrument_industry_vintages"
+    __table_args__ = (
+        UniqueConstraint(
+            "code",
+            "vintage",
+            name="uq_instrument_industry_code_vintage",
+        ),
+        Index(
+            "ix_instrument_industry_code_available",
+            "code",
+            "available_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    code: Mapped[str] = mapped_column(String(16), nullable=False)
+    industry: Mapped[str] = mapped_column(String(64), nullable=False)
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    vintage: Mapped[str] = mapped_column(String(64), nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class InstrumentSuspensionDaily(Base):
+    __tablename__ = "instrument_suspension_daily"
+    __table_args__ = (
+        Index(
+            "ix_instrument_suspension_daily_date",
+            "trade_date",
+        ),
+    )
+
+    code: Mapped[str] = mapped_column(
+        String(16),
+        ForeignKey("instruments.code", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    reason: Mapped[str | None] = mapped_column(String(128))
+    announced_date: Mapped[date | None] = mapped_column(Date)
+    source: Mapped[str] = mapped_column(String(32))
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class DailyBar(Base):
     __tablename__ = "daily_bars"
+    __table_args__ = (
+        Index("ix_daily_bars_trade_date", "trade_date"),
+    )
 
     code: Mapped[str] = mapped_column(String(16), primary_key=True)
     trade_date: Mapped[date] = mapped_column(Date, primary_key=True)

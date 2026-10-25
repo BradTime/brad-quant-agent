@@ -9,6 +9,9 @@ python-dotenv
 # HTTP / data utils
 httpx
 pandas
+lightgbm==4.7.0
+xgboost==3.4.1
+scikit-learn==1.9.0
 backtrader==1.9.78.123
 exchange-calendars==4.13.2
 

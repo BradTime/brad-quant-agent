@@ -40,16 +40,19 @@ export function StrategyForm({
   submitting = false,
   onSubmit,
 }: StrategyFormProps) {
+  const initialBuiltinType =
+    initial?.definitionType === 'custom_python'
+      ? undefined
+      : (initial?.builtinType as BuiltinStrategyType | undefined);
   const [catalog, setCatalog] = useState<StrategyCatalogItem[]>([]);
   const [name, setName] = useState(initial?.name ?? '');
   const [description, setDescription] = useState(initial?.description ?? '');
   const [builtinType, setBuiltinType] = useState<BuiltinStrategyType>(
-    initial?.builtinType ?? 'dual_ma',
+    initialBuiltinType ?? 'dual_ma',
   );
   const [params, setParams] = useState<Record<string, number>>(initial?.params ?? {});
   const [catalogError, setCatalogError] = useState('');
   const [submitError, setSubmitError] = useState('');
-  const initialBuiltinType = initial?.builtinType;
 
   useEffect(() => {
     void backtestApi.strategyCatalog()

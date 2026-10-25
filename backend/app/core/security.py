@@ -79,6 +79,7 @@ def _create_token(
     token_version: int = 0,
     *,
     expires_seconds: int | None = None,
+    extra_claims: dict | None = None,
 ) -> str:
     now = datetime.now(UTC)
     expires = (
@@ -93,6 +94,8 @@ def _create_token(
         "iat": now,
         "exp": now + expires,
     }
+    if extra_claims:
+        payload.update(extra_claims)
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
@@ -114,6 +117,22 @@ def create_ws_ticket(subject: str, token_version: int = 0) -> str:
         "ws",
         token_version,
         expires_seconds=seconds,
+    )
+
+
+def create_step_up_token(
+    subject: str,
+    purpose: str,
+    grant_id: str,
+    token_version: int = 0,
+) -> str:
+    return _create_token(
+        subject,
+        0,
+        "step_up",
+        token_version,
+        expires_seconds=300,
+        extra_claims={"purpose": purpose, "jti": grant_id},
     )
 
 

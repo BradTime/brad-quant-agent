@@ -98,3 +98,9 @@ class RefreshRequest(BaseModel):
 
     # Cookie 优先；body 仅供测试 / 非浏览器客户端回退。
     refreshToken: str | None = None
+
+
+class DeleteAccountRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stepUpToken: str = Field(min_length=20, max_length=4096)

@@ -5,11 +5,13 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   Activity,
+  BrainCircuit,
   Database,
   FlaskConical,
   LayoutDashboard,
   Layers,
   Newspaper,
+  ShieldCheck,
   Sparkles,
   Wallet,
   X,
@@ -29,10 +31,18 @@ const NAV: NavItem[] = [
   { href: '/dashboard', label: '仪表盘', en: 'Overview', icon: LayoutDashboard },
   { href: '/market', label: '看盘', en: 'Markets', icon: Activity },
   { href: '/brief', label: '盘前早报', en: 'Brief', icon: Newspaper },
+  { href: '/decisions', label: '策略决策室', en: 'Decisions', icon: ShieldCheck },
   { href: '/sim', label: '模拟交易', en: 'Paper', icon: Wallet },
   { href: '/strategies', label: '策略', en: 'Strategies', icon: Layers },
   { href: '/backtest', label: '回测', en: 'Backtest', icon: FlaskConical },
   { href: '/ai', label: 'AI 问答', en: 'Copilot', icon: Sparkles },
+  {
+    href: '/admin/models',
+    label: '模型运营',
+    en: 'Model Ops',
+    icon: BrainCircuit,
+    adminOnly: true,
+  },
   {
     href: '/admin/training',
     label: '训练数据',

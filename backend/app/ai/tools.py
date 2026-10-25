@@ -38,6 +38,18 @@ _MAX_DRAGON = 50
 _MAX_NEWS = 50
 _MAX_RAG_K = 20
 _MAX_SCREEN = 100
+StrategyName = Literal[
+    "dual_ma",
+    "rsi",
+    "boll",
+    "momentum",
+    "donchian_breakout",
+    "xs_momentum",
+    "zscore_reversion",
+    "composite_mf",
+    "flow_surge",
+    "fundamental_quality",
+]
 
 
 class _Strict(BaseModel):
@@ -76,11 +88,18 @@ class SearchInstrumentsArgs(_Strict):
 class GetCapitalFlowArgs(_Strict):
     code: str = Field(min_length=1, max_length=_MAX_CODE_LEN)
     limit: int = Field(default=30, ge=1, le=_MAX_FLOW)
+    asOf: str | None = Field(default=None, max_length=40)
 
     @field_validator("code")
     @classmethod
     def _code(cls, value: str) -> str:
         return normalize_a_share_code(value)
+
+    @field_validator("asOf")
+    @classmethod
+    def _as_of(cls, value: str | None) -> str | None:
+        parse_as_of(value)
+        return value
 
 
 class GetFinancialsArgs(_Strict):
@@ -170,7 +189,7 @@ class ScreenStocksArgs(_Strict):
 class RunBacktestArgs(_Strict):
     """有界单标的同步回测（不落库、不下单）。"""
 
-    strategyType: Literal["dual_ma", "rsi", "boll", "momentum"] = "dual_ma"
+    strategyType: StrategyName = "dual_ma"
     code: str = Field(min_length=1, max_length=_MAX_CODE_LEN)
     start: str = Field(min_length=8, max_length=10)
     end: str = Field(min_length=8, max_length=10)
@@ -197,7 +216,7 @@ class RunBacktestArgs(_Strict):
 class GridSearchArgs(_Strict):
     """有界参数网格（默认 dual_ma，组合数由 schema 上限约束）。"""
 
-    strategyType: Literal["dual_ma", "rsi", "boll", "momentum"] = "dual_ma"
+    strategyType: StrategyName = "dual_ma"
     code: str = Field(min_length=1, max_length=_MAX_CODE_LEN)
     start: str = Field(min_length=8, max_length=10)
     end: str = Field(min_length=8, max_length=10)
@@ -357,6 +376,11 @@ TOOLS: list[dict] = [
                         "minimum": 1,
                         "maximum": _MAX_FLOW,
                         "description": f"返回最近多少日，默认 30，最大 {_MAX_FLOW}",
+                    },
+                    "asOf": {
+                        "type": "string",
+                        "description": "可选 PIT 截止时点（RFC3339 或 ISO 日期）",
+                        "maxLength": 40,
                     },
                 },
                 "required": ["code"],
@@ -646,7 +670,11 @@ def execute_tool(name: str, arguments: dict[str, Any] | None = None) -> dict:
         }
     if name == "get_capital_flow":
         assert isinstance(args, GetCapitalFlowArgs)
-        payload = market.get_capital_flow(args.code, args.limit)
+        payload = market.get_capital_flow(
+            args.code,
+            args.limit,
+            parse_as_of(args.asOf),
+        )
         return {
             "capitalFlow": payload.get("items") or [],
             "meta": payload.get("meta"),

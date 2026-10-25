@@ -35,6 +35,7 @@ def _cfg(**overrides) -> BacktestConfig:
         "start": "2024-01-01",
         "end": "2024-01-03",
         "initial_capital": 100_000.0,
+        "slippage": 0.0,
     }
     values.update(overrides)
     return BacktestConfig(**values)

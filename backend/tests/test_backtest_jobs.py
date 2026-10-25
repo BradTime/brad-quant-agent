@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from sqlalchemy import create_engine
@@ -12,7 +12,7 @@ from sqlalchemy.pool import StaticPool
 from app.db.base import Base
 from app.models.job import BacktestJob
 from app.models.user import User
-from app.schemas.backtest import GridSearchRequest
+from app.schemas.backtest import FullABacktestRequest, GridSearchRequest
 from app.services import backtest_jobs, backtest_run
 
 
@@ -48,6 +48,17 @@ def _grid_req(**overrides) -> GridSearchRequest:
     }
     base.update(overrides)
     return GridSearchRequest.model_validate(base)
+
+
+def _full_a_req() -> FullABacktestRequest:
+    return FullABacktestRequest.model_validate(
+        {
+            "strategyType": "xs_momentum",
+            "params": {"lookback": 60, "topN": 3, "target": 0.95},
+            "start": "2024-01-01",
+            "end": "2024-06-30",
+        }
+    )
 
 
 def test_enqueue_and_cancel_queued(job_env) -> None:
@@ -101,3 +112,116 @@ def test_worker_completes_job(job_env, monkeypatch: pytest.MonkeyPatch) -> None:
     assert done is not None
     assert done["status"] == "completed"
     assert done["result"]["best"]["metrics"]["sharpeRatio"] == 1.2
+
+
+def test_full_a_job_is_unique_cancel_aware_and_completes(
+    job_env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = backtest_jobs.enqueue_full_a("user-1", _full_a_req())
+    with pytest.raises(ValueError, match="已有全 A"):
+        backtest_jobs.enqueue_full_a("user-1", _full_a_req())
+
+    def fake_run(
+        user_id,
+        req,
+        *,
+        cancel_check,
+        on_progress,
+        job_id,
+        claim_token,
+    ):
+        assert job_id == first["id"]
+        assert claim_token
+        assert not cancel_check()
+        on_progress(1, 1)
+        return {
+            "id": "run-1",
+            "status": "completed",
+            "strategyType": req.strategyType,
+        }
+
+    monkeypatch.setattr(backtest_run, "run_full_a_and_save", fake_run)
+    assert backtest_jobs.worker_loop_once()
+    done = backtest_jobs.get_job("user-1", first["id"])
+    assert done is not None
+    assert done["status"] == "completed"
+    assert done["progressDone"] == 1
+
+
+def test_full_a_job_preserves_running_cancellation(
+    job_env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    job = backtest_jobs.enqueue_full_a("user-1", _full_a_req())
+    monkeypatch.setattr(
+        backtest_run,
+        "run_full_a_and_save",
+        lambda *args, **kwargs: {
+            "cancelled": True,
+            "progressDone": 2,
+            "progressTotal": 10,
+        },
+    )
+    assert backtest_jobs.worker_loop_once()
+    done = backtest_jobs.get_job("user-1", job["id"])
+    assert done is not None
+    assert done["status"] == "cancelled"
+
+
+def test_stale_running_job_is_reclaimed(job_env) -> None:
+    job = backtest_jobs.enqueue_full_a("user-1", _full_a_req())
+    with job_env.begin() as session:
+        row = session.get(BacktestJob, job["id"])
+        row.status = "running"
+        row.updated_at = datetime.now(UTC) - timedelta(hours=1)
+    claimed = backtest_jobs.claim_next_job()
+    assert claimed is not None
+    assert claimed.id == job["id"]
+    assert claimed.status == "running"
+
+
+def test_finish_cannot_overwrite_concurrent_cancellation(job_env) -> None:
+    job = backtest_jobs.enqueue_full_a("user-1", _full_a_req())
+    claimed = backtest_jobs.claim_next_job()
+    assert claimed is not None
+    cancelled = backtest_jobs.request_cancel("user-1", job["id"])
+    assert cancelled is not None and cancelled["cancelRequested"] is True
+
+    backtest_jobs._finish(
+        job["id"],
+        claimed.claim_token,
+        status="completed",
+        result={"id": "should-not-win"},
+    )
+
+    final = backtest_jobs.get_job("user-1", job["id"])
+    assert final is not None
+    assert final["status"] == "cancelled"
+
+
+def test_reclaimed_job_rejects_stale_worker_heartbeat_and_finish(
+    job_env,
+) -> None:
+    job = backtest_jobs.enqueue_full_a("user-1", _full_a_req())
+    first = backtest_jobs.claim_next_job()
+    assert first is not None and first.claim_token
+    with job_env.begin() as session:
+        row = session.get(BacktestJob, job["id"])
+        row.updated_at = datetime.now(UTC) - timedelta(hours=1)
+    second = backtest_jobs.claim_next_job()
+    assert second is not None and second.claim_token
+    assert second.claim_token != first.claim_token
+
+    backtest_jobs._set_progress(
+        job["id"], first.claim_token, 99, 100
+    )
+    backtest_jobs._finish(
+        job["id"],
+        first.claim_token,
+        status="completed",
+        result={"stale": True},
+    )
+
+    current = backtest_jobs.get_job("user-1", job["id"])
+    assert current is not None
+    assert current["status"] == "running"
+    assert current["progressDone"] == 0

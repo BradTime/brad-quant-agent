@@ -12,10 +12,12 @@ const TITLES: Record<string, [string, string]> = {
   '/dashboard': ['仪表盘', '你的投研总览'],
   '/market': ['看盘', '实时行情与个股'],
   '/brief': ['盘前早报', 'AI 生成的条件式研究计划'],
+  '/decisions': ['策略决策室', '盲审、裁决、风控与人工复核'],
   '/strategies': ['策略', '创建与管理量化策略'],
   '/backtest': ['回测', '用历史检验你的想法'],
   '/sim': ['模拟交易', 'T+1 撮合 · 持仓与成交回报'],
   '/ai': ['AI 问答', '与你的投研助手对话'],
+  '/admin/models': ['模型运营', '训练、推理与 Challenger 观察'],
 };
 
 function titleFor(pathname: string): [string, string] {

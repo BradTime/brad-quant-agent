@@ -32,7 +32,7 @@ _TOOL_FIELDS = {
     "get_quotes": {"codes"},
     "get_kline": {"symbol", "period", "count"},
     "search_instruments": {"query", "limit"},
-    "get_capital_flow": {"code", "limit"},
+    "get_capital_flow": {"code", "limit", "asOf"},
     "get_financials": {"code", "limit", "asOf"},
     "get_dragon_tiger": {"code", "limit"},
     "get_news": {"code", "limit"},
@@ -268,6 +268,9 @@ def route_deterministically(user_text: str) -> RoutingDecision | None:
             limit = _count(text, 30)
             if limit != 30 or "最近" in text:
                 args["limit"] = limit
+            as_of = _as_of(text)
+            if as_of:
+                args["asOf"] = as_of
             calls["get_capital_flow"] = ToolCall("get_capital_flow", args)
     if "龙虎榜" in text and primary:
         calls["get_dragon_tiger"] = ToolCall(

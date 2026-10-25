@@ -224,6 +224,147 @@ function-calling 协议使用非思考模式，因此请求会显式发送
 私有 `trainingdata` volume。应用不会把训练 artifact 上传到 DeepSeek、LangSmith、Sentry
 或 embedding 服务；实际 SFT/LoRA 必须在独立审批后执行。
 
+策略定义采用 `signal-v1` 协议。内置策略与自定义 Python 均输出规范化的
+`code/score/confidence/reason` 信号，不直接生成订单。参数、类型或源码变化会追加不可变
+`strategy_versions` 记录；名称和描述修改不会产生新执行版本。可通过
+`GET /strategies/{id}/versions` 和 `GET /strategies/{id}/versions/{version}` 审计。
+定义更新必须携带当前 `expectedVersion`，陈旧写入返回 409；删除策略只隐藏并标记 head，
+不会级联删除历史版本。受限信号可通过
+`POST /strategies/{id}/versions/{version}/signals` 执行，版本协议不匹配时拒绝运行。
+
+自定义源码入口固定为 `generate_signals(context, bars)`，只接受受控 AST 子集并在独立
+进程执行。`STRATEGY_SANDBOX_TIMEOUT_SECONDS` 与 `STRATEGY_SANDBOX_MEMORY_MB`
+配置资源上限。该进程隔离是应用层基线；生产接收非可信第三方代码前必须再部署无网络、
+只读 rootfs、无 secret mount、drop capabilities 与 seccomp/AppArmor 的专用容器或 microVM。
+
+M2 日线策略目录现含双均线、RSI、布林带、动量、唐奇安突破、截面动量、Z-Score
+反转、价格量能多因子、资金流连续增强和 PIT 价值质量。保存策略回测可在 `POST /backtest/run`
+携带 `strategyId`/`strategyVersion`；服务端会固定不可变版本和 Hash。
+资金流写入 first-observed `capital_flow_vintages`，重复观测只更新 `last_seen_at`；
+财务复用 `available_at` Vintage。两类策略缺少逐日可见数据时直接拒绝回测。
+
+```bash
+# 单日或分块历史物化严格 PIT 全 A 股票池
+python -m app.cli build-pit-universe --date 2026-09-08
+python -m app.cli build-pit-universe --start 2021-01-01 --end 2026-01-01
+```
+
+最多 20 个手工标的的日线回测可设置 `universeMode=pit_filtered`，请求区间每个
+交易日都必须已物化，否则失败关闭。后端默认滑点 10bp，成交量上限为信号日成交量
+1%，结果通过 `executionQuality`/`universeQuality` 披露限制与排除。
+`POST /backtest/full-a` 可异步运行 `xs_momentum`/`composite_mf`：逐块读取日线、
+逐日检查取消并更新租约，worker 中断后可回收重跑，且 `jobId` 保证结果幂等。
+每日股票池完整性清单、过滤器、排除原因、调整后日线和最终运行均有 SHA-256 证据。
+任一合格标的缺后复权因子、任一交易日缺沪深 300 基准都会拒绝整个全 A 回测。
+
+M3 预测基础使用 `daily-pit-v2` 特征与相邻 XSHG 交易日的次日开盘→收盘标签，
+禁止跨停牌/缺失日期拼接标签。LightGBM/XGBoost 候选经 Purged Walk-Forward、
+isotonic 概率校准和 P10/P50/P90 分位数评测。候选 artifact 与 manifest 分别校验
+SHA-256；模型版本先在数据库占位，原生文件只有绑定独立可信 manifest checksum 后
+才能加载。Champion 晋级需要四类市场状态和全部 OOS 折通过，并写入管理员不可变审计。
+v2 artifact 额外固定完整特征名称/顺序；旧 v1 Champion 可继续加载。截面排名使用模型注册时
+固定的股票池且先于标签检查，市场/个股窗口均要求连续 XSHG 日期；评测还要求按日期聚类的
+准确率 95% 下界大于 50%。
+
+```bash
+python -m app.cli prediction train --version 2026-W37 --provider lightgbm \
+  --codes 600000.SH,000001.SZ --start 2023-01-01 --end 2026-09-09
+python -m app.cli prediction infer --date 2026-09-09 \
+  --codes 600000.SH,000001.SZ
+python -m app.cli prediction recover --version 2026-W37
+```
+
+`GET /predictions?code=600000.SH&asOf=2026-09-09` 按当时已发生的 Champion 晋级和
+预测推理时间返回 PIT 结果；管理员可用 `POST /predictions/models/{id}/promote`
+晋级已验证候选。
+
+`POST /portfolio/regime` 只提供明确标注的非权威规则预览。内部组合器已实现 20 万
+权益、2 倍总敞口、单票 20%、行业 30%、相关策略池 25%、预计日损失 2% 和
+15/18/20% 回撤规则。先以 first-observed 方式采集行业：
+
+```bash
+python -m app.cli ingest-industry --code 600000.SH
+```
+
+`POST /portfolio/authoritative-preview` 仅接收最多 20 个代码和最新已物化交易日，
+在一个 `REPEATABLE READ` 事务内锁定服务端账户/持仓，并读取估值日收盘价、PIT
+行业、Champion 预测、基准、市场宽度和风险档案。结果与证据追加落库且
+`executionApproved=false`；客户端不能提交或覆盖这些风险事实，该接口不会下单。
+详见 `docs/prediction-portfolio-design.md`。
+
+M4 使用 `POST /decisions` 将同一份 M3 权威证据依次送入研究员、独立盲审反证官、
+固定两轮质询、确定性投资委员会和一票否决风险官。`GET /decisions` 与
+`GET /decisions/{id}` 可回放六阶段输出及前序/事件 Hash。相同用户、交易日和代码集合
+幂等；中断运行由五分钟租约和 claim token 恢复。数据库触发器阻止已完成运行、事件和
+所绑定 M3 组合证据被更新、删除或转移租户。所有输出保持 `executionApproved=false`。
+
+M5 私人控制面位于 `/decision-room`：
+
+- `POST /totp/enroll` + `/totp/confirm` 启用 TOTP；恢复码仅显示一次
+- `POST /step-up` 生成五分钟、一次性、用途绑定凭证；恢复码只允许
+  `reset_totp`/`delete_account`
+- `PATCH /mode`、`POST /decisions/{id}/override` 和
+  `POST /kill-switch/release` 必须消费对应 step-up
+- `POST /kill-switch/activate` 可立即人工触发，不要求先取得二次验证
+- `/notifications` 返回持久化风险通知；私有 WS 同步 `decision.*` 事件
+
+人工覆盖只能作用于 M4 风险官已批准标的，仍检查单票、行业、杠杆和预计损失限制；
+风险否决或 Kill Switch 不可人工绕过。飞书仅发送事件级别、短消息和站内路径，
+`FEISHU_WEBHOOK_URL` 只接受飞书官方 HTTPS bot 地址。投递与用户 artifact 清理都通过
+带 claim lease 的数据库 outbox 重试，控制面始终返回 `executionEnabled=false`。
+
+M6 `POST /evolution/models/{modelRunId}/enroll` 将 validated 模型登记为 Challenger。
+每日 17:30 调度先结算前一日不可变承诺，再为最新 PIT 交易日写
+`/evolution/{id}/commit`；`/evaluate` 只结算已存在且签名有效的承诺。首次晋级需要
+60 日模拟和 20 日影子，模型晋级 API 会独立重算全部观察和 HMAC 转换链，不能仅修改
+program 状态绕过。生产必须配置与 JWT/Fernet 原始密钥材料不同的
+`EVOLUTION_ATTESTATION_KEY` 和稳定 `EVOLUTION_ATTESTATION_KEY_ID`；轮换时把旧
+`id=key` 保留在 `EVOLUTION_ATTESTATION_PREVIOUS_KEYS`，直至相关计划结束。
+
+模拟持仓按次日开盘、T+1、100 股整手、信号日成交量 1%、涨跌停、10bp 滑点和历史
+佣金/印花税逐日结算。60/20 门禁或滚动质量失败自动降级；漏掉收盘承诺不可回填。
+决策室 `/behavior` 使用同一撮合规则比较人工覆盖与原策略，失败记录逐条重试/隔离。
+
+M7 提供基于东财官方文档的 `gm.api` adapter 与终端入口
+`python -m app.broker.emt_bridge`。账户/策略 ID 加密保存并与环境配置双向核对；委托意图
+采用用户幂等键、一次性 `submit_broker_simulation` step-up、数据库每秒流控和 at-most-once
+发送状态，连接中断后进入 `uncertain` 并通过委托/成交回报对账，绝不盲目重发。
+
+当前安全边界是**只读准备态**：官方 `MODE_LIVE` 同时用于仿真与实盘，公开 SDK 没有
+账户类型字段，因此 `OfficialEmtAdapter.simulation_account_verified` 固定为 `false`，
+bridge 仅同步资金、持仓、委托和成交；`POST /broker/rehearsal-orders` 只生成
+`blocked_account_type` 记录，不调用 `order_volume`，演练也不可能标记通过。配置中的确认
+短语、账户 ID 和报备文件只作为附加控制，不能替代官方可验证账户类型。详见
+`docs/emt-simulation-readiness.md`。
+
+预测运营 API 为管理员专用 `/prediction-ops`。手动 `POST /jobs` 只做幂等入队；
+worker 每 30 秒认领。设置 `PREDICTION_OPS_ENABLED=true` 与明确的
+`PREDICTION_OPS_CODES` 后，调度器在指定星期入队 3–5 年滚动训练，并在工作日收盘后入队
+每日推理。执行过程同时持有 session advisory lock 和可续租 job lease；模型/forecast
+写事务锁定 job 与 Champion 行，旧 worker 不能发布。
+
+`GET /prediction-ops` 返回模型注册表、M6 进度、作业历史和训练完整率。完整率覆盖训练窗口
+前 134 天 warmup，检查每日 PIT 清单、OHLC 顺序、成交量/金额、后复权因子、沪深 300 和
+ingestion audit；结果缓存五分钟。
+
+全市场历史数据可断点引导：
+
+```bash
+python -m scripts.bootstrap_prediction_market \
+  --start 2021-04-25 --end 2026-09-11 --phase market
+python -m scripts.bootstrap_prediction_market \
+  --start 2021-04-25 --end 2026-09-11 --phase benchmark
+python -m scripts.bootstrap_prediction_market \
+  --start 2021-04-25 --end 2026-09-11 --phase status
+python -m app.cli build-pit-universe \
+  --start 2021-04-25 --end 2026-09-11
+```
+
+`market` 对 `daily`/`adj_factor` 分页，每个交易日在一个事务内比较 API 响应与持久行的
+规范化 Hash，再写不可变 manifest；manifest 存在后数据库禁止修改对应股票日线/因子。
+`status` 分别维护无重叠名称/ST 区间和独立 `suspend_d` 日证据。审计阶段只接受 Tushare
+停牌证据解释缺失 K 线。详见 `docs/prediction-data-bootstrap.md`。
+
 ## WebSocket 行情推送（`/ws/v1`）
 
 调度器把数据源刷新进内存缓存；一个异步推送循环每 `WS_PUSH_SECONDS`（默认 3s）把订阅主题的最新缓存推给客户端（只读缓存、不发起网络请求，故不阻塞）。

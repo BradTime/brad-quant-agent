@@ -7,13 +7,13 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api.deps import get_current_user
 from app.main import app
-from app.models.strategy import Strategy
+from app.models.strategy import Strategy, StrategyVersion
 from app.services import strategy as strategy_service
 
 
@@ -34,6 +34,7 @@ def strategy_client(monkeypatch):
 
     monkeypatch.setattr(strategy_service, "SessionLocal", test_session)
     Strategy.__table__.create(bind=engine)
+    StrategyVersion.__table__.create(bind=engine)
 
     identity = {"user_id": "user-a"}
 
@@ -108,6 +109,7 @@ def test_strategy_crud_and_status_transitions(strategy_client):
             "description": "更新后的策略",
             "builtinType": "rsi",
             "params": {"period": 12, "low": 25, "high": 75, "target": 0.7},
+            "expectedVersion": 1,
         },
     )
     assert updated_response.status_code == 200
@@ -129,6 +131,15 @@ def test_strategy_crud_and_status_transitions(strategy_client):
     assert removed.status_code == 200
     assert removed.json()["data"] == {"deleted": True}
     assert client.get(f"/api/v1/strategies/{strategy_id}").status_code == 404
+    with strategy_service.SessionLocal() as session:
+        versions = session.execute(
+            select(StrategyVersion).where(
+                StrategyVersion.strategy_id == strategy_id
+            )
+        ).scalars().all()
+        head = session.get(Strategy, strategy_id)
+    assert len(versions) == 2
+    assert head is not None and head.status == "deleted" and head.deleted_at is not None
 
 
 def test_strategy_list_supports_pagination_filters_and_search(strategy_client):
@@ -240,3 +251,138 @@ def test_duplicate_copies_configuration_into_new_draft(strategy_client):
     assert copied["params"] == source["params"]
     assert copied["status"] == "draft"
     assert client.get("/api/v1/strategies").json()["data"]["total"] == 2
+
+
+def test_strategy_definition_updates_append_immutable_versions(strategy_client):
+    client, _ = strategy_client
+    created = _create(
+        client,
+        params={"fast": 5, "slow": 20, "target": 0.9},
+    ).json()["data"]
+    strategy_id = created["id"]
+    assert created["definitionType"] == "builtin"
+    assert created["currentVersion"] == 1
+    assert len(created["definitionSha256"]) == 64
+
+    renamed = client.put(
+        f"/api/v1/strategies/{strategy_id}", json={"name": "只改名称"}
+    ).json()["data"]
+    assert renamed["currentVersion"] == 1
+
+    updated = client.put(
+        f"/api/v1/strategies/{strategy_id}",
+        json={
+            "params": {"fast": 10, "slow": 30, "target": 0.8},
+            "expectedVersion": 1,
+        },
+    ).json()["data"]
+    assert updated["currentVersion"] == 2
+    assert updated["definitionSha256"] != created["definitionSha256"]
+    same = client.put(
+        f"/api/v1/strategies/{strategy_id}",
+        json={
+            "params": {"fast": 10, "slow": 30, "target": 0.8},
+            "expectedVersion": 2,
+        },
+    ).json()["data"]
+    assert same["currentVersion"] == 2
+    stale = client.put(
+        f"/api/v1/strategies/{strategy_id}",
+        json={
+            "params": {"fast": 8, "slow": 30, "target": 0.8},
+            "expectedVersion": 1,
+        },
+    )
+    assert stale.status_code == 409
+    missing_version = client.put(
+        f"/api/v1/strategies/{strategy_id}",
+        json={"params": {"fast": 8, "slow": 30, "target": 0.8}},
+    )
+    assert missing_version.status_code == 400
+
+    versions = client.get(
+        f"/api/v1/strategies/{strategy_id}/versions"
+    ).json()["data"]
+    assert [row["version"] for row in versions] == [2, 1]
+    first = client.get(
+        f"/api/v1/strategies/{strategy_id}/versions/1"
+    ).json()["data"]
+    assert first["params"] == {"fast": 5, "slow": 20, "target": 0.9}
+    assert first["definitionSha256"] == created["definitionSha256"]
+
+
+def test_custom_python_strategy_is_validated_versioned_and_tenant_isolated(
+    strategy_client,
+):
+    client, identity = strategy_client
+    source = (
+        "def generate_signals(context, bars):\n"
+        "    return {'signals': []}\n"
+    )
+    response = client.post(
+        "/api/v1/strategies",
+        json={
+            "name": "自定义空信号",
+            "definitionType": "custom_python",
+            "sourceCode": source,
+            "params": {"window": 20},
+        },
+    )
+    assert response.status_code == 200
+    created = response.json()["data"]
+    assert created["definitionType"] == "custom_python"
+    assert created["builtinType"] == "custom_python"
+    assert created["category"] == "custom"
+    assert created["sourceCode"].startswith("def generate_signals")
+
+    version = client.get(
+        f"/api/v1/strategies/{created['id']}/versions/1"
+    ).json()["data"]
+    assert version["sourceCode"] == created["sourceCode"]
+    signal_run = client.post(
+        f"/api/v1/strategies/{created['id']}/versions/1/signals",
+        json={
+            "context": {"asOf": "2026-09-08"},
+            "bars": {"600000.SH": [{"date": "2026-09-08", "close": 10.0}]},
+        },
+    )
+    assert signal_run.status_code == 200
+    executed = signal_run.json()["data"]
+    assert executed["definitionSha256"] == created["definitionSha256"]
+    assert executed["result"]["signals"] == []
+    identity["user_id"] = "user-b"
+    assert (
+        client.get(
+            f"/api/v1/strategies/{created['id']}/versions/1"
+        ).status_code
+        == 404
+    )
+    assert (
+        client.post(
+            f"/api/v1/strategies/{created['id']}/versions/1/signals",
+            json={
+                "bars": {
+                    "600000.SH": [{"date": "2026-09-08", "close": 10.0}]
+                }
+            },
+        ).status_code
+        == 404
+    )
+
+
+def test_custom_python_strategy_rejects_unsafe_source(strategy_client):
+    client, _ = strategy_client
+    response = client.post(
+        "/api/v1/strategies",
+        json={
+            "name": "不安全策略",
+            "definitionType": "custom_python",
+            "sourceCode": (
+                "import os\n"
+                "def generate_signals(context, bars):\n"
+                "    return {'signals': []}\n"
+            ),
+        },
+    )
+    assert response.status_code == 400
+    assert "不允许" in response.json()["message"] or "只能定义" in response.json()["message"]

@@ -164,10 +164,10 @@ class MarketSocket {
         return;
       }
 
-      // 私有事件：trade.fill
-      if (msg.type === 'trade.fill') {
+      // 私有事件：交易回报与策略决策室风险通知
+      if (msg.type === 'trade.fill' || msg.type.startsWith('decision.')) {
         const privateEvent: WsPrivateEvent = {
-          type: 'trade.fill',
+          type: msg.type,
           payload: msg.payload,
           timestamp: typeof msg.timestamp === 'number' ? msg.timestamp : Date.now(),
         };

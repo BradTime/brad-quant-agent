@@ -20,7 +20,7 @@ from app.db.base import Base
 from app.models.backtest import BacktestRun
 from app.models.brief import MorningBrief
 from app.models.research import ResearchReport
-from app.models.strategy import Strategy
+from app.models.strategy import Strategy, StrategyVersion
 from app.services import backtest_run, brief, strategy
 
 
@@ -55,6 +55,7 @@ def json_sqlite(monkeypatch: pytest.MonkeyPatch):
         engine,
         tables=[
             Strategy.__table__,
+            StrategyVersion.__table__,
             BacktestRun.__table__,
             MorningBrief.__table__,
             ResearchReport.__table__,

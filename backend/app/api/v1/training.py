@@ -26,7 +26,7 @@ def export_my_training_data(user: User = Depends(get_current_user)) -> dict:
 
 @router.delete("/data")
 def erase_my_training_data(user: User = Depends(get_current_user)) -> dict:
-    return success(training_data.erase_user_data(str(user.id)))
+    return success(training_data.erase_user_data_durable(str(user.id)))
 
 
 @router.get("/consent/{session_id}")

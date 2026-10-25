@@ -14,7 +14,19 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from app.backtest.base import BacktestEngineName, BacktestFrequency
 from app.providers.symbols import infer_exchange
 
-StrategyType = Literal["dual_ma", "rsi", "boll", "momentum"]
+StrategyType = Literal[
+    "dual_ma",
+    "rsi",
+    "boll",
+    "momentum",
+    "donchian_breakout",
+    "xs_momentum",
+    "zscore_reversion",
+    "composite_mf",
+    "flow_surge",
+    "fundamental_quality",
+]
+FullAStrategyType = Literal["xs_momentum", "composite_mf"]
 GridSortMetric = Literal[
     "totalReturnPercent",
     "annualReturnPercent",
@@ -29,6 +41,14 @@ MAX_BACKTEST_DAYS = 3660
 MAX_INITIAL_CAPITAL = 1_000_000_000_000.0
 MAX_GRID_COMBOS = 64
 _CODE_RE = re.compile(r"^(?P<six>\d{6})(?:\.(?P<exchange>SH|SZ|BJ))?$", re.IGNORECASE)
+_DAILY_ONLY_STRATEGIES = {
+    "donchian_breakout",
+    "xs_momentum",
+    "zscore_reversion",
+    "composite_mf",
+    "flow_surge",
+    "fundamental_quality",
+}
 
 
 def normalize_codes(value: Any) -> list[str]:
@@ -85,7 +105,11 @@ class _BacktestRequestBase(BaseModel):
         le=MAX_INITIAL_CAPITAL,
         allow_inf_nan=False,
     )
-    slippage: float = Field(default=0.0, ge=0, le=0.1, allow_inf_nan=False)
+    slippage: float = Field(default=0.001, ge=0, le=0.1, allow_inf_nan=False)
+    maxParticipation: float = Field(
+        default=0.01, gt=0, le=1.0, allow_inf_nan=False
+    )
+    universeMode: Literal["manual", "pit_filtered"] = "manual"
     engine: BacktestEngineName = "native"
     frequency: BacktestFrequency = "1d"
 
@@ -94,7 +118,9 @@ class _BacktestRequestBase(BaseModel):
     def validate_codes(cls, value: Any) -> list[str]:
         return normalize_codes(value)
 
-    @field_validator("initialCapital", "slippage", mode="before")
+    @field_validator(
+        "initialCapital", "slippage", "maxParticipation", mode="before"
+    )
     @classmethod
     def validate_finite_number(cls, value: Any) -> Any:
         if (
@@ -108,15 +134,28 @@ class _BacktestRequestBase(BaseModel):
     @model_validator(mode="after")
     def validate_date_range(self):
         _validate_dates(self.start, self.end)
+        if self.universeMode == "pit_filtered" and self.frequency != "1d":
+            raise ValueError("PIT 股票池过滤仅支持日线")
+        if self.universeMode == "pit_filtered" and self.engine != "native":
+            raise ValueError("PIT 动态股票池当前仅支持 native 引擎")
+        if (
+            self.strategyType in _DAILY_ONLY_STRATEGIES
+            and self.frequency != "1d"
+        ):
+            raise ValueError("该策略按交易日定义，仅支持日线回测")
         return self
 
 
 class RunBacktestRequest(_BacktestRequestBase):
     params: dict[str, Any] = Field(default_factory=dict)
+    strategyId: str | None = Field(default=None, min_length=1, max_length=36)
+    strategyVersion: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def validate_strategy_params(self):
         self.params = _validate_params(self.strategyType, self.params)
+        if (self.strategyId is None) != (self.strategyVersion is None):
+            raise ValueError("strategyId 与 strategyVersion 必须同时提供")
         return self
 
 
@@ -145,10 +184,45 @@ class GridSearchRequest(_BacktestRequestBase):
 
     @model_validator(mode="after")
     def validate_grid_combinations(self):
+        if self.strategyType in {"flow_surge", "fundamental_quality"}:
+            raise ValueError("PIT 面板策略暂不支持同步网格搜索")
         combo_count = math.prod(len(values) for values in self.paramGrid.values())
         if combo_count > MAX_GRID_COMBOS:
             raise ValueError(f"参数组合不能超过 {MAX_GRID_COMBOS} 组")
         keys = list(self.paramGrid)
         for values in itertools.product(*(self.paramGrid[key] for key in keys)):
             _validate_params(self.strategyType, dict(zip(keys, values, strict=True)))
+        return self
+
+
+class FullABacktestRequest(BaseModel):
+    """Asynchronous cross-sectional run over immutable PIT memberships."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    strategyType: FullAStrategyType
+    params: dict[str, Any] = Field(default_factory=dict)
+    strategyId: str | None = Field(default=None, min_length=1, max_length=36)
+    strategyVersion: int | None = Field(default=None, ge=1)
+    start: date
+    end: date
+    initialCapital: float = Field(
+        default=1_000_000.0,
+        gt=0,
+        le=MAX_INITIAL_CAPITAL,
+        allow_inf_nan=False,
+    )
+    slippage: float = Field(default=0.001, ge=0, le=0.1, allow_inf_nan=False)
+    maxParticipation: float = Field(
+        default=0.01, gt=0, le=1.0, allow_inf_nan=False
+    )
+
+    @model_validator(mode="after")
+    def validate_request(self):
+        _validate_dates(self.start, self.end)
+        if (self.end - self.start).days > 366 * 5:
+            raise ValueError("全 A 回测区间最长为 5 年")
+        self.params = _validate_params(self.strategyType, self.params)
+        if (self.strategyId is None) != (self.strategyVersion is None):
+            raise ValueError("strategyId 与 strategyVersion 必须同时提供")
         return self

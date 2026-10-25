@@ -29,23 +29,33 @@ import { pageAfterDeletingItem } from '@/components/strategy/strategy-list';
 import { strategyQueryKeys } from '@/components/strategy/query-keys';
 import { useAuthStore } from '@/stores/useAuthStore';
 import type {
-  BuiltinStrategyType,
   Strategy,
+  StrategyImplementationType,
   StrategyListParams,
   StrategyStatus,
 } from '@/types/strategy';
 
-const BUILTIN_LABELS: Record<BuiltinStrategyType, string> = {
+const BUILTIN_LABELS: Record<StrategyImplementationType, string> = {
   dual_ma: '双均线',
   rsi: 'RSI 反转',
   boll: '布林带',
   momentum: '动量',
+  donchian_breakout: '唐奇安突破',
+  xs_momentum: '截面动量',
+  zscore_reversion: 'Z-Score 反转',
+  composite_mf: '价格量能多因子',
+  flow_surge: '资金流连续增强',
+  fundamental_quality: 'PIT 价值质量',
+  custom_python: '自定义 Python',
 };
 
 const CATEGORY_LABELS: Record<Strategy['category'], string> = {
   trend_following: '趋势跟随',
   mean_reversion: '均值回归',
   momentum: '动量',
+  multi_factor: '多因子',
+  event: '事件驱动',
+  custom: '自定义',
 };
 
 const STATUS_LABELS: Record<
@@ -72,7 +82,7 @@ export default function StrategiesPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<StrategyStatus | ''>('');
-  const [builtinType, setBuiltinType] = useState<BuiltinStrategyType | ''>('');
+  const [builtinType, setBuiltinType] = useState<StrategyImplementationType | ''>('');
   const [deleteTarget, setDeleteTarget] = useState<Strategy | null>(null);
   const pageSize = 10;
 
@@ -171,7 +181,7 @@ export default function StrategiesPage() {
             aria-label="按内置策略筛选"
             value={builtinType}
             onChange={(event) => {
-              setBuiltinType(event.target.value as BuiltinStrategyType | '');
+              setBuiltinType(event.target.value as StrategyImplementationType | '');
               setPage(1);
             }}
             className="h-10 rounded-md border border-input bg-background px-3 text-sm"
@@ -209,7 +219,7 @@ export default function StrategiesPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>名称</TableHead>
-                    <TableHead>内置策略</TableHead>
+                    <TableHead>策略实现</TableHead>
                     <TableHead>分类</TableHead>
                     <TableHead>状态</TableHead>
                     <TableHead>更新时间</TableHead>
