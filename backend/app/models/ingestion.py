@@ -12,6 +12,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -56,6 +57,34 @@ class TushareBootstrapDailyManifest(Base):
     factor_count: Mapped[int] = mapped_column(Integer)
     daily_sha256: Mapped[str] = mapped_column(String(64))
     factor_sha256: Mapped[str] = mapped_column(String(64))
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class IndustryMembershipSnapshot(Base):
+    """Immutable evidence manifest for one effective-dated industry dataset."""
+
+    __tablename__ = "industry_membership_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "taxonomy",
+            "level",
+            "as_of_date",
+            name="uq_industry_membership_snapshot_date",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    taxonomy: Mapped[str] = mapped_column(String(16), nullable=False)
+    level: Mapped[str] = mapped_column(String(8), nullable=False)
+    as_of_date: Mapped[date] = mapped_column(Date, nullable=False)
+    effective_floor: Mapped[date] = mapped_column(Date, nullable=False)
+    source_row_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    persisted_row_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    unknown_code_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    classification_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

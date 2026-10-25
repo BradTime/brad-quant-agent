@@ -67,7 +67,8 @@ PREDICTION_OPS_REVISION = "20260911_0027"
 UNIVERSE_VERSION_PK_REVISION = "20260911_0028"
 SUSPENSION_DAILY_REVISION = "20260911_0029"
 TUSHARE_MANIFEST_REVISION = "20260911_0030"
-HEAD_REVISION = TUSHARE_MANIFEST_REVISION
+INDUSTRY_MEMBERSHIP_REVISION = "20261025_0031"
+HEAD_REVISION = INDUSTRY_MEMBERSHIP_REVISION
 HNSW_INDEX = "ix_documents_embedding_hnsw"
 LEGACY_TABLES = frozenset(
     {
@@ -144,6 +145,8 @@ POST_BASELINE_TABLES = frozenset(
         "prediction_ops_jobs",
         "instrument_suspension_daily",
         "tushare_bootstrap_daily_manifests",
+        "industry_membership_snapshots",
+        "instrument_industry_membership_history",
         "decision_room_controls",
         "decision_room_audits",
         "decision_overrides",

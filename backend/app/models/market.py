@@ -16,6 +16,7 @@ from decimal import Decimal
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
@@ -112,6 +113,56 @@ class InstrumentIndustryVintage(Base):
     )
     last_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
+    )
+
+
+class InstrumentIndustryMembershipHistory(Base):
+    """Snapshot-pinned effective history; never inferred from current profiles."""
+
+    __tablename__ = "instrument_industry_membership_history"
+    __table_args__ = (
+        CheckConstraint(
+            "effective_to IS NULL OR effective_to >= effective_from",
+            name="ck_industry_membership_effective_range",
+        ),
+        Index(
+            "ix_industry_membership_snapshot_date",
+            "snapshot_id",
+            "effective_from",
+            "effective_to",
+        ),
+        Index(
+            "ix_industry_membership_code_date",
+            "code",
+            "effective_from",
+            "effective_to",
+        ),
+    )
+
+    snapshot_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey(
+            "industry_membership_snapshots.id",
+            ondelete="RESTRICT",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+        primary_key=True,
+    )
+    code: Mapped[str] = mapped_column(
+        String(16),
+        ForeignKey("instruments.code", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    effective_from: Mapped[date] = mapped_column(Date, primary_key=True)
+    effective_to: Mapped[date | None] = mapped_column(Date)
+    industry_code: Mapped[str] = mapped_column(String(16), nullable=False)
+    industry_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_in_date: Mapped[date] = mapped_column(Date, nullable=False)
+    source_out_date: Mapped[date | None] = mapped_column(Date)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
 

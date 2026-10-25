@@ -25,6 +25,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from app.core.config import settings
 from app.core.dtutil import parse_date
 from app.core.ohlc import validate_ohlc
+from app.core.tz import MARKET_TZ
 from app.db.session import SessionLocal
 from app.models.ingestion import (
     IngestionRun,
@@ -38,7 +39,7 @@ from app.models.market import (
     InstrumentSuspensionDaily,
 )
 from app.providers.tushare_provider import _status_type
-from app.services import ingest
+from app.services import industry_membership, ingest
 
 DAILY_FIELDS = (
     "ts_code",
@@ -64,6 +65,28 @@ SUSPEND_FIELDS = (
     "trade_date",
     "suspend_timing",
     "suspend_type",
+)
+INDUSTRY_CLASSIFICATION_FIELDS = (
+    "index_code",
+    "industry_name",
+    "parent_code",
+    "level",
+    "industry_code",
+    "is_pub",
+    "src",
+)
+INDUSTRY_MEMBER_FIELDS = (
+    "l1_code",
+    "l1_name",
+    "l2_code",
+    "l2_name",
+    "l3_code",
+    "l3_name",
+    "ts_code",
+    "name",
+    "in_date",
+    "out_date",
+    "is_new",
 )
 REQUEST_MAX_ATTEMPTS = 5
 
@@ -784,6 +807,56 @@ def bootstrap_status(
     )
 
 
+def bootstrap_industry_history(
+    client: httpx.Client, *, as_of_date: date
+) -> dict[str, Any]:
+    classifications = _request(
+        client,
+        "index_classify",
+        {"level": "L1", "src": industry_membership.TAXONOMY},
+        INDUSTRY_CLASSIFICATION_FIELDS,
+    )
+    if len(classifications) != 31:
+        raise RuntimeError("Tushare SW2021 一级行业目录不完整")
+    rows = []
+    for position, classification in enumerate(classifications, start=1):
+        industry_code = str(
+            classification.get("index_code") or ""
+        ).strip()
+        if not industry_code:
+            raise RuntimeError("Tushare SW2021 行业目录缺少指数代码")
+        for is_new in ("N", "Y"):
+            rows.extend(
+                _paged_request(
+                    client,
+                    "index_member_all",
+                    {
+                        "l1_code": industry_code,
+                        "is_new": is_new,
+                    },
+                    INDUSTRY_MEMBER_FIELDS,
+                    page_size=2_000,
+                )
+            )
+        print(
+            f"industry [{position}/{len(classifications)}] "
+            f"{industry_code}: rows={len(rows)}",
+            flush=True,
+        )
+    result = industry_membership.persist_snapshot(
+        classifications=classifications,
+        raw_rows=rows,
+        as_of_date=as_of_date,
+    )
+    print(
+        "industry snapshot: "
+        f"persisted={result['persistedRows']} "
+        f"unknown={result['unknownCodes']} id={result['id']}",
+        flush=True,
+    )
+    return result
+
+
 def bootstrap_audits(
     codes: list[str], start: date, end: date
 ) -> None:
@@ -979,7 +1052,14 @@ def main() -> None:
     parser.add_argument("--end", required=True)
     parser.add_argument(
         "--phase",
-        choices=["market", "benchmark", "status", "audit", "all"],
+        choices=[
+            "market",
+            "benchmark",
+            "status",
+            "industry",
+            "audit",
+            "all",
+        ],
         default="all",
     )
     parser.add_argument("--max-dates", type=int)
@@ -1000,6 +1080,11 @@ def main() -> None:
             bootstrap_benchmark(client, start, end)
         if args.phase in {"status", "all"}:
             bootstrap_status(client, start, end)
+        if args.phase in {"industry", "all"}:
+            bootstrap_industry_history(
+                client,
+                as_of_date=datetime.now(MARKET_TZ).date(),
+            )
         if args.phase in {"audit", "all"}:
             codes = [
                 value.strip().upper()
