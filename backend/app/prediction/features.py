@@ -10,7 +10,7 @@ from datetime import date
 from app.backtest.data import Bar
 from app.backtest.universe import expected_session_dates
 
-FEATURE_SCHEMA_VERSION = "daily-pit-v2"
+FEATURE_SCHEMA_VERSION = "daily-pit-v3"
 MIN_HISTORY = 21
 FEATURE_ORDER_V1 = (
     "return1",
@@ -65,9 +65,17 @@ FEATURE_ORDER_V2 = (
     "regimeRange",
     "regimeRiskOff",
 )
+FEATURE_ORDER_V3 = (
+    *FEATURE_ORDER_V2,
+    "excessReturn1",
+    "excessReturn5",
+    "excessReturn20",
+    "volatilityRatioToMarket20",
+)
 FEATURE_ORDERS = {
     "daily-pit-v1": FEATURE_ORDER_V1,
     "daily-pit-v2": FEATURE_ORDER_V2,
+    "daily-pit-v3": FEATURE_ORDER_V3,
 }
 FEATURE_ORDER = FEATURE_ORDERS[FEATURE_SCHEMA_VERSION]
 
@@ -297,6 +305,31 @@ def _rank_enrich(
     return sorted(enriched, key=lambda row: (row.signal_date, row.code))
 
 
+def _market_enrich(
+    features: dict[str, float],
+    market_features: dict[str, float],
+) -> dict[str, float]:
+    market_volatility = market_features["marketVolatility20"]
+    return {
+        **features,
+        **market_features,
+        "excessReturn1": (
+            features["return1"] - market_features["marketReturn1"]
+        ),
+        "excessReturn5": (
+            features["return5"] - market_features["marketReturn5"]
+        ),
+        "excessReturn20": (
+            features["return20"] - market_features["marketReturn20"]
+        ),
+        "volatilityRatioToMarket20": (
+            features["volatility20"] / market_volatility - 1
+            if market_volatility > 0
+            else 0.0
+        ),
+    }
+
+
 def build_daily_examples(
     bars_by_code: dict[str, list[Bar]],
     *,
@@ -331,7 +364,7 @@ def build_daily_examples(
                 if market_features is None:
                     continue
                 if features is not None:
-                    features = {**features, **market_features}
+                    features = _market_enrich(features, market_features)
             if features is None:
                 continue
             signal_rows.append(
@@ -408,7 +441,7 @@ def build_latest_features(
         if values is None or bar_day != signal_date:
             continue
         if market_features is not None:
-            values = {**values, **market_features}
+            values = _market_enrich(values, market_features)
         features.append(
             PredictionFeature(
                 code=code,

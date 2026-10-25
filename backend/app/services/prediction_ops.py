@@ -32,7 +32,7 @@ from app.services import (
 )
 
 MAX_ATTEMPTS = 3
-OPS_IMPLEMENTATION_VERSION = "ops-v4-daily-pit-v2"
+OPS_IMPLEMENTATION_VERSION = "ops-v5-daily-pit-v3"
 _LOCAL_EXECUTION_LOCKS: dict[str, threading.Lock] = {}
 _LOCAL_EXECUTION_LOCKS_GUARD = threading.Lock()
 _COMPLETENESS_CACHE_LOCK = threading.Lock()

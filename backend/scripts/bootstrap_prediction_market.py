@@ -65,6 +65,7 @@ SUSPEND_FIELDS = (
     "suspend_timing",
     "suspend_type",
 )
+REQUEST_MAX_ATTEMPTS = 5
 
 
 def _request(
@@ -73,16 +74,33 @@ def _request(
     params: dict[str, Any],
     fields: tuple[str, ...],
 ) -> list[dict[str, Any]]:
-    response = client.post(
-        settings.tushare_base_url,
-        json={
-            "api_name": api_name,
-            "token": settings.tushare_token,
-            "params": params,
-            "fields": ",".join(fields),
-        },
-    )
-    response.raise_for_status()
+    response = None
+    for attempt in range(REQUEST_MAX_ATTEMPTS):
+        try:
+            response = client.post(
+                settings.tushare_base_url,
+                json={
+                    "api_name": api_name,
+                    "token": settings.tushare_token,
+                    "params": params,
+                    "fields": ",".join(fields),
+                },
+            )
+            response.raise_for_status()
+            break
+        except (httpx.TimeoutException, httpx.NetworkError):
+            if attempt + 1 == REQUEST_MAX_ATTEMPTS:
+                raise
+        except httpx.HTTPStatusError as exc:
+            if (
+                attempt + 1 == REQUEST_MAX_ATTEMPTS
+                or exc.response.status_code != 429
+                and exc.response.status_code < 500
+            ):
+                raise
+        time.sleep(2**attempt)
+    if response is None:
+        raise RuntimeError("Tushare 请求未返回响应")
     body = response.json()
     if body.get("code") != 0:
         raise RuntimeError(

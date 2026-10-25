@@ -1,10 +1,13 @@
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
+import httpx
+
 from scripts.bootstrap_prediction_market import (
     _adjust_values,
     _content_sha256,
     _daily_values,
+    _request,
 )
 
 
@@ -63,3 +66,29 @@ def test_tushare_adjustment_factor_maps_to_hfq_multiplier():
             "fetched_at": datetime(2026, 9, 11, tzinfo=UTC),
         }
     ]
+
+
+def test_tushare_request_retries_transient_timeout(monkeypatch):
+    attempts = 0
+
+    def handler(request):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise httpx.ReadTimeout("temporary", request=request)
+        return httpx.Response(
+            200,
+            json={
+                "code": 0,
+                "data": {
+                    "fields": ["ts_code"],
+                    "items": [["600000.SH"]],
+                },
+            },
+        )
+
+    monkeypatch.setattr("scripts.bootstrap_prediction_market.time.sleep", lambda _: None)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        rows = _request(client, "daily", {}, ("ts_code",))
+    assert attempts == 2
+    assert rows == [{"ts_code": "600000.SH"}]

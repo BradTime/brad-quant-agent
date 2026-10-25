@@ -11,6 +11,8 @@ from app.prediction.artifacts import (
 )
 from app.prediction.evaluation import evaluate_predictions
 from app.prediction.features import (
+    FEATURE_ORDER_V2,
+    FEATURE_ORDER_V3,
     PredictionExample,
     build_daily_examples,
     build_latest_features,
@@ -132,6 +134,51 @@ def test_latest_inference_features_do_not_require_future_label():
     )
     assert len(features) == 1
     assert not hasattr(features[0], "next_return")
+
+
+def test_market_relative_features_use_same_day_pit_context():
+    bars = _bars(30)
+    signal_date = bars[-1].date
+    market = {
+        "marketReturn1": 0.001,
+        "marketReturn5": 0.002,
+        "marketReturn20": 0.003,
+        "marketVolatility20": 0.01,
+        "marketBreadth": 0.1,
+        "marketBreadthImbalance": 0.2,
+        "regimeBull": 1.0,
+        "regimeBear": 0.0,
+        "regimeRange": 0.0,
+        "regimeRiskOff": 0.0,
+    }
+    row = build_latest_features(
+        {"600000.SH": bars},
+        signal_date=signal_date,
+        eligible_codes={"600000.SH"},
+        market_features=market,
+    )[0]
+    assert row.features["excessReturn1"] == pytest.approx(
+        row.features["return1"] - market["marketReturn1"]
+    )
+    assert row.features["excessReturn5"] == pytest.approx(
+        row.features["return5"] - market["marketReturn5"]
+    )
+    assert row.features["excessReturn20"] == pytest.approx(
+        row.features["return20"] - market["marketReturn20"]
+    )
+    assert row.features["volatilityRatioToMarket20"] == pytest.approx(
+        row.features["volatility20"] / market["marketVolatility20"] - 1
+    )
+
+
+def test_daily_pit_v3_only_appends_to_v2_artifact_order():
+    assert FEATURE_ORDER_V3[: len(FEATURE_ORDER_V2)] == FEATURE_ORDER_V2
+    assert FEATURE_ORDER_V3[len(FEATURE_ORDER_V2) :] == (
+        "excessReturn1",
+        "excessReturn5",
+        "excessReturn20",
+        "volatilityRatioToMarket20",
+    )
 
 
 def test_purged_walk_forward_has_embargo_and_no_date_overlap():

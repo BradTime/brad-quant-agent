@@ -7,8 +7,10 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-# 如个别依赖缺少 wheel 需要编译，可解开下一行安装构建工具：
-# RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
+# LightGBM/XGBoost native wheels require the OpenMP runtime.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
 # Install the CPU wheel first so sentence-transformers does not pull multi-GB
