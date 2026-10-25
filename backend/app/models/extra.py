@@ -9,7 +9,17 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import uuid4
 
-from sqlalchemy import Date, DateTime, Index, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -74,6 +84,56 @@ class CapitalFlowVintage(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class TushareMoneyflowDaily(Base):
+    """Snapshot-pinned historical active-order flow, normalized to yuan."""
+
+    __tablename__ = "tushare_moneyflow_daily"
+    __table_args__ = (
+        Index(
+            "ix_tushare_moneyflow_snapshot_date",
+            "snapshot_id",
+            "trade_date",
+        ),
+    )
+
+    snapshot_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey(
+            "moneyflow_history_snapshots.id",
+            ondelete="RESTRICT",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+        primary_key=True,
+    )
+    code: Mapped[str] = mapped_column(
+        String(16),
+        ForeignKey("instruments.code", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    net_amount: Mapped[Decimal] = mapped_column(_AMOUNT, nullable=False)
+    small_net_amount: Mapped[Decimal] = mapped_column(
+        _AMOUNT, nullable=False
+    )
+    medium_net_amount: Mapped[Decimal] = mapped_column(
+        _AMOUNT, nullable=False
+    )
+    large_net_amount: Mapped[Decimal] = mapped_column(
+        _AMOUNT, nullable=False
+    )
+    extra_large_net_amount: Mapped[Decimal] = mapped_column(
+        _AMOUNT, nullable=False
+    )
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 

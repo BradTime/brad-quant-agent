@@ -32,7 +32,7 @@ from app.services import (
 )
 
 MAX_ATTEMPTS = 3
-OPS_IMPLEMENTATION_VERSION = "ops-v6-daily-pit-v4"
+OPS_IMPLEMENTATION_VERSION = "ops-v7-daily-pit-v5"
 _LOCAL_EXECUTION_LOCKS: dict[str, threading.Lock] = {}
 _LOCAL_EXECUTION_LOCKS_GUARD = threading.Lock()
 _COMPLETENESS_CACHE_LOCK = threading.Lock()
@@ -423,6 +423,9 @@ def _execute(
             industry_snapshot_id = champion_metrics.get(
                 "featureIndustrySnapshotId"
             )
+            moneyflow_snapshot_id = champion_metrics.get(
+                "featureMoneyflowSnapshotId"
+            )
             if not isinstance(rank_universe_codes, list):
                 rank_universe_codes = (
                     codes
@@ -442,6 +445,14 @@ def _execute(
                 and not isinstance(industry_snapshot_id, str)
             ):
                 raise ValueError("Champion 缺少固定行业快照")
+            if (
+                champion.feature_schema_version == "daily-pit-v5"
+                and (
+                    not isinstance(industry_snapshot_id, str)
+                    or not isinstance(moneyflow_snapshot_id, str)
+                )
+            ):
+                raise ValueError("Champion 缺少固定行业或资金流快照")
             existing_codes = set(
                 session.execute(
                     select(PredictionForecast.code).where(
@@ -466,6 +477,11 @@ def _execute(
                     industry_snapshot_id=(
                         industry_snapshot_id
                         if isinstance(industry_snapshot_id, str)
+                        else None
+                    ),
+                    moneyflow_snapshot_id=(
+                        moneyflow_snapshot_id
+                        if isinstance(moneyflow_snapshot_id, str)
                         else None
                     ),
                 )

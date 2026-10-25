@@ -74,6 +74,7 @@ def register_candidate(
     publication_guard: Callable[[Any], bool] | None = None,
     feature_universe_codes: list[str] | None = None,
     feature_industry_snapshot_id: str | None = None,
+    feature_moneyflow_snapshot_id: str | None = None,
 ) -> dict[str, Any]:
     if not examples:
         raise ValueError("训练样本不能为空")
@@ -90,6 +91,11 @@ def register_candidate(
         and len(feature_industry_snapshot_id) != 64
     ):
         raise ValueError("固定行业快照 ID 无效")
+    if (
+        feature_moneyflow_snapshot_id is not None
+        and len(feature_moneyflow_snapshot_id) != 64
+    ):
+        raise ValueError("固定资金流快照 ID 无效")
     data_sha256 = _data_sha256(examples, evidence_sha256)
     run_id = str(uuid4())
     expected_artifact_path = str(
@@ -156,6 +162,10 @@ def register_candidate(
     if feature_industry_snapshot_id is not None:
         report["featureIndustrySnapshotId"] = (
             feature_industry_snapshot_id
+        )
+    if feature_moneyflow_snapshot_id is not None:
+        report["featureMoneyflowSnapshotId"] = (
+            feature_moneyflow_snapshot_id
         )
     promotion_eligible = report["promotionEligible"]
     with SessionLocal.begin() as session:

@@ -339,6 +339,9 @@ def _forecast_rows(
         industry_snapshot_id = model_metrics.get(
             "featureIndustrySnapshotId"
         )
+        moneyflow_snapshot_id = model_metrics.get(
+            "featureMoneyflowSnapshotId"
+        )
     if (
         not isinstance(rank_universe_codes, list)
         or not rank_universe_codes
@@ -352,6 +355,14 @@ def _forecast_rows(
         and not isinstance(industry_snapshot_id, str)
     ):
         raise ValueError("Challenger 缺少固定行业快照")
+    if (
+        model_run.feature_schema_version == "daily-pit-v5"
+        and (
+            not isinstance(industry_snapshot_id, str)
+            or not isinstance(moneyflow_snapshot_id, str)
+        )
+    ):
+        raise ValueError("Challenger 缺少固定行业或资金流快照")
     features = prediction_training.build_inference_features_from_database(
         signal_date=signal_date,
         codes=codes,
@@ -359,6 +370,11 @@ def _forecast_rows(
         industry_snapshot_id=(
             industry_snapshot_id
             if isinstance(industry_snapshot_id, str)
+            else None
+        ),
+        moneyflow_snapshot_id=(
+            moneyflow_snapshot_id
+            if isinstance(moneyflow_snapshot_id, str)
             else None
         ),
     )
@@ -757,11 +773,22 @@ def commit_signal(
         industry_snapshot_id = model_metrics.get(
             "featureIndustrySnapshotId"
         )
+        moneyflow_snapshot_id = model_metrics.get(
+            "featureMoneyflowSnapshotId"
+        )
         if (
             model.feature_schema_version == "daily-pit-v4"
             and not isinstance(industry_snapshot_id, str)
         ):
             raise ValueError("Challenger 缺少固定行业快照")
+        if (
+            model.feature_schema_version == "daily-pit-v5"
+            and (
+                not isinstance(industry_snapshot_id, str)
+                or not isinstance(moneyflow_snapshot_id, str)
+            )
+        ):
+            raise ValueError("Challenger 缺少固定行业或资金流快照")
         codes = claimed["codes"]
         predictions = _forecast_rows(
             claimed["modelRunId"], signal_date, codes
@@ -857,6 +884,7 @@ def commit_signal(
             "predictions": predictions,
             "rankUniverseCodes": rank_universe_codes,
             "featureIndustrySnapshotId": industry_snapshot_id,
+            "featureMoneyflowSnapshotId": moneyflow_snapshot_id,
             "targets": targets,
             "comparator": comparator,
             "preState": {
@@ -1021,6 +1049,9 @@ def evaluate_day(program_id: str, *, signal_date: date) -> dict[str, Any]:
         industry_snapshot_id = commitment_payload.get(
             "featureIndustrySnapshotId"
         )
+        moneyflow_snapshot_id = commitment_payload.get(
+            "featureMoneyflowSnapshotId"
+        )
         with SessionLocal() as session:
             committed_model = session.get(
                 PredictionModelRun, program.model_run_id
@@ -1031,6 +1062,15 @@ def evaluate_day(program_id: str, *, signal_date: date) -> dict[str, Any]:
             and not isinstance(industry_snapshot_id, str)
         ):
             raise ValueError("Commitment 缺少固定行业快照")
+        if (
+            committed_model is not None
+            and committed_model.feature_schema_version == "daily-pit-v5"
+            and (
+                not isinstance(industry_snapshot_id, str)
+                or not isinstance(moneyflow_snapshot_id, str)
+            )
+        ):
+            raise ValueError("Commitment 缺少固定行业或资金流快照")
         label_date = commitment.label_date
         with SessionLocal() as session:
             signal_snapshot = session.get(
@@ -1074,6 +1114,11 @@ def evaluate_day(program_id: str, *, signal_date: date) -> dict[str, Any]:
                     industry_snapshot_id=(
                         industry_snapshot_id
                         if isinstance(industry_snapshot_id, str)
+                        else None
+                    ),
+                    moneyflow_snapshot_id=(
+                        moneyflow_snapshot_id
+                        if isinstance(moneyflow_snapshot_id, str)
                         else None
                     ),
                 )

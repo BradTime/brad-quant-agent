@@ -88,3 +88,33 @@ class IndustryMembershipSnapshot(Base):
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class MoneyflowHistorySnapshot(Base):
+    """Immutable manifest for a fixed-pool historical moneyflow dataset."""
+
+    __tablename__ = "moneyflow_history_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "as_of_date",
+            "start_date",
+            "end_date",
+            "codes_sha256",
+            name="uq_moneyflow_history_snapshot_scope",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    as_of_date: Mapped[date] = mapped_column(Date, nullable=False)
+    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[date] = mapped_column(Date, nullable=False)
+    code_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    codes_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    availability_policy: Mapped[str] = mapped_column(
+        String(32), nullable=False
+    )
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

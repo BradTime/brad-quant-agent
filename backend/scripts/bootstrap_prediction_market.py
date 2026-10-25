@@ -39,7 +39,7 @@ from app.models.market import (
     InstrumentSuspensionDaily,
 )
 from app.providers.tushare_provider import _status_type
-from app.services import industry_membership, ingest
+from app.services import industry_membership, ingest, moneyflow_history
 
 DAILY_FIELDS = (
     "ts_code",
@@ -87,6 +87,19 @@ INDUSTRY_MEMBER_FIELDS = (
     "in_date",
     "out_date",
     "is_new",
+)
+MONEYFLOW_FIELDS = (
+    "ts_code",
+    "trade_date",
+    "buy_sm_amount",
+    "sell_sm_amount",
+    "buy_md_amount",
+    "sell_md_amount",
+    "buy_lg_amount",
+    "sell_lg_amount",
+    "buy_elg_amount",
+    "sell_elg_amount",
+    "net_mf_amount",
 )
 REQUEST_MAX_ATTEMPTS = 5
 
@@ -857,6 +870,48 @@ def bootstrap_industry_history(
     return result
 
 
+def bootstrap_moneyflow_history(
+    client: httpx.Client,
+    *,
+    codes: list[str],
+    start: date,
+    end: date,
+    as_of_date: date,
+) -> dict[str, Any]:
+    rows = []
+    for position, code in enumerate(codes, start=1):
+        code_rows = _paged_request(
+            client,
+            "moneyflow",
+            {
+                "ts_code": code,
+                "start_date": start.strftime("%Y%m%d"),
+                "end_date": end.strftime("%Y%m%d"),
+            },
+            MONEYFLOW_FIELDS,
+            page_size=6_000,
+        )
+        rows.extend(code_rows)
+        print(
+            f"moneyflow [{position}/{len(codes)}] "
+            f"{code}: rows={len(code_rows)}",
+            flush=True,
+        )
+    result = moneyflow_history.persist_snapshot(
+        raw_rows=rows,
+        codes=codes,
+        start=start,
+        end=end,
+        as_of_date=as_of_date,
+    )
+    print(
+        "moneyflow snapshot: "
+        f"rows={result['rowCount']} id={result['id']}",
+        flush=True,
+    )
+    return result
+
+
 def bootstrap_audits(
     codes: list[str], start: date, end: date
 ) -> None:
@@ -1057,6 +1112,7 @@ def main() -> None:
             "benchmark",
             "status",
             "industry",
+            "moneyflow",
             "audit",
             "all",
         ],
@@ -1064,6 +1120,7 @@ def main() -> None:
     )
     parser.add_argument("--max-dates", type=int)
     parser.add_argument("--audit-codes", default="")
+    parser.add_argument("--moneyflow-codes", default="")
     args = parser.parse_args()
     if not settings.tushare_token:
         raise RuntimeError("TUSHARE_TOKEN 未配置")
@@ -1083,6 +1140,23 @@ def main() -> None:
         if args.phase in {"industry", "all"}:
             bootstrap_industry_history(
                 client,
+                as_of_date=datetime.now(MARKET_TZ).date(),
+            )
+        if args.phase in {"moneyflow", "all"}:
+            moneyflow_codes = [
+                value.strip().upper()
+                for value in args.moneyflow_codes.split(",")
+                if value.strip()
+            ]
+            if not moneyflow_codes:
+                raise ValueError(
+                    "moneyflow phase requires --moneyflow-codes"
+                )
+            bootstrap_moneyflow_history(
+                client,
+                codes=moneyflow_codes,
+                start=start,
+                end=end,
                 as_of_date=datetime.now(MARKET_TZ).date(),
             )
         if args.phase in {"audit", "all"}:

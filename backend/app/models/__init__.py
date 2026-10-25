@@ -30,10 +30,12 @@ from app.models.extra import (
     DragonTiger,
     FinancialSummary,
     NewsItem,
+    TushareMoneyflowDaily,
 )
 from app.models.ingestion import (
     IndustryMembershipSnapshot,
     IngestionRun,
+    MoneyflowHistorySnapshot,
     TushareBootstrapDailyManifest,
 )
 from app.models.job import BacktestJob
@@ -99,10 +101,12 @@ __all__ = [
     "CapitalFlow",
     "CapitalFlowVintage",
     "FinancialSummary",
+    "TushareMoneyflowDaily",
     "DragonTiger",
     "NewsItem",
     "IngestionRun",
     "IndustryMembershipSnapshot",
+    "MoneyflowHistorySnapshot",
     "TushareBootstrapDailyManifest",
     "WatchlistItem",
     "MorningBrief",

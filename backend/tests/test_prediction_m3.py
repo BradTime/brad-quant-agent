@@ -1,3 +1,4 @@
+import math
 from datetime import date, timedelta
 
 import pytest
@@ -14,6 +15,7 @@ from app.prediction.features import (
     FEATURE_ORDER_V2,
     FEATURE_ORDER_V3,
     FEATURE_ORDER_V4,
+    FEATURE_ORDER_V5,
     PredictionExample,
     build_daily_examples,
     build_latest_features,
@@ -191,6 +193,73 @@ def test_daily_pit_v4_only_appends_to_v3_artifact_order():
         "industryVolatilityRatio20",
         "industryBreadth",
         "industryPeerFraction",
+    )
+
+
+def test_daily_pit_v5_only_appends_to_v4_artifact_order():
+    assert FEATURE_ORDER_V5[: len(FEATURE_ORDER_V4)] == FEATURE_ORDER_V4
+    assert FEATURE_ORDER_V5[len(FEATURE_ORDER_V4) :] == (
+        "flowNetIntensity1",
+        "flowNetIntensity5",
+        "flowLargeIntensity1",
+        "flowLargeIntensity5",
+        "flowPositiveShare20",
+        "flowAcceleration5To20",
+    )
+
+
+def test_moneyflow_features_require_twenty_aligned_signal_bars():
+    bars = _bars(30)
+    signal_date = bars[-1].date
+    flow = {
+        bar.date: {
+            "netAmount": float(bar.amount) * 0.1,
+            "largeNetAmount": float(bar.amount) * 0.05,
+        }
+        for bar in bars[-20:]
+    }
+    market = {
+        "marketReturn1": 0.001,
+        "marketReturn5": 0.002,
+        "marketReturn20": 0.003,
+        "marketVolatility20": 0.01,
+        "marketBreadth": 0.1,
+        "marketBreadthImbalance": 0.2,
+        "regimeBull": 1.0,
+        "regimeBear": 0.0,
+        "regimeRange": 0.0,
+        "regimeRiskOff": 0.0,
+    }
+    row = build_latest_features(
+        {"600000.SH": bars},
+        signal_date=signal_date,
+        eligible_codes={"600000.SH"},
+        market_features=market,
+        industry_by_code={"600000.SH": "银行"},
+        moneyflow_by_code_date={"600000.SH": flow},
+    )[0]
+    assert row.features["flowNetIntensity1"] == pytest.approx(
+        math.log1p(0.1)
+    )
+    assert row.features["flowNetIntensity5"] == pytest.approx(
+        math.log1p(0.1)
+    )
+    assert row.features["flowLargeIntensity1"] == pytest.approx(
+        math.log1p(0.05)
+    )
+    assert row.features["flowPositiveShare20"] == 0.5
+    assert row.features["flowAcceleration5To20"] == pytest.approx(0)
+    del flow[bars[-2].date]
+    assert (
+        build_latest_features(
+            {"600000.SH": bars},
+            signal_date=signal_date,
+            eligible_codes={"600000.SH"},
+            market_features=market,
+            industry_by_code={"600000.SH": "银行"},
+            moneyflow_by_code_date={"600000.SH": flow},
+        )
+        == []
     )
 
 

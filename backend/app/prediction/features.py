@@ -10,7 +10,7 @@ from datetime import date
 from app.backtest.data import Bar
 from app.backtest.universe import expected_session_dates
 
-FEATURE_SCHEMA_VERSION = "daily-pit-v4"
+FEATURE_SCHEMA_VERSION = "daily-pit-v5"
 MIN_HISTORY = 21
 FEATURE_ORDER_V1 = (
     "return1",
@@ -81,11 +81,21 @@ FEATURE_ORDER_V4 = (
     "industryBreadth",
     "industryPeerFraction",
 )
+FEATURE_ORDER_V5 = (
+    *FEATURE_ORDER_V4,
+    "flowNetIntensity1",
+    "flowNetIntensity5",
+    "flowLargeIntensity1",
+    "flowLargeIntensity5",
+    "flowPositiveShare20",
+    "flowAcceleration5To20",
+)
 FEATURE_ORDERS = {
     "daily-pit-v1": FEATURE_ORDER_V1,
     "daily-pit-v2": FEATURE_ORDER_V2,
     "daily-pit-v3": FEATURE_ORDER_V3,
     "daily-pit-v4": FEATURE_ORDER_V4,
+    "daily-pit-v5": FEATURE_ORDER_V5,
 }
 FEATURE_ORDER = FEATURE_ORDERS[FEATURE_SCHEMA_VERSION]
 
@@ -150,7 +160,16 @@ def _consecutive_window(window: list[Bar]) -> bool:
     ) == tuple(day.isoformat() for day in actual)
 
 
-def _features_at(bars: list[Bar], index: int) -> dict[str, float] | None:
+def _signed_log_ratio(numerator: float, denominator: float) -> float:
+    ratio = numerator / denominator
+    return math.copysign(math.log1p(abs(ratio)), ratio)
+
+
+def _features_at(
+    bars: list[Bar],
+    index: int,
+    moneyflow_by_date: dict[date, dict[str, float]] | None = None,
+) -> dict[str, float] | None:
     signal = bars[index]
     window = bars[index - 20 : index + 1]
     closes = [bar.close for bar in window]
@@ -192,7 +211,7 @@ def _features_at(bars: list[Bar], index: int) -> dict[str, float] | None:
     )
     spread = signal.high - signal.low
     previous_close = closes[-2]
-    return {
+    features = {
         "return1": closes[-1] / closes[-2] - 1,
         "return2": closes[-1] / closes[-3] - 1,
         "return3": closes[-1] / closes[-4] - 1,
@@ -247,6 +266,45 @@ def _features_at(bars: list[Bar], index: int) -> dict[str, float] | None:
         "amountRatio5To20": _mean(amounts[-5:]) / _mean(amounts) - 1,
         "volumeRatio5To20": _mean(volumes[-5:]) / _mean(volumes) - 1,
     }
+    if moneyflow_by_date is not None:
+        flow_rows = [
+            moneyflow_by_date.get(_bar_day(bar))
+            for bar in window[-20:]
+        ]
+        if any(row is None for row in flow_rows):
+            return None
+        net_intensity = [
+            _signed_log_ratio(
+                float(row["netAmount"]), float(bar.amount)
+            )
+            for row, bar in zip(
+                flow_rows, window[-20:], strict=True
+            )
+        ]
+        large_intensity = [
+            _signed_log_ratio(
+                float(row["largeNetAmount"]), float(bar.amount)
+            )
+            for row, bar in zip(
+                flow_rows, window[-20:], strict=True
+            )
+        ]
+        features.update(
+            {
+                "flowNetIntensity1": net_intensity[-1],
+                "flowNetIntensity5": _mean(net_intensity[-5:]),
+                "flowLargeIntensity1": large_intensity[-1],
+                "flowLargeIntensity5": _mean(large_intensity[-5:]),
+                "flowPositiveShare20": (
+                    sum(value > 0 for value in net_intensity) / 20
+                    - 0.5
+                ),
+                "flowAcceleration5To20": (
+                    _mean(net_intensity[-5:]) - _mean(net_intensity)
+                ),
+            }
+        )
+    return features
 
 
 def _rank_enrich(
@@ -427,6 +485,9 @@ def build_daily_examples(
     market_features_by_date: dict[date, dict[str, float]]
     | None = None,
     industry_by_date: dict[date, dict[str, str]] | None = None,
+    moneyflow_by_code_date: (
+        dict[str, dict[date, dict[str, float]]] | None
+    ) = None,
 ) -> list[PredictionExample]:
     signal_rows: list[PredictionFeature] = []
     labels: dict[tuple[date, str], tuple[date, float, int]] = {}
@@ -447,7 +508,15 @@ def build_daily_examples(
                 signal_day.isoformat(), ()
             ):
                 continue
-            features = _features_at(bars, index)
+            features = _features_at(
+                bars,
+                index,
+                (
+                    moneyflow_by_code_date.get(code, {})
+                    if moneyflow_by_code_date is not None
+                    else None
+                ),
+            )
             if market_features_by_date is not None:
                 market_features = market_features_by_date.get(
                     signal_day
@@ -511,6 +580,9 @@ def build_latest_features(
     eligible_codes: set[str],
     market_features: dict[str, float] | None = None,
     industry_by_code: dict[str, str] | None = None,
+    moneyflow_by_code_date: (
+        dict[str, dict[date, dict[str, float]]] | None
+    ) = None,
 ) -> list[PredictionFeature]:
     features: list[PredictionFeature] = []
     for code in sorted(eligible_codes):
@@ -527,7 +599,15 @@ def build_latest_features(
         ]
         if not indexes:
             continue
-        values = _features_at(bars, indexes[-1])
+        values = _features_at(
+            bars,
+            indexes[-1],
+            (
+                moneyflow_by_code_date.get(code, {})
+                if moneyflow_by_code_date is not None
+                else None
+            ),
+        )
         bar_day = (
             bars[indexes[-1]].date.date()
             if hasattr(bars[indexes[-1]].date, "date")

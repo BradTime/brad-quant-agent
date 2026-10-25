@@ -23,6 +23,7 @@ from app.prediction.modeling import ModelProvider
 from app.prediction.regime import REGIME_RULES_VERSION, classify_market_regime
 from app.services import (
     industry_membership,
+    moneyflow_history,
     prediction_registry,
     universe_membership,
 )
@@ -255,6 +256,28 @@ def train_from_database(
                 snapshot_id=industry_snapshot_id,
             )
         )
+        warmup_dates = [
+            date.fromisoformat(value)
+            for value in expected_session_dates(
+                feature_start - timedelta(days=60), feature_start
+            )
+        ]
+        flow_start = warmup_dates[-21]
+        moneyflow_snapshot_id = moneyflow_history.latest_snapshot_id(
+            session,
+            codes=codes,
+            start=flow_start,
+            end=end,
+        )
+        moneyflow_by_code_date = (
+            moneyflow_history.rows_by_code_date_in_session(
+                session,
+                snapshot_id=moneyflow_snapshot_id,
+                codes=codes,
+                start=flow_start,
+                end=end,
+            )
+        )
     examples = [
         row
         for row in build_daily_examples(
@@ -262,6 +285,7 @@ def train_from_database(
             eligible_by_date=eligible_by_date,
             market_features_by_date=market_features,
             industry_by_date=industry_by_date,
+            moneyflow_by_code_date=moneyflow_by_code_date,
         )
         if feature_start <= row.signal_date <= end
     ]
@@ -280,6 +304,7 @@ def train_from_database(
             regime_evidence_sha256
             + universe_evidence_sha256
             + industry_snapshot_id
+            + moneyflow_snapshot_id
         ).encode()
     ).hexdigest()
     return prediction_registry.register_candidate(
@@ -296,6 +321,7 @@ def train_from_database(
         publication_guard=publication_guard,
         feature_universe_codes=codes,
         feature_industry_snapshot_id=industry_snapshot_id,
+        feature_moneyflow_snapshot_id=moneyflow_snapshot_id,
     )
 
 
@@ -313,6 +339,9 @@ def infer_from_database(
         industry_snapshot_id = metrics.get(
             "featureIndustrySnapshotId"
         )
+        moneyflow_snapshot_id = metrics.get(
+            "featureMoneyflowSnapshotId"
+        )
     if (
         not isinstance(rank_universe_codes, list)
         or not rank_universe_codes
@@ -326,6 +355,14 @@ def infer_from_database(
         and not isinstance(industry_snapshot_id, str)
     ):
         raise ValueError("Champion 缺少固定行业快照")
+    if (
+        champion.feature_schema_version == "daily-pit-v5"
+        and (
+            not isinstance(industry_snapshot_id, str)
+            or not isinstance(moneyflow_snapshot_id, str)
+        )
+    ):
+        raise ValueError("Champion 缺少固定行业或资金流快照")
     features = build_inference_features_from_database(
         signal_date=signal_date,
         codes=codes,
@@ -333,6 +370,11 @@ def infer_from_database(
         industry_snapshot_id=(
             industry_snapshot_id
             if isinstance(industry_snapshot_id, str)
+            else None
+        ),
+        moneyflow_snapshot_id=(
+            moneyflow_snapshot_id
+            if isinstance(moneyflow_snapshot_id, str)
             else None
         ),
     )
@@ -356,6 +398,9 @@ def infer_model_from_database(
         industry_snapshot_id = metrics.get(
             "featureIndustrySnapshotId"
         )
+        moneyflow_snapshot_id = metrics.get(
+            "featureMoneyflowSnapshotId"
+        )
     if not isinstance(rank_universe_codes, list):
         rank_universe_codes = (
             codes
@@ -369,6 +414,14 @@ def infer_model_from_database(
         and not isinstance(industry_snapshot_id, str)
     ):
         raise ValueError("模型缺少固定行业快照")
+    if (
+        model.feature_schema_version == "daily-pit-v5"
+        and (
+            not isinstance(industry_snapshot_id, str)
+            or not isinstance(moneyflow_snapshot_id, str)
+        )
+    ):
+        raise ValueError("模型缺少固定行业或资金流快照")
     features = build_inference_features_from_database(
         signal_date=signal_date,
         codes=codes,
@@ -376,6 +429,11 @@ def infer_model_from_database(
         industry_snapshot_id=(
             industry_snapshot_id
             if isinstance(industry_snapshot_id, str)
+            else None
+        ),
+        moneyflow_snapshot_id=(
+            moneyflow_snapshot_id
+            if isinstance(moneyflow_snapshot_id, str)
             else None
         ),
     )
@@ -390,6 +448,7 @@ def build_inference_features_from_database(
     codes: list[str],
     rank_universe_codes: list[str] | None = None,
     industry_snapshot_id: str | None = None,
+    moneyflow_snapshot_id: str | None = None,
 ) -> list:
     if not 1 <= len(codes) <= 20:
         raise ValueError("单次预测标的数量必须在 1 到 20")
@@ -435,12 +494,32 @@ def build_inference_features_from_database(
                     snapshot_id=industry_snapshot_id,
                 )
             )
+    moneyflow_by_code_date = None
+    if moneyflow_snapshot_id is not None:
+        flow_start_dates = [
+            date.fromisoformat(value)
+            for value in expected_session_dates(
+                signal_date - timedelta(days=60), signal_date
+            )
+        ]
+        flow_start = flow_start_dates[-21]
+        with SessionLocal() as session:
+            moneyflow_by_code_date = (
+                moneyflow_history.rows_by_code_date_in_session(
+                    session,
+                    snapshot_id=moneyflow_snapshot_id,
+                    codes=sorted(eligible_rank_codes),
+                    start=flow_start,
+                    end=signal_date,
+                )
+            )
     features = build_latest_features(
         bars_by_code,
         signal_date=signal_date,
         eligible_codes=eligible_rank_codes,
         market_features=market_features,
         industry_by_code=industry_by_code,
+        moneyflow_by_code_date=moneyflow_by_code_date,
     )
     requested_features = [
         feature for feature in features if feature.code in requested
