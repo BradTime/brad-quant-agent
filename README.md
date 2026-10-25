@@ -220,6 +220,8 @@ python -c "from app.services import brief; print(brief.generate(None)['title'])"
   晚于 17:30 信号承诺，两次模型运行均已标记 invalidated/failed。
 - `daily-pit-v6` 改为仅使用信号日前 20 个交易日的资金流。修正后 LightGBM 51.58%
   （下界 49.58%）、XGBoost 51.02%（48.95%），仍未达到双门槛，继续拒绝晋级。
+- `daily-pit-v7` 加入快照固定的 PE/PB/PS、股息率、总市值及截面排名。LightGBM 51.44%
+  （下界 49.54%）、XGBoost 51.57%（49.61%），基本面估值仍未形成可晋级的稳定优势。
 
 ## 测试与 CI
 - **后端单测**：`cd backend && python -m pytest -q`

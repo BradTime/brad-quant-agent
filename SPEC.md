@@ -373,6 +373,9 @@ brad-quant-agent/
   连续 20 个实际 bar 缺任一天即丢弃样本。
   净流入/大单强度、5 日均值、20 日正流入比例和 5→20 日加速度贯通模型与 Challenger 证据链。
   重跑结果 LightGBM 51.58%（下界 49.58%）、XGBoost 51.02%（下界 48.95%），继续 rejected
+- [x] `daily-pit-v7` 接入 24,124 条 17:00 可用的 `daily_basic` 快照，固定加入 PE/PB/PS
+  对数值与缺失标记、股息率、总市值及固定池截面排名；训练、推理和 Commitment 绑定估值
+  快照 ID。LightGBM 51.44%（下界 49.54%）、XGBoost 51.57%（下界 49.61%），仍 rejected
 
 ### 工程化与 Phase 3 预备（增量）
 - [x] **WS 私有定向推送通道**：连接按 `user_id` 建反向索引，`send_to_user`/`notify_user`(async)+`notify_user_threadsafe`(同步撮合/调度器用)，私有事件信封；Phase 3 成交回报/持仓变动复用（私有数据绝不走广播）
