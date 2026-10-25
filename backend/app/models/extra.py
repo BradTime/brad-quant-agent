@@ -26,6 +26,7 @@ from app.db.base import Base
 
 _AMOUNT = Numeric(24, 4)
 _RATIO = Numeric(12, 4)
+_METRIC = Numeric(24, 6)
 
 
 class CapitalFlow(Base):
@@ -132,6 +133,48 @@ class TushareMoneyflowDaily(Base):
     extra_large_net_amount: Mapped[Decimal] = mapped_column(
         _AMOUNT, nullable=False
     )
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class TushareDailyBasic(Base):
+    """Snapshot-pinned daily valuation metrics."""
+
+    __tablename__ = "tushare_daily_basic"
+    __table_args__ = (
+        Index(
+            "ix_tushare_daily_basic_snapshot_date",
+            "snapshot_id",
+            "trade_date",
+        ),
+    )
+
+    snapshot_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey(
+            "daily_basic_history_snapshots.id",
+            ondelete="RESTRICT",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+        primary_key=True,
+    )
+    code: Mapped[str] = mapped_column(
+        String(16),
+        ForeignKey("instruments.code", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    pe_ttm: Mapped[Decimal | None] = mapped_column(_METRIC)
+    pb: Mapped[Decimal | None] = mapped_column(_METRIC)
+    ps_ttm: Mapped[Decimal | None] = mapped_column(_METRIC)
+    dv_ttm: Mapped[Decimal | None] = mapped_column(_METRIC)
+    total_mv: Mapped[Decimal] = mapped_column(_AMOUNT, nullable=False)
     source: Mapped[str] = mapped_column(String(32), nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

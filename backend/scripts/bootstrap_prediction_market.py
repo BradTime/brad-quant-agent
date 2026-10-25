@@ -39,7 +39,12 @@ from app.models.market import (
     InstrumentSuspensionDaily,
 )
 from app.providers.tushare_provider import _status_type
-from app.services import industry_membership, ingest, moneyflow_history
+from app.services import (
+    daily_basic_history,
+    industry_membership,
+    ingest,
+    moneyflow_history,
+)
 
 DAILY_FIELDS = (
     "ts_code",
@@ -100,6 +105,15 @@ MONEYFLOW_FIELDS = (
     "buy_elg_amount",
     "sell_elg_amount",
     "net_mf_amount",
+)
+DAILY_BASIC_FIELDS = (
+    "ts_code",
+    "trade_date",
+    "pe_ttm",
+    "pb",
+    "ps_ttm",
+    "dv_ttm",
+    "total_mv",
 )
 REQUEST_MAX_ATTEMPTS = 5
 
@@ -912,6 +926,48 @@ def bootstrap_moneyflow_history(
     return result
 
 
+def bootstrap_daily_basic_history(
+    client: httpx.Client,
+    *,
+    codes: list[str],
+    start: date,
+    end: date,
+    as_of_date: date,
+) -> dict[str, Any]:
+    rows = []
+    for position, code in enumerate(codes, start=1):
+        code_rows = _paged_request(
+            client,
+            "daily_basic",
+            {
+                "ts_code": code,
+                "start_date": start.strftime("%Y%m%d"),
+                "end_date": end.strftime("%Y%m%d"),
+            },
+            DAILY_BASIC_FIELDS,
+            page_size=6_000,
+        )
+        rows.extend(code_rows)
+        print(
+            f"daily_basic [{position}/{len(codes)}] "
+            f"{code}: rows={len(code_rows)}",
+            flush=True,
+        )
+    result = daily_basic_history.persist_snapshot(
+        raw_rows=rows,
+        codes=codes,
+        start=start,
+        end=end,
+        as_of_date=as_of_date,
+    )
+    print(
+        "daily_basic snapshot: "
+        f"rows={result['rowCount']} id={result['id']}",
+        flush=True,
+    )
+    return result
+
+
 def bootstrap_audits(
     codes: list[str], start: date, end: date
 ) -> None:
@@ -1113,6 +1169,7 @@ def main() -> None:
             "status",
             "industry",
             "moneyflow",
+            "daily_basic",
             "audit",
             "all",
         ],
@@ -1121,6 +1178,7 @@ def main() -> None:
     parser.add_argument("--max-dates", type=int)
     parser.add_argument("--audit-codes", default="")
     parser.add_argument("--moneyflow-codes", default="")
+    parser.add_argument("--daily-basic-codes", default="")
     args = parser.parse_args()
     if not settings.tushare_token:
         raise RuntimeError("TUSHARE_TOKEN 未配置")
@@ -1155,6 +1213,23 @@ def main() -> None:
             bootstrap_moneyflow_history(
                 client,
                 codes=moneyflow_codes,
+                start=start,
+                end=end,
+                as_of_date=datetime.now(MARKET_TZ).date(),
+            )
+        if args.phase in {"daily_basic", "all"}:
+            daily_basic_codes = [
+                value.strip().upper()
+                for value in args.daily_basic_codes.split(",")
+                if value.strip()
+            ]
+            if not daily_basic_codes:
+                raise ValueError(
+                    "daily_basic phase requires --daily-basic-codes"
+                )
+            bootstrap_daily_basic_history(
+                client,
+                codes=daily_basic_codes,
                 start=start,
                 end=end,
                 as_of_date=datetime.now(MARKET_TZ).date(),

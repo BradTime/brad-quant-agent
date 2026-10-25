@@ -17,6 +17,7 @@ from app.prediction.features import (
     FEATURE_ORDER_V4,
     FEATURE_ORDER_V5,
     FEATURE_ORDER_V6,
+    FEATURE_ORDER_V7,
     PredictionExample,
     build_daily_examples,
     build_latest_features,
@@ -211,6 +212,86 @@ def test_daily_pit_v5_only_appends_to_v4_artifact_order():
 
 def test_daily_pit_v6_keeps_v5_order_but_corrects_availability():
     assert FEATURE_ORDER_V6 == FEATURE_ORDER_V5
+
+
+def test_daily_pit_v7_appends_snapshot_pinned_valuation_features():
+    assert FEATURE_ORDER_V7[: len(FEATURE_ORDER_V6)] == FEATURE_ORDER_V6
+    assert FEATURE_ORDER_V7[len(FEATURE_ORDER_V6) :] == (
+        "valuationLogPeTtm",
+        "valuationPeAvailable",
+        "valuationLogPb",
+        "valuationPbAvailable",
+        "valuationLogPsTtm",
+        "valuationPsAvailable",
+        "valuationDividendYield",
+        "valuationLogMarketCap",
+        "valueRank_valuationLogPb",
+        "valueRank_valuationLogPsTtm",
+        "valueRank_valuationDividendYield",
+        "valueRank_valuationLogMarketCap",
+    )
+
+
+def test_daily_valuation_features_preserve_missing_pe_and_rank_pool():
+    bars = _bars(30)
+    peer = [
+        Bar(**{**bar.__dict__, "code": "000001.SZ"})
+        for bar in bars
+    ]
+    signal_date = bars[-1].date
+    market = {
+        "marketReturn1": 0.001,
+        "marketReturn5": 0.002,
+        "marketReturn20": 0.003,
+        "marketVolatility20": 0.01,
+        "marketBreadth": 0.1,
+        "marketBreadthImbalance": 0.2,
+        "regimeBull": 1.0,
+        "regimeBear": 0.0,
+        "regimeRange": 0.0,
+        "regimeRiskOff": 0.0,
+    }
+    valuations = {
+        "600000.SH": {
+            signal_date: {
+                "peTtm": None,
+                "pb": 0.8,
+                "psTtm": 1.2,
+                "dividendTtm": 4.5,
+                "totalMarketValue": 100_000_000,
+            }
+        },
+        "000001.SZ": {
+            signal_date: {
+                "peTtm": 8.0,
+                "pb": 1.2,
+                "psTtm": 1.5,
+                "dividendTtm": 2.0,
+                "totalMarketValue": 200_000_000,
+            }
+        },
+    }
+    rows = build_latest_features(
+        {"600000.SH": bars, "000001.SZ": peer},
+        signal_date=signal_date,
+        eligible_codes={"600000.SH", "000001.SZ"},
+        market_features=market,
+        industry_by_code={
+            "600000.SH": "银行",
+            "000001.SZ": "银行",
+        },
+        daily_basic_by_code_date=valuations,
+    )
+    by_code = {row.code: row.features for row in rows}
+    assert by_code["600000.SH"]["valuationPeAvailable"] == 0
+    assert by_code["600000.SH"]["valuationLogPeTtm"] == 0
+    assert by_code["000001.SZ"]["valuationLogPeTtm"] == pytest.approx(
+        math.log1p(8)
+    )
+    assert (
+        by_code["600000.SH"]["valueRank_valuationLogPb"]
+        < by_code["000001.SZ"]["valueRank_valuationLogPb"]
+    )
 
 
 def test_moneyflow_features_require_twenty_aligned_signal_bars():

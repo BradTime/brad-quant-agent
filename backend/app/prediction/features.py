@@ -10,7 +10,7 @@ from datetime import date
 from app.backtest.data import Bar
 from app.backtest.universe import expected_session_dates
 
-FEATURE_SCHEMA_VERSION = "daily-pit-v6"
+FEATURE_SCHEMA_VERSION = "daily-pit-v7"
 MIN_HISTORY = 21
 FEATURE_ORDER_V1 = (
     "return1",
@@ -28,6 +28,12 @@ RANK_FIELDS = (
     "intraday1",
     "volatility20",
     "amountZ20",
+)
+VALUE_RANK_FIELDS = (
+    "valuationLogPb",
+    "valuationLogPsTtm",
+    "valuationDividendYield",
+    "valuationLogMarketCap",
 )
 FEATURE_ORDER_V2 = (
     "return1",
@@ -91,6 +97,18 @@ FEATURE_ORDER_V5 = (
     "flowAcceleration5To20",
 )
 FEATURE_ORDER_V6 = FEATURE_ORDER_V5
+FEATURE_ORDER_V7 = (
+    *FEATURE_ORDER_V6,
+    "valuationLogPeTtm",
+    "valuationPeAvailable",
+    "valuationLogPb",
+    "valuationPbAvailable",
+    "valuationLogPsTtm",
+    "valuationPsAvailable",
+    "valuationDividendYield",
+    "valuationLogMarketCap",
+    *(f"valueRank_{field}" for field in VALUE_RANK_FIELDS),
+)
 FEATURE_ORDERS = {
     "daily-pit-v1": FEATURE_ORDER_V1,
     "daily-pit-v2": FEATURE_ORDER_V2,
@@ -98,6 +116,7 @@ FEATURE_ORDERS = {
     "daily-pit-v4": FEATURE_ORDER_V4,
     "daily-pit-v5": FEATURE_ORDER_V5,
     "daily-pit-v6": FEATURE_ORDER_V6,
+    "daily-pit-v7": FEATURE_ORDER_V7,
 }
 FEATURE_ORDER = FEATURE_ORDERS[FEATURE_SCHEMA_VERSION]
 
@@ -171,6 +190,9 @@ def _features_at(
     bars: list[Bar],
     index: int,
     moneyflow_by_date: dict[date, dict[str, float]] | None = None,
+    daily_basic_by_date: (
+        dict[date, dict[str, float | None]] | None
+    ) = None,
 ) -> dict[str, float] | None:
     signal = bars[index]
     window = bars[index - 20 : index + 1]
@@ -309,6 +331,51 @@ def _features_at(
                 ),
             }
         )
+    if daily_basic_by_date is not None:
+        valuation = daily_basic_by_date.get(_bar_day(signal))
+        if valuation is None:
+            return None
+        market_value = float(valuation["totalMarketValue"] or 0)
+        if market_value <= 0 or not math.isfinite(market_value):
+            return None
+        pe = valuation["peTtm"]
+        pb = valuation["pb"]
+        ps = valuation["psTtm"]
+        dividend = valuation["dividendTtm"]
+        features.update(
+            {
+                "valuationLogPeTtm": (
+                    math.log1p(float(pe))
+                    if pe is not None and float(pe) > 0
+                    else 0.0
+                ),
+                "valuationPeAvailable": float(
+                    pe is not None and float(pe) > 0
+                ),
+                "valuationLogPb": (
+                    math.log1p(float(pb))
+                    if pb is not None and float(pb) > 0
+                    else 0.0
+                ),
+                "valuationPbAvailable": float(
+                    pb is not None and float(pb) > 0
+                ),
+                "valuationLogPsTtm": (
+                    math.log1p(float(ps))
+                    if ps is not None and float(ps) > 0
+                    else 0.0
+                ),
+                "valuationPsAvailable": float(
+                    ps is not None and float(ps) > 0
+                ),
+                "valuationDividendYield": (
+                    max(float(dividend), 0.0) / 100
+                    if dividend is not None
+                    else 0.0
+                ),
+                "valuationLogMarketCap": math.log(market_value),
+            }
+        )
     return features
 
 
@@ -321,7 +388,14 @@ def _rank_enrich(
     enriched = []
     for day_rows in by_date.values():
         ranks_by_field: dict[str, dict[str, float]] = {}
-        for field in RANK_FIELDS:
+        rank_fields = list(RANK_FIELDS)
+        if all(
+            field in row.features
+            for row in day_rows
+            for field in VALUE_RANK_FIELDS
+        ):
+            rank_fields.extend(VALUE_RANK_FIELDS)
+        for field in rank_fields:
             ordered = sorted(
                 (
                     (row.features[field], row.code)
@@ -354,6 +428,15 @@ def _rank_enrich(
                         row.code
                     ]
                     for field in RANK_FIELDS
+                }
+            )
+            values.update(
+                {
+                    f"valueRank_{field}": ranks_by_field[field][
+                        row.code
+                    ]
+                    for field in VALUE_RANK_FIELDS
+                    if field in ranks_by_field
                 }
             )
             if isinstance(row, PredictionExample):
@@ -493,6 +576,9 @@ def build_daily_examples(
     moneyflow_by_code_date: (
         dict[str, dict[date, dict[str, float]]] | None
     ) = None,
+    daily_basic_by_code_date: (
+        dict[str, dict[date, dict[str, float | None]]] | None
+    ) = None,
 ) -> list[PredictionExample]:
     signal_rows: list[PredictionFeature] = []
     labels: dict[tuple[date, str], tuple[date, float, int]] = {}
@@ -519,6 +605,11 @@ def build_daily_examples(
                 (
                     moneyflow_by_code_date.get(code, {})
                     if moneyflow_by_code_date is not None
+                    else None
+                ),
+                (
+                    daily_basic_by_code_date.get(code, {})
+                    if daily_basic_by_code_date is not None
                     else None
                 ),
             )
@@ -588,6 +679,9 @@ def build_latest_features(
     moneyflow_by_code_date: (
         dict[str, dict[date, dict[str, float]]] | None
     ) = None,
+    daily_basic_by_code_date: (
+        dict[str, dict[date, dict[str, float | None]]] | None
+    ) = None,
 ) -> list[PredictionFeature]:
     features: list[PredictionFeature] = []
     for code in sorted(eligible_codes):
@@ -610,6 +704,11 @@ def build_latest_features(
             (
                 moneyflow_by_code_date.get(code, {})
                 if moneyflow_by_code_date is not None
+                else None
+            ),
+            (
+                daily_basic_by_code_date.get(code, {})
+                if daily_basic_by_code_date is not None
                 else None
             ),
         )

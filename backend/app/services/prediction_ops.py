@@ -32,7 +32,7 @@ from app.services import (
 )
 
 MAX_ATTEMPTS = 3
-OPS_IMPLEMENTATION_VERSION = "ops-v8-daily-pit-v6"
+OPS_IMPLEMENTATION_VERSION = "ops-v9-daily-pit-v7"
 _LOCAL_EXECUTION_LOCKS: dict[str, threading.Lock] = {}
 _LOCAL_EXECUTION_LOCKS_GUARD = threading.Lock()
 _COMPLETENESS_CACHE_LOCK = threading.Lock()
@@ -426,6 +426,9 @@ def _execute(
             moneyflow_snapshot_id = champion_metrics.get(
                 "featureMoneyflowSnapshotId"
             )
+            daily_basic_snapshot_id = champion_metrics.get(
+                "featureDailyBasicSnapshotId"
+            )
             if not isinstance(rank_universe_codes, list):
                 rank_universe_codes = (
                     codes
@@ -447,13 +450,18 @@ def _execute(
                 raise ValueError("Champion 缺少固定行业快照")
             if (
                 champion.feature_schema_version
-                in {"daily-pit-v5", "daily-pit-v6"}
+                in {"daily-pit-v5", "daily-pit-v6", "daily-pit-v7"}
                 and (
                     not isinstance(industry_snapshot_id, str)
                     or not isinstance(moneyflow_snapshot_id, str)
                 )
             ):
                 raise ValueError("Champion 缺少固定行业或资金流快照")
+            if (
+                champion.feature_schema_version == "daily-pit-v7"
+                and not isinstance(daily_basic_snapshot_id, str)
+            ):
+                raise ValueError("Champion 缺少固定估值快照")
             existing_codes = set(
                 session.execute(
                     select(PredictionForecast.code).where(
@@ -483,6 +491,11 @@ def _execute(
                     moneyflow_snapshot_id=(
                         moneyflow_snapshot_id
                         if isinstance(moneyflow_snapshot_id, str)
+                        else None
+                    ),
+                    daily_basic_snapshot_id=(
+                        daily_basic_snapshot_id
+                        if isinstance(daily_basic_snapshot_id, str)
                         else None
                     ),
                 )

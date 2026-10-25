@@ -70,7 +70,8 @@ TUSHARE_MANIFEST_REVISION = "20260911_0030"
 INDUSTRY_MEMBERSHIP_REVISION = "20261025_0031"
 MONEYFLOW_HISTORY_REVISION = "20261025_0032"
 MONEYFLOW_AVAILABILITY_REVISION = "20261025_0033"
-HEAD_REVISION = MONEYFLOW_AVAILABILITY_REVISION
+DAILY_BASIC_HISTORY_REVISION = "20261025_0034"
+HEAD_REVISION = DAILY_BASIC_HISTORY_REVISION
 HNSW_INDEX = "ix_documents_embedding_hnsw"
 LEGACY_TABLES = frozenset(
     {
@@ -151,6 +152,8 @@ POST_BASELINE_TABLES = frozenset(
         "instrument_industry_membership_history",
         "moneyflow_history_snapshots",
         "tushare_moneyflow_daily",
+        "daily_basic_history_snapshots",
+        "tushare_daily_basic",
         "decision_room_controls",
         "decision_room_audits",
         "decision_overrides",

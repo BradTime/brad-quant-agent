@@ -22,6 +22,7 @@ from app.prediction.features import build_daily_examples, build_latest_features
 from app.prediction.modeling import ModelProvider
 from app.prediction.regime import REGIME_RULES_VERSION, classify_market_regime
 from app.services import (
+    daily_basic_history,
     industry_membership,
     moneyflow_history,
     prediction_registry,
@@ -278,6 +279,23 @@ def train_from_database(
                 end=end,
             )
         )
+        daily_basic_snapshot_id = (
+            daily_basic_history.latest_snapshot_id(
+                session,
+                codes=codes,
+                start=feature_start,
+                end=end,
+            )
+        )
+        daily_basic_by_code_date = (
+            daily_basic_history.rows_by_code_date_in_session(
+                session,
+                snapshot_id=daily_basic_snapshot_id,
+                codes=codes,
+                start=feature_start,
+                end=end,
+            )
+        )
     examples = [
         row
         for row in build_daily_examples(
@@ -286,6 +304,7 @@ def train_from_database(
             market_features_by_date=market_features,
             industry_by_date=industry_by_date,
             moneyflow_by_code_date=moneyflow_by_code_date,
+            daily_basic_by_code_date=daily_basic_by_code_date,
         )
         if feature_start <= row.signal_date <= end
     ]
@@ -305,6 +324,7 @@ def train_from_database(
             + universe_evidence_sha256
             + industry_snapshot_id
             + moneyflow_snapshot_id
+            + daily_basic_snapshot_id
         ).encode()
     ).hexdigest()
     return prediction_registry.register_candidate(
@@ -322,6 +342,7 @@ def train_from_database(
         feature_universe_codes=codes,
         feature_industry_snapshot_id=industry_snapshot_id,
         feature_moneyflow_snapshot_id=moneyflow_snapshot_id,
+        feature_daily_basic_snapshot_id=daily_basic_snapshot_id,
     )
 
 
@@ -342,6 +363,9 @@ def infer_from_database(
         moneyflow_snapshot_id = metrics.get(
             "featureMoneyflowSnapshotId"
         )
+        daily_basic_snapshot_id = metrics.get(
+            "featureDailyBasicSnapshotId"
+        )
     if (
         not isinstance(rank_universe_codes, list)
         or not rank_universe_codes
@@ -357,13 +381,18 @@ def infer_from_database(
         raise ValueError("Champion 缺少固定行业快照")
     if (
         champion.feature_schema_version
-        in {"daily-pit-v5", "daily-pit-v6"}
+        in {"daily-pit-v5", "daily-pit-v6", "daily-pit-v7"}
         and (
             not isinstance(industry_snapshot_id, str)
             or not isinstance(moneyflow_snapshot_id, str)
         )
     ):
         raise ValueError("Champion 缺少固定行业或资金流快照")
+    if (
+        champion.feature_schema_version == "daily-pit-v7"
+        and not isinstance(daily_basic_snapshot_id, str)
+    ):
+        raise ValueError("Champion 缺少固定估值快照")
     features = build_inference_features_from_database(
         signal_date=signal_date,
         codes=codes,
@@ -376,6 +405,11 @@ def infer_from_database(
         moneyflow_snapshot_id=(
             moneyflow_snapshot_id
             if isinstance(moneyflow_snapshot_id, str)
+            else None
+        ),
+        daily_basic_snapshot_id=(
+            daily_basic_snapshot_id
+            if isinstance(daily_basic_snapshot_id, str)
             else None
         ),
     )
@@ -402,6 +436,9 @@ def infer_model_from_database(
         moneyflow_snapshot_id = metrics.get(
             "featureMoneyflowSnapshotId"
         )
+        daily_basic_snapshot_id = metrics.get(
+            "featureDailyBasicSnapshotId"
+        )
     if not isinstance(rank_universe_codes, list):
         rank_universe_codes = (
             codes
@@ -417,13 +454,18 @@ def infer_model_from_database(
         raise ValueError("模型缺少固定行业快照")
     if (
         model.feature_schema_version
-        in {"daily-pit-v5", "daily-pit-v6"}
+        in {"daily-pit-v5", "daily-pit-v6", "daily-pit-v7"}
         and (
             not isinstance(industry_snapshot_id, str)
             or not isinstance(moneyflow_snapshot_id, str)
         )
     ):
         raise ValueError("模型缺少固定行业或资金流快照")
+    if (
+        model.feature_schema_version == "daily-pit-v7"
+        and not isinstance(daily_basic_snapshot_id, str)
+    ):
+        raise ValueError("模型缺少固定估值快照")
     features = build_inference_features_from_database(
         signal_date=signal_date,
         codes=codes,
@@ -436,6 +478,11 @@ def infer_model_from_database(
         moneyflow_snapshot_id=(
             moneyflow_snapshot_id
             if isinstance(moneyflow_snapshot_id, str)
+            else None
+        ),
+        daily_basic_snapshot_id=(
+            daily_basic_snapshot_id
+            if isinstance(daily_basic_snapshot_id, str)
             else None
         ),
     )
@@ -451,6 +498,7 @@ def build_inference_features_from_database(
     rank_universe_codes: list[str] | None = None,
     industry_snapshot_id: str | None = None,
     moneyflow_snapshot_id: str | None = None,
+    daily_basic_snapshot_id: str | None = None,
 ) -> list:
     if not 1 <= len(codes) <= 20:
         raise ValueError("单次预测标的数量必须在 1 到 20")
@@ -515,6 +563,18 @@ def build_inference_features_from_database(
                     end=signal_date,
                 )
             )
+    daily_basic_by_code_date = None
+    if daily_basic_snapshot_id is not None:
+        with SessionLocal() as session:
+            daily_basic_by_code_date = (
+                daily_basic_history.rows_by_code_date_in_session(
+                    session,
+                    snapshot_id=daily_basic_snapshot_id,
+                    codes=sorted(eligible_rank_codes),
+                    start=signal_date,
+                    end=signal_date,
+                )
+            )
     features = build_latest_features(
         bars_by_code,
         signal_date=signal_date,
@@ -522,6 +582,7 @@ def build_inference_features_from_database(
         market_features=market_features,
         industry_by_code=industry_by_code,
         moneyflow_by_code_date=moneyflow_by_code_date,
+        daily_basic_by_code_date=daily_basic_by_code_date,
     )
     requested_features = [
         feature for feature in features if feature.code in requested

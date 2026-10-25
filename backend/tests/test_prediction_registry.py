@@ -82,6 +82,7 @@ def test_rejected_candidate_cannot_be_promoted(registry_db, monkeypatch):
         evidence_sha256="e" * 64,
         feature_industry_snapshot_id="i" * 64,
         feature_moneyflow_snapshot_id="m" * 64,
+        feature_daily_basic_snapshot_id="d" * 64,
     )
     assert result["status"] == "rejected"
     assert (
@@ -91,6 +92,10 @@ def test_rejected_candidate_cannot_be_promoted(registry_db, monkeypatch):
     assert (
         result["metrics"]["featureMoneyflowSnapshotId"]
         == "m" * 64
+    )
+    assert (
+        result["metrics"]["featureDailyBasicSnapshotId"]
+        == "d" * 64
     )
     with pytest.raises(ValueError, match="已存在"):
         prediction_registry.register_candidate(
