@@ -3,6 +3,9 @@
 基于 AI 的 A 股投研驾驶舱：看盘 · AI 看盘问答 · 模拟交易 · 量化研究与回测。
 
 > 总体设计、约束与路线图见 [`SPEC.md`](./SPEC.md)（定稿）。
+>
+> 当前已实现功能、整体架构、数据流和运行边界见
+> [`docs/current-system-architecture-v1.17.md`](./docs/current-system-architecture-v1.17.md)。
 
 ## 仓库结构（前后端分离）
 
