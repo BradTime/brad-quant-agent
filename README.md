@@ -207,6 +207,9 @@ python -c "from app.services import brief; print(brief.generate(None)['title'])"
 - `daily-pit-v2` 已完成一次预声明封闭评估：固定技术、截面和市场状态特征与 artifact 顺序，
   增加交易日聚类置信下界。LightGBM/XGBoost 仍未显示稳定优势，因此保持 rejected，
   系统不会生成无统计依据的 Champion。
+- `daily-pit-v3` 仅追加信号日可见的沪深300相对收益与波动率比，并在固定 20 标的五年样本上
+  封闭评估：LightGBM 50.61%（95% 下界 48.48%），XGBoost 49.93%（47.82%），继续保持
+  rejected。历史行业成员关系尚无可信有效期证据，因此不会把当前行业分类倒填成历史特征。
 
 ## 测试与 CI
 - **后端单测**：`cd backend && python -m pytest -q`
