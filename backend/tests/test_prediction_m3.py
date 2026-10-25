@@ -13,6 +13,7 @@ from app.prediction.evaluation import evaluate_predictions
 from app.prediction.features import (
     FEATURE_ORDER_V2,
     FEATURE_ORDER_V3,
+    FEATURE_ORDER_V4,
     PredictionExample,
     build_daily_examples,
     build_latest_features,
@@ -178,6 +179,76 @@ def test_daily_pit_v3_only_appends_to_v2_artifact_order():
         "excessReturn5",
         "excessReturn20",
         "volatilityRatioToMarket20",
+    )
+
+
+def test_daily_pit_v4_only_appends_to_v3_artifact_order():
+    assert FEATURE_ORDER_V4[: len(FEATURE_ORDER_V3)] == FEATURE_ORDER_V3
+    assert FEATURE_ORDER_V4[len(FEATURE_ORDER_V3) :] == (
+        "industryExcessReturn1",
+        "industryExcessReturn5",
+        "industryExcessReturn20",
+        "industryVolatilityRatio20",
+        "industryBreadth",
+        "industryPeerFraction",
+    )
+
+
+def test_industry_features_use_only_same_day_fixed_pool_peers():
+    first = _bars(30)
+    second = [
+        Bar(
+            **{
+                **bar.__dict__,
+                "code": "000001.SZ",
+                "close": bar.close + (0.05 if index == 29 else 0),
+            }
+        )
+        for index, bar in enumerate(first)
+    ]
+    third = [
+        Bar(**{**bar.__dict__, "code": "600519.SH"})
+        for bar in first
+    ]
+    signal_date = first[-1].date
+    market = {
+        "marketReturn1": 0.001,
+        "marketReturn5": 0.002,
+        "marketReturn20": 0.003,
+        "marketVolatility20": 0.01,
+        "marketBreadth": 0.1,
+        "marketBreadthImbalance": 0.2,
+        "regimeBull": 1.0,
+        "regimeBear": 0.0,
+        "regimeRange": 0.0,
+        "regimeRiskOff": 0.0,
+    }
+    rows = build_latest_features(
+        {
+            "600000.SH": first,
+            "000001.SZ": second,
+            "600519.SH": third,
+        },
+        signal_date=signal_date,
+        eligible_codes={"600000.SH", "000001.SZ", "600519.SH"},
+        market_features=market,
+        industry_by_code={
+            "600000.SH": "银行",
+            "000001.SZ": "银行",
+            "600519.SH": "食品饮料",
+        },
+    )
+    by_code = {row.code: row.features for row in rows}
+    assert (
+        by_code["600000.SH"]["industryExcessReturn1"]
+        + by_code["000001.SZ"]["industryExcessReturn1"]
+    ) == pytest.approx(0)
+    assert by_code["600000.SH"]["industryPeerFraction"] == pytest.approx(
+        2 / 3
+    )
+    assert by_code["600519.SH"]["industryExcessReturn1"] == 0
+    assert by_code["600519.SH"]["industryPeerFraction"] == pytest.approx(
+        1 / 3
     )
 
 

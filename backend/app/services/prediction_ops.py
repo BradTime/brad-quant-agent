@@ -32,7 +32,7 @@ from app.services import (
 )
 
 MAX_ATTEMPTS = 3
-OPS_IMPLEMENTATION_VERSION = "ops-v5-daily-pit-v3"
+OPS_IMPLEMENTATION_VERSION = "ops-v6-daily-pit-v4"
 _LOCAL_EXECUTION_LOCKS: dict[str, threading.Lock] = {}
 _LOCAL_EXECUTION_LOCKS_GUARD = threading.Lock()
 _COMPLETENESS_CACHE_LOCK = threading.Lock()
@@ -420,6 +420,9 @@ def _execute(
             rank_universe_codes = champion_metrics.get(
                 "featureUniverseCodes"
             )
+            industry_snapshot_id = champion_metrics.get(
+                "featureIndustrySnapshotId"
+            )
             if not isinstance(rank_universe_codes, list):
                 rank_universe_codes = (
                     codes
@@ -434,6 +437,11 @@ def _execute(
                 raise ValueError(
                     "自动推理代码与 Champion 固定特征股票池不一致"
                 )
+            if (
+                champion.feature_schema_version == "daily-pit-v4"
+                and not isinstance(industry_snapshot_id, str)
+            ):
+                raise ValueError("Champion 缺少固定行业快照")
             existing_codes = set(
                 session.execute(
                     select(PredictionForecast.code).where(
@@ -455,6 +463,11 @@ def _execute(
                     signal_date=row.scheduled_for,
                     codes=missing_codes,
                     rank_universe_codes=rank_universe_codes,
+                    industry_snapshot_id=(
+                        industry_snapshot_id
+                        if isinstance(industry_snapshot_id, str)
+                        else None
+                    ),
                 )
             )
             job_guard = _job_guard(row.id, claim_token)

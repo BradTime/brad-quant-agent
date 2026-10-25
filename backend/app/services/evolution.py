@@ -336,6 +336,9 @@ def _forecast_rows(
         rank_universe_codes = model_metrics.get(
             "featureUniverseCodes"
         )
+        industry_snapshot_id = model_metrics.get(
+            "featureIndustrySnapshotId"
+        )
     if (
         not isinstance(rank_universe_codes, list)
         or not rank_universe_codes
@@ -344,10 +347,20 @@ def _forecast_rows(
             rank_universe_codes = codes
         else:
             raise ValueError("Challenger 缺少固定特征股票池")
+    if (
+        model_run.feature_schema_version == "daily-pit-v4"
+        and not isinstance(industry_snapshot_id, str)
+    ):
+        raise ValueError("Challenger 缺少固定行业快照")
     features = prediction_training.build_inference_features_from_database(
         signal_date=signal_date,
         codes=codes,
         rank_universe_codes=rank_universe_codes,
+        industry_snapshot_id=(
+            industry_snapshot_id
+            if isinstance(industry_snapshot_id, str)
+            else None
+        ),
     )
     feature_by_code = {value.code: value for value in features}
     if set(feature_by_code) != set(codes):
@@ -741,6 +754,14 @@ def commit_signal(
             )
         if not rank_universe_codes:
             raise ValueError("Challenger 缺少固定特征股票池")
+        industry_snapshot_id = model_metrics.get(
+            "featureIndustrySnapshotId"
+        )
+        if (
+            model.feature_schema_version == "daily-pit-v4"
+            and not isinstance(industry_snapshot_id, str)
+        ):
+            raise ValueError("Challenger 缺少固定行业快照")
         codes = claimed["codes"]
         predictions = _forecast_rows(
             claimed["modelRunId"], signal_date, codes
@@ -835,6 +856,7 @@ def commit_signal(
             },
             "predictions": predictions,
             "rankUniverseCodes": rank_universe_codes,
+            "featureIndustrySnapshotId": industry_snapshot_id,
             "targets": targets,
             "comparator": comparator,
             "preState": {
@@ -996,6 +1018,19 @@ def evaluate_day(program_id: str, *, signal_date: date) -> dict[str, Any]:
             )
         if not rank_universe_codes:
             raise ValueError("Commitment 缺少固定特征股票池")
+        industry_snapshot_id = commitment_payload.get(
+            "featureIndustrySnapshotId"
+        )
+        with SessionLocal() as session:
+            committed_model = session.get(
+                PredictionModelRun, program.model_run_id
+            )
+        if (
+            committed_model is not None
+            and committed_model.feature_schema_version == "daily-pit-v4"
+            and not isinstance(industry_snapshot_id, str)
+        ):
+            raise ValueError("Commitment 缺少固定行业快照")
         label_date = commitment.label_date
         with SessionLocal() as session:
             signal_snapshot = session.get(
@@ -1036,6 +1071,11 @@ def evaluate_day(program_id: str, *, signal_date: date) -> dict[str, Any]:
                     signal_date=signal_date,
                     codes=codes,
                     rank_universe_codes=rank_universe_codes,
+                    industry_snapshot_id=(
+                        industry_snapshot_id
+                        if isinstance(industry_snapshot_id, str)
+                        else None
+                    ),
                 )
             )
         }

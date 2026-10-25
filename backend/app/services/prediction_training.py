@@ -21,7 +21,11 @@ from app.models.universe import UniverseSnapshotDaily
 from app.prediction.features import build_daily_examples, build_latest_features
 from app.prediction.modeling import ModelProvider
 from app.prediction.regime import REGIME_RULES_VERSION, classify_market_regime
-from app.services import prediction_registry, universe_membership
+from app.services import (
+    industry_membership,
+    prediction_registry,
+    universe_membership,
+)
 
 
 def _consecutive_market_dates(days: list[date]) -> bool:
@@ -207,7 +211,8 @@ def train_from_database(
     user_id: str | None = None,
     publication_guard: Callable[[Any], bool] | None = None,
 ) -> dict:
-    duration = (end - start).days
+    feature_start = max(start, industry_membership.EFFECTIVE_FLOOR)
+    duration = (end - feature_start).days
     if not 365 * 3 <= duration <= 366 * 5:
         raise ValueError("训练窗口必须在 3 到 5 年")
     if not 1 <= len(codes) <= 20:
@@ -233,14 +238,32 @@ def train_from_database(
         bars_by_code[code] = bars
     regimes, regime_evidence_sha256 = _regimes(start, end)
     market_features = _market_features(start, end, regimes)
+    feature_dates = sorted(
+        day
+        for day in market_features
+        if feature_start <= day <= end
+    )
+    with SessionLocal() as session:
+        industry_snapshot_id = industry_membership.latest_snapshot_id(
+            session
+        )
+        industry_by_date = (
+            industry_membership.industry_map_by_date_in_session(
+                session,
+                codes,
+                feature_dates,
+                snapshot_id=industry_snapshot_id,
+            )
+        )
     examples = [
         row
         for row in build_daily_examples(
             bars_by_code,
             eligible_by_date=eligible_by_date,
             market_features_by_date=market_features,
+            industry_by_date=industry_by_date,
         )
-        if start <= row.signal_date <= end
+        if feature_start <= row.signal_date <= end
     ]
     universe_evidence_sha256 = hashlib.sha256(
         json.dumps(
@@ -254,7 +277,9 @@ def train_from_database(
     ).hexdigest()
     evidence_sha256 = hashlib.sha256(
         (
-            regime_evidence_sha256 + universe_evidence_sha256
+            regime_evidence_sha256
+            + universe_evidence_sha256
+            + industry_snapshot_id
         ).encode()
     ).hexdigest()
     return prediction_registry.register_candidate(
@@ -270,6 +295,7 @@ def train_from_database(
         max_folds=settings.prediction_cv_folds,
         publication_guard=publication_guard,
         feature_universe_codes=codes,
+        feature_industry_snapshot_id=industry_snapshot_id,
     )
 
 
@@ -284,6 +310,9 @@ def infer_from_database(
             champion.metrics_json, expect="dict"
         )
         rank_universe_codes = metrics.get("featureUniverseCodes")
+        industry_snapshot_id = metrics.get(
+            "featureIndustrySnapshotId"
+        )
     if (
         not isinstance(rank_universe_codes, list)
         or not rank_universe_codes
@@ -292,10 +321,20 @@ def infer_from_database(
             rank_universe_codes = codes
         else:
             raise ValueError("Champion 缺少固定特征股票池")
+    if (
+        champion.feature_schema_version == "daily-pit-v4"
+        and not isinstance(industry_snapshot_id, str)
+    ):
+        raise ValueError("Champion 缺少固定行业快照")
     features = build_inference_features_from_database(
         signal_date=signal_date,
         codes=codes,
         rank_universe_codes=rank_universe_codes,
+        industry_snapshot_id=(
+            industry_snapshot_id
+            if isinstance(industry_snapshot_id, str)
+            else None
+        ),
     )
     return prediction_registry.infer_model_and_store(
         champion.id, features
@@ -314,6 +353,9 @@ def infer_model_from_database(
             raise ValueError("预测模型不存在")
         metrics = load_envelope(model.metrics_json, expect="dict")
         rank_universe_codes = metrics.get("featureUniverseCodes")
+        industry_snapshot_id = metrics.get(
+            "featureIndustrySnapshotId"
+        )
     if not isinstance(rank_universe_codes, list):
         rank_universe_codes = (
             codes
@@ -322,10 +364,20 @@ def infer_model_from_database(
         )
     if not rank_universe_codes:
         raise ValueError("模型缺少固定特征股票池")
+    if (
+        model.feature_schema_version == "daily-pit-v4"
+        and not isinstance(industry_snapshot_id, str)
+    ):
+        raise ValueError("模型缺少固定行业快照")
     features = build_inference_features_from_database(
         signal_date=signal_date,
         codes=codes,
         rank_universe_codes=rank_universe_codes,
+        industry_snapshot_id=(
+            industry_snapshot_id
+            if isinstance(industry_snapshot_id, str)
+            else None
+        ),
     )
     return prediction_registry.infer_model_and_store(
         model_run_id, features
@@ -337,6 +389,7 @@ def build_inference_features_from_database(
     signal_date: date,
     codes: list[str],
     rank_universe_codes: list[str] | None = None,
+    industry_snapshot_id: str | None = None,
 ) -> list:
     if not 1 <= len(codes) <= 20:
         raise ValueError("单次预测标的数量必须在 1 到 20")
@@ -371,11 +424,23 @@ def build_inference_features_from_database(
     ).get(signal_date)
     if market_features is None:
         raise ValueError("决策日缺少完整 PIT 市场特征")
+    industry_by_code = None
+    if industry_snapshot_id is not None:
+        with SessionLocal() as session:
+            industry_by_code = (
+                industry_membership.industries_asof_in_session(
+                    session,
+                    sorted(eligible_rank_codes),
+                    signal_date,
+                    snapshot_id=industry_snapshot_id,
+                )
+            )
     features = build_latest_features(
         bars_by_code,
         signal_date=signal_date,
         eligible_codes=eligible_rank_codes,
         market_features=market_features,
+        industry_by_code=industry_by_code,
     )
     requested_features = [
         feature for feature in features if feature.code in requested

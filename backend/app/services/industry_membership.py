@@ -314,6 +314,54 @@ def industries_asof_in_session(
     return result
 
 
+def industry_map_by_date_in_session(
+    session,
+    codes: list[str],
+    dates: list[date],
+    *,
+    snapshot_id: str,
+) -> dict[date, dict[str, str]]:
+    if not dates:
+        return {}
+    ordered_dates = sorted(set(dates))
+    if ordered_dates[0] < EFFECTIVE_FLOOR:
+        raise ValueError(
+            f"SW2021 行业特征不得早于 {EFFECTIVE_FLOOR.isoformat()}"
+        )
+    rows = session.scalars(
+        select(InstrumentIndustryMembershipHistory).where(
+            InstrumentIndustryMembershipHistory.snapshot_id == snapshot_id,
+            InstrumentIndustryMembershipHistory.code.in_(codes),
+            InstrumentIndustryMembershipHistory.effective_from
+            <= ordered_dates[-1],
+            or_(
+                InstrumentIndustryMembershipHistory.effective_to.is_(None),
+                InstrumentIndustryMembershipHistory.effective_to
+                >= ordered_dates[0],
+            ),
+        )
+    ).all()
+    result: dict[date, dict[str, str]] = {}
+    for day in ordered_dates:
+        values: dict[str, str] = {}
+        for row in rows:
+            if (
+                row.effective_from <= day
+                and (row.effective_to is None or row.effective_to >= day)
+            ):
+                if row.code in values:
+                    raise ValueError(f"{row.code} 在 {day} 存在多个行业")
+                values[row.code] = row.industry_name
+        missing = sorted(set(codes) - set(values))
+        if missing:
+            raise ValueError(
+                f"{missing[0]} 等 {len(missing)} 个标的在 {day} "
+                "缺少历史行业"
+            )
+        result[day] = values
+    return result
+
+
 def industry_evidence_asof_in_session(
     session,
     codes: list[str],

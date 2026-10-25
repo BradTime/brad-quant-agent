@@ -80,8 +80,13 @@ def test_rejected_candidate_cannot_be_promoted(registry_db, monkeypatch):
         examples=[_example()],
         regime_by_date={},
         evidence_sha256="e" * 64,
+        feature_industry_snapshot_id="i" * 64,
     )
     assert result["status"] == "rejected"
+    assert (
+        result["metrics"]["featureIndustrySnapshotId"]
+        == "i" * 64
+    )
     with pytest.raises(ValueError, match="已存在"):
         prediction_registry.register_candidate(
             "user-a",
